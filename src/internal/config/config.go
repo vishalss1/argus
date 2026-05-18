@@ -8,28 +8,27 @@ import (
 )
 
 type Config struct {
-	Port        string
 	DatabaseURL string
+	Port        string
 }
 
-func LoadConfig() *Config {
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("Running without .env file (Docker/production mode)")
+func Load() *Config {
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env file not found (continuing)")
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	cfg := &Config{
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		Port:        os.Getenv("PORT"),
 	}
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		log.Fatal("DATABASE_URL not set")
+	if cfg.DatabaseURL == "" {
+		log.Fatal("DATABASE_URL is required")
 	}
 
-	return &Config{
-		Port:        port,
-		DatabaseURL: databaseURL,
+	if cfg.Port == "" {
+		cfg.Port = "8080"
 	}
+
+	return cfg
 }
