@@ -10,7 +10,7 @@ import (
 	"github.com/vishalss1/argus/internal/transport/http/middleware"
 )
 
-func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler) http.Handler {
+func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
@@ -35,6 +35,21 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 			})
 			r.Post("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 				telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Get("/commands", func(w http.ResponseWriter, r *http.Request) {
+				commandHandler.ListCommands(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Post("/commands", func(w http.ResponseWriter, r *http.Request) {
+				commandHandler.SendCommand(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Get("/commands/{commandID}", func(w http.ResponseWriter, r *http.Request) {
+				commandHandler.GetCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
+			})
+			r.Post("/commands/{commandID}/ack", func(w http.ResponseWriter, r *http.Request) {
+				commandHandler.AckCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
+			})
+			r.Post("/commands/{commandID}/nack", func(w http.ResponseWriter, r *http.Request) {
+				commandHandler.NackCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
 			})
 			r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
 				shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))

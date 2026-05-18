@@ -17,6 +17,7 @@ type Config struct {
 	MQTTTelemetryTopic  string
 	KafkaBrokers        []string
 	KafkaTelemetryTopic string
+	KafkaCommandTopic   string
 	RedisAddr           string
 	RedisPassword       string
 	RedisDB             int
@@ -35,6 +36,7 @@ func Load() *Config {
 		MQTTTelemetryTopic:  os.Getenv("MQTT_TELEMETRY_TOPIC"),
 		KafkaBrokers:        splitCSV(os.Getenv("KAFKA_BROKERS")),
 		KafkaTelemetryTopic: os.Getenv("KAFKA_TELEMETRY_TOPIC"),
+		KafkaCommandTopic:   os.Getenv("KAFKA_COMMAND_TOPIC"),
 		RedisAddr:           os.Getenv("REDIS_ADDR"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 	}
@@ -54,6 +56,9 @@ func Load() *Config {
 	}
 	if cfg.KafkaTelemetryTopic == "" {
 		cfg.KafkaTelemetryTopic = "argus.telemetry"
+	}
+	if cfg.KafkaCommandTopic == "" {
+		cfg.KafkaCommandTopic = "argus.commands"
 	}
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "localhost:6379"

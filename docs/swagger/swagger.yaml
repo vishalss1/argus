@@ -1,5 +1,28 @@
 basePath: /
 definitions:
+  command.Command:
+    properties:
+      acknowledged_at:
+        type: string
+      created_at:
+        type: string
+      device_id:
+        type: string
+      id:
+        type: string
+      payload:
+        type: object
+      result_message:
+        type: string
+      sent_at:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
   device.Device:
     properties:
       created_at:
@@ -19,6 +42,11 @@ definitions:
       type:
         type: string
       updated_at:
+        type: string
+    type: object
+  dto.CommandResultRequest:
+    properties:
+      message:
         type: string
     type: object
   dto.CreateDeviceRequest:
@@ -55,6 +83,15 @@ definitions:
     properties:
       status:
         type: string
+    type: object
+  dto.SendCommandRequest:
+    properties:
+      payload:
+        type: object
+      type:
+        type: string
+    required:
+    - type
     type: object
   dto.UpdateDeviceRequest:
     properties:
@@ -232,6 +269,174 @@ paths:
       summary: Update device
       tags:
       - devices
+  /devices/{deviceID}/commands:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/command.Command'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List device commands
+      tags:
+      - commands
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Command payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.SendCommandRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/command.Command'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Send command to device
+      tags:
+      - commands
+  /devices/{deviceID}/commands/{commandID}:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: commandID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/command.Command'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get device command
+      tags:
+      - commands
+  /devices/{deviceID}/commands/{commandID}/ack:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: commandID
+        required: true
+        type: string
+      - description: ACK payload
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/dto.CommandResultRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/command.Command'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: ACK device command
+      tags:
+      - commands
+  /devices/{deviceID}/commands/{commandID}/nack:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Command ID
+        in: path
+        name: commandID
+        required: true
+        type: string
+      - description: NACK payload
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/dto.CommandResultRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/command.Command'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: NACK device command
+      tags:
+      - commands
   /devices/{deviceID}/heartbeat:
     post:
       consumes:

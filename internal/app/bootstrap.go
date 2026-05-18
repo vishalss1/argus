@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/vishalss1/argus/internal/config"
+	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
@@ -43,6 +44,7 @@ func Bootstrap() (*Server, error) {
 		kafkaProducer, err = kafka.NewProducer(kafka.Config{
 			Brokers:        cfg.KafkaBrokers,
 			TelemetryTopic: cfg.KafkaTelemetryTopic,
+			CommandTopic:   cfg.KafkaCommandTopic,
 		})
 		if err != nil {
 			return nil, err
@@ -51,6 +53,13 @@ func Bootstrap() (*Server, error) {
 	}
 	telemetryService := telemetrydomain.NewService(telemetryRepository)
 	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService)
+
+	commandRepository := commanddomain.Repository(postgres.NewCommandRepository(database))
+	if kafkaProducer != nil {
+		commandRepository = kafka.NewCommandRepository(commandRepository, kafkaProducer)
+	}
+	commandService := commanddomain.NewService(commandRepository)
+	commandHandler := transporthandler.NewCommandHandler(commandService)
 
 	redisClient, err := redisinfra.New(context.Background(), redisinfra.Config{
 		Addr:     cfg.RedisAddr,
@@ -76,7 +85,7 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler)
+	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler)
 
 	return &Server{
 		db:            database,
