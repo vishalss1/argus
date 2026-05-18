@@ -1,15 +1,18 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
 	"github.com/vishalss1/argus/internal/config"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
+	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
+	redisinfra "github.com/vishalss1/argus/internal/infrastructure/redis"
 	transporthandler "github.com/vishalss1/argus/internal/transport/http/handler"
 	transportrouter "github.com/vishalss1/argus/internal/transport/http/router"
 )
@@ -19,6 +22,7 @@ type Server struct {
 	db            *sql.DB
 	kafkaProducer *kafka.Producer
 	mqttClient    *mqtt.Client
+	redisClient   *redisinfra.Client
 }
 
 func Bootstrap() (*Server, error) {
@@ -48,6 +52,18 @@ func Bootstrap() (*Server, error) {
 	telemetryService := telemetrydomain.NewService(telemetryRepository)
 	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService)
 
+	redisClient, err := redisinfra.New(context.Background(), redisinfra.Config{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+	if err != nil {
+		return nil, err
+	}
+	shadowRepository := redisinfra.NewShadowRepository(redisClient)
+	shadowService := shadowdomain.NewService(shadowRepository)
+	shadowHandler := transporthandler.NewShadowHandler(shadowService)
+
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
 		mqttClient, err = mqtt.New(mqtt.Config{
@@ -60,12 +76,13 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	router := transportrouter.New(deviceHandler, telemetryHandler)
+	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler)
 
 	return &Server{
 		db:            database,
 		kafkaProducer: kafkaProducer,
 		mqttClient:    mqttClient,
+		redisClient:   redisClient,
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
@@ -89,6 +106,9 @@ func (s *Server) Close() error {
 	}
 	if s.kafkaProducer != nil {
 		_ = s.kafkaProducer.Close()
+	}
+	if s.redisClient != nil {
+		_ = s.redisClient.Close()
 	}
 	if s.db == nil {
 		return nil

@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -16,6 +17,9 @@ type Config struct {
 	MQTTTelemetryTopic  string
 	KafkaBrokers        []string
 	KafkaTelemetryTopic string
+	RedisAddr           string
+	RedisPassword       string
+	RedisDB             int
 }
 
 func Load() *Config {
@@ -31,6 +35,8 @@ func Load() *Config {
 		MQTTTelemetryTopic:  os.Getenv("MQTT_TELEMETRY_TOPIC"),
 		KafkaBrokers:        splitCSV(os.Getenv("KAFKA_BROKERS")),
 		KafkaTelemetryTopic: os.Getenv("KAFKA_TELEMETRY_TOPIC"),
+		RedisAddr:           os.Getenv("REDIS_ADDR"),
+		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -48,6 +54,16 @@ func Load() *Config {
 	}
 	if cfg.KafkaTelemetryTopic == "" {
 		cfg.KafkaTelemetryTopic = "argus.telemetry"
+	}
+	if cfg.RedisAddr == "" {
+		cfg.RedisAddr = "localhost:6379"
+	}
+	if redisDB := strings.TrimSpace(os.Getenv("REDIS_DB")); redisDB != "" {
+		parsed, err := strconv.Atoi(redisDB)
+		if err != nil {
+			log.Fatal("REDIS_DB must be an integer")
+		}
+		cfg.RedisDB = parsed
 	}
 
 	return cfg

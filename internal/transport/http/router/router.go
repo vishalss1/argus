@@ -10,7 +10,7 @@ import (
 	"github.com/vishalss1/argus/internal/transport/http/middleware"
 )
 
-func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler) http.Handler {
+func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
@@ -35,6 +35,15 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 			})
 			r.Post("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 				telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
+				shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Put("/shadow/desired", func(w http.ResponseWriter, r *http.Request) {
+				shadowHandler.UpdateDesiredShadow(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Put("/shadow/reported", func(w http.ResponseWriter, r *http.Request) {
+				shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
 			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))

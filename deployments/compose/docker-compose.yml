@@ -42,5 +42,14 @@ services:
     ports:
       - "${KAFKA_PORT:-9092}:9092"
 
+  redis:
+    image: redis:7-alpine
+    container_name: argus-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - argus_redis_data:/data
+
 volumes:
   argus_postgres_data:
+  argus_redis_data:
