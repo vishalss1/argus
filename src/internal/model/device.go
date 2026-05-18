@@ -32,3 +32,7 @@ type UpdateDeviceRequest struct {
 	Status          *string          `json:"status,omitempty"`
 	Metadata        *json.RawMessage `json:"metadata,omitempty"`
 }
+
+type HeartbeatRequest struct {
+	Status string `json:"status,omitempty"`
+}

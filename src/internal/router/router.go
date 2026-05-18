@@ -26,6 +26,9 @@ func New(deviceHandler *handler.DeviceHandler) http.Handler {
 			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.UpdateDevice(w, r, chi.URLParam(r, "deviceID"))
 			})
+			r.Post("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+				deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
+			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
 			})

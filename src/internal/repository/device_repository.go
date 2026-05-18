@@ -14,5 +14,6 @@ type DeviceRepository interface {
 	List(ctx context.Context) ([]model.Device, error)
 	GetByID(ctx context.Context, id string) (*model.Device, error)
 	Update(ctx context.Context, id string, req model.UpdateDeviceRequest) (*model.Device, error)
+	UpdateHeartbeat(ctx context.Context, id string, status string) (*model.Device, error)
 	Delete(ctx context.Context, id string) error
 }

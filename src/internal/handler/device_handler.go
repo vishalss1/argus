@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/vishalss1/argus/src/internal/model"
@@ -66,6 +67,30 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	device, err := h.service.Update(r.Context(), id, req)
+	if errors.Is(err, repository.ErrDeviceNotFound) {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, device)
+}
+
+func (h *DeviceHandler) RecordHeartbeat(w http.ResponseWriter, r *http.Request, id string) {
+	var req model.HeartbeatRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if !errors.Is(err, io.EOF) {
+				writeError(w, http.StatusBadRequest, "invalid JSON body")
+				return
+			}
+		}
+	}
+
+	device, err := h.service.RecordHeartbeat(r.Context(), id, req)
 	if errors.Is(err, repository.ErrDeviceNotFound) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return

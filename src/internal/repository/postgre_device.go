@@ -144,6 +144,26 @@ func (r *PostgreDeviceRepository) Update(ctx context.Context, id string, req mod
 	return updated, nil
 }
 
+func (r *PostgreDeviceRepository) UpdateHeartbeat(ctx context.Context, id string, status string) (*model.Device, error) {
+	const query = `
+		UPDATE devices
+		SET status = $2,
+			last_seen = NOW(),
+			updated_at = NOW()
+		WHERE id = $1::uuid
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+
+	device, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrDeviceNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update device heartbeat: %w", err)
+	}
+
+	return device, nil
+}
+
 func (r *PostgreDeviceRepository) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, "DELETE FROM devices WHERE id = $1::uuid", id)
 	if err != nil {

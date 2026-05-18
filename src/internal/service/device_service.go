@@ -96,6 +96,20 @@ func (s *DeviceService) Update(ctx context.Context, id string, req model.UpdateD
 	return s.repo.Update(ctx, strings.TrimSpace(id), req)
 }
 
+func (s *DeviceService) RecordHeartbeat(ctx context.Context, id string, req model.HeartbeatRequest) (*model.Device, error) {
+	deviceID := strings.TrimSpace(id)
+	if deviceID == "" {
+		return nil, errors.New("device id is required")
+	}
+
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = "online"
+	}
+
+	return s.repo.UpdateHeartbeat(ctx, deviceID, status)
+}
+
 func (s *DeviceService) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, strings.TrimSpace(id))
 }
