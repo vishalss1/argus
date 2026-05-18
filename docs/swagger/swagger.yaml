@@ -1,0 +1,280 @@
+basePath: /
+definitions:
+  device.Device:
+    properties:
+      created_at:
+        type: string
+      firmware_version:
+        type: string
+      id:
+        type: string
+      last_seen:
+        type: string
+      metadata:
+        type: object
+      name:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  dto.CreateDeviceRequest:
+    properties:
+      firmware_version:
+        type: string
+      metadata:
+        type: object
+      name:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    required:
+    - name
+    - type
+    type: object
+  dto.CreateTelemetryRequest:
+    properties:
+      metrics:
+        type: object
+      recorded_at:
+        type: string
+    required:
+    - metrics
+    type: object
+  dto.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  dto.HeartbeatRequest:
+    properties:
+      status:
+        type: string
+    type: object
+  dto.UpdateDeviceRequest:
+    properties:
+      firmware_version:
+        type: string
+      metadata:
+        type: object
+      name:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  telemetry.Telemetry:
+    properties:
+      created_at:
+        type: string
+      device_id:
+        type: string
+      id:
+        type: string
+      metrics:
+        type: object
+      recorded_at:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Distributed fleet monitoring and control API.
+  title: ARGUS API
+  version: "1.0"
+paths:
+  /devices:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/device.Device'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List devices
+      tags:
+      - devices
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateDeviceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/device.Device'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Create device
+      tags:
+      - devices
+  /devices/{deviceID}:
+    delete:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Delete device
+      tags:
+      - devices
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/device.Device'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get device
+      tags:
+      - devices
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Device update payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateDeviceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/device.Device'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Update device
+      tags:
+      - devices
+  /devices/{deviceID}/heartbeat:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Heartbeat payload
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/dto.HeartbeatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/device.Device'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Record device heartbeat
+      tags:
+      - devices
+  /devices/{deviceID}/telemetry:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: Telemetry payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateTelemetryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/telemetry.Telemetry'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Ingest telemetry
+      tags:
+      - telemetry
+swagger: "2.0"
