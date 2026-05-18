@@ -8,8 +8,11 @@ import (
 )
 
 type Config struct {
-	DatabaseURL string
-	Port        string
+	DatabaseURL        string
+	Port               string
+	MQTTBrokerURL      string
+	MQTTClientID       string
+	MQTTTelemetryTopic string
 }
 
 func Load() *Config {
@@ -18,8 +21,11 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		Port:        os.Getenv("PORT"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		Port:               os.Getenv("PORT"),
+		MQTTBrokerURL:      os.Getenv("MQTT_BROKER_URL"),
+		MQTTClientID:       os.Getenv("MQTT_CLIENT_ID"),
+		MQTTTelemetryTopic: os.Getenv("MQTT_TELEMETRY_TOPIC"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -28,6 +34,12 @@ func Load() *Config {
 
 	if cfg.Port == "" {
 		cfg.Port = "8080"
+	}
+	if cfg.MQTTClientID == "" {
+		cfg.MQTTClientID = "argus-api"
+	}
+	if cfg.MQTTTelemetryTopic == "" {
+		cfg.MQTTTelemetryTopic = "argus/devices/+/telemetry"
 	}
 
 	return cfg

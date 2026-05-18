@@ -11,5 +11,13 @@ services:
     volumes:
       - argus_postgres_data:/var/lib/postgresql/data
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: argus-mosquitto
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
 volumes:
   argus_postgres_data:

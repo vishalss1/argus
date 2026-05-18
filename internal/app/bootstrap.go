@@ -7,6 +7,7 @@ import (
 	"github.com/vishalss1/argus/internal/config"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
+	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
 	transporthandler "github.com/vishalss1/argus/internal/transport/http/handler"
 	transportrouter "github.com/vishalss1/argus/internal/transport/http/router"
@@ -15,6 +16,7 @@ import (
 type Server struct {
 	httpServer *http.Server
 	db         *sql.DB
+	mqttClient *mqtt.Client
 }
 
 func Bootstrap() (*Server, error) {
@@ -33,10 +35,23 @@ func Bootstrap() (*Server, error) {
 	telemetryService := telemetrydomain.NewService(telemetryRepository)
 	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService)
 
+	var mqttClient *mqtt.Client
+	if cfg.MQTTBrokerURL != "" {
+		mqttClient, err = mqtt.New(mqtt.Config{
+			BrokerURL:      cfg.MQTTBrokerURL,
+			ClientID:       cfg.MQTTClientID,
+			TelemetryTopic: cfg.MQTTTelemetryTopic,
+		}, telemetryService)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	router := transportrouter.New(deviceHandler, telemetryHandler)
 
 	return &Server{
-		db: database,
+		db:         database,
+		mqttClient: mqttClient,
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
@@ -45,10 +60,19 @@ func Bootstrap() (*Server, error) {
 }
 
 func (s *Server) Start() error {
+	if s.mqttClient != nil {
+		if err := s.mqttClient.Start(); err != nil {
+			return err
+		}
+	}
+
 	return s.httpServer.ListenAndServe()
 }
 
 func (s *Server) Close() error {
+	if s.mqttClient != nil {
+		s.mqttClient.Close()
+	}
 	if s.db == nil {
 		return nil
 	}
