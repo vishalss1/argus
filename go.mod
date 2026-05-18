@@ -11,6 +11,7 @@ require (
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/segmentio/kafka-go v0.4.51
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.6
 )
@@ -23,7 +24,9 @@ require (
 	github.com/go-openapi/swag v0.19.15 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/klauspost/compress v1.15.11 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
+	github.com/pierrec/lz4/v4 v4.1.16 // indirect
 	github.com/swaggo/files v0.0.0-20220610200504-28940afbdbfe // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.47.0 // indirect

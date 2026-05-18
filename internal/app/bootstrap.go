@@ -7,6 +7,7 @@ import (
 	"github.com/vishalss1/argus/internal/config"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
+	"github.com/vishalss1/argus/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
 	transporthandler "github.com/vishalss1/argus/internal/transport/http/handler"
@@ -14,9 +15,10 @@ import (
 )
 
 type Server struct {
-	httpServer *http.Server
-	db         *sql.DB
-	mqttClient *mqtt.Client
+	httpServer    *http.Server
+	db            *sql.DB
+	kafkaProducer *kafka.Producer
+	mqttClient    *mqtt.Client
 }
 
 func Bootstrap() (*Server, error) {
@@ -31,7 +33,18 @@ func Bootstrap() (*Server, error) {
 	deviceService := devicedomain.NewService(deviceRepository)
 	deviceHandler := transporthandler.NewDeviceHandler(deviceService)
 
-	telemetryRepository := postgres.NewTelemetryRepository(database)
+	telemetryRepository := telemetrydomain.Repository(postgres.NewTelemetryRepository(database))
+	var kafkaProducer *kafka.Producer
+	if len(cfg.KafkaBrokers) > 0 {
+		kafkaProducer, err = kafka.NewProducer(kafka.Config{
+			Brokers:        cfg.KafkaBrokers,
+			TelemetryTopic: cfg.KafkaTelemetryTopic,
+		})
+		if err != nil {
+			return nil, err
+		}
+		telemetryRepository = kafka.NewTelemetryRepository(telemetryRepository, kafkaProducer)
+	}
 	telemetryService := telemetrydomain.NewService(telemetryRepository)
 	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService)
 
@@ -50,8 +63,9 @@ func Bootstrap() (*Server, error) {
 	router := transportrouter.New(deviceHandler, telemetryHandler)
 
 	return &Server{
-		db:         database,
-		mqttClient: mqttClient,
+		db:            database,
+		kafkaProducer: kafkaProducer,
+		mqttClient:    mqttClient,
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
@@ -72,6 +86,9 @@ func (s *Server) Start() error {
 func (s *Server) Close() error {
 	if s.mqttClient != nil {
 		s.mqttClient.Close()
+	}
+	if s.kafkaProducer != nil {
+		_ = s.kafkaProducer.Close()
 	}
 	if s.db == nil {
 		return nil
