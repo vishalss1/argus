@@ -24,7 +24,12 @@ func main() {
 	deviceRepository := repository.NewPostgreDeviceRepository(database)
 	deviceService := service.NewDeviceService(deviceRepository)
 	deviceHandler := handler.NewDeviceHandler(deviceService)
-	httpRouter := router.New(deviceHandler)
+
+	telemetryRepository := repository.NewPostgreTelemetryRepository(database)
+	telemetryService := service.NewTelemetryService(telemetryRepository)
+	telemetryHandler := handler.NewTelemetryHandler(telemetryService)
+
+	httpRouter := router.New(deviceHandler, telemetryHandler)
 
 	addr := ":" + cfg.Port
 	log.Printf("argus api listening on %s", addr)

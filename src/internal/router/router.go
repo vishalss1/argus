@@ -8,7 +8,7 @@ import (
 	"github.com/vishalss1/argus/src/internal/handler"
 )
 
-func New(deviceHandler *handler.DeviceHandler) http.Handler {
+func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
@@ -28,6 +28,9 @@ func New(deviceHandler *handler.DeviceHandler) http.Handler {
 			})
 			r.Post("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Post("/telemetry", func(w http.ResponseWriter, r *http.Request) {
+				telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
 			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
