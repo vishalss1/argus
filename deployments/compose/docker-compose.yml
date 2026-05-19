@@ -63,7 +63,60 @@ services:
     volumes:
       - argus_minio_data:/data
 
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: argus-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - argus_prometheus_data:/prometheus
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: argus-loki
+    command: -config.file=/etc/loki/loki.yml
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./loki.yml:/etc/loki/loki.yml:ro
+      - argus_loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: argus-promtail
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: argus-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-argus}
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - argus_grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+
 volumes:
   argus_postgres_data:
   argus_redis_data:
   argus_minio_data:
+  argus_prometheus_data:
+  argus_loki_data:
+  argus_grafana_data:

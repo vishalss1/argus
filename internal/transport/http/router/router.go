@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	httpSwagger "github.com/swaggo/http-swagger"
 	_ "github.com/vishalss1/argus/docs/swagger"
 	"github.com/vishalss1/argus/internal/transport/http/handler"
@@ -13,10 +14,12 @@ import (
 func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler, ruleHandler *handler.RuleHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+	r.Use(middleware.Metrics)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/docs", http.RedirectHandler("/docs/index.html", http.StatusMovedPermanently).ServeHTTP)
 	r.Get("/docs/*", httpSwagger.WrapHandler)
 
