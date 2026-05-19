@@ -9,6 +9,7 @@ import (
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
 	otadomain "github.com/vishalss1/argus/internal/domain/ota"
+	ruledomain "github.com/vishalss1/argus/internal/domain/rule"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
@@ -16,6 +17,7 @@ import (
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
 	redisinfra "github.com/vishalss1/argus/internal/infrastructure/redis"
+	rulesinfra "github.com/vishalss1/argus/internal/infrastructure/rules"
 	transporthandler "github.com/vishalss1/argus/internal/transport/http/handler"
 	transportrouter "github.com/vishalss1/argus/internal/transport/http/router"
 )
@@ -41,7 +43,12 @@ func Bootstrap() (*Server, error) {
 	deviceService := devicedomain.NewService(deviceRepository)
 	deviceHandler := transporthandler.NewDeviceHandler(deviceService)
 
+	ruleRepository := postgres.NewRuleRepository(database)
+	ruleService := ruledomain.NewService(ruleRepository)
+	ruleHandler := transporthandler.NewRuleHandler(ruleService)
+
 	telemetryRepository := telemetrydomain.Repository(postgres.NewTelemetryRepository(database))
+	telemetryRepository = rulesinfra.NewTelemetryRepository(telemetryRepository, ruleService)
 	var kafkaProducer *kafka.Producer
 	if len(cfg.KafkaBrokers) > 0 {
 		kafkaProducer, err = kafka.NewProducer(kafka.Config{
@@ -102,7 +109,7 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler)
+	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler)
 
 	return &Server{
 		db:            database,

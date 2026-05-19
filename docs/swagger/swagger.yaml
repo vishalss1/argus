@@ -65,6 +65,23 @@ definitions:
     - name
     - type
     type: object
+  dto.CreateRuleRequest:
+    properties:
+      enabled:
+        type: boolean
+      metric:
+        type: string
+      name:
+        type: string
+      operator:
+        type: string
+      threshold:
+        type: number
+    required:
+    - metric
+    - name
+    - operator
+    type: object
   dto.CreateTelemetryRequest:
     properties:
       metrics:
@@ -117,6 +134,19 @@ definitions:
         type: string
       type:
         type: string
+    type: object
+  dto.UpdateRuleRequest:
+    properties:
+      enabled:
+        type: boolean
+      metric:
+        type: string
+      name:
+        type: string
+      operator:
+        type: string
+      threshold:
+        type: number
     type: object
   dto.UpdateShadowStateRequest:
     properties:
@@ -186,6 +216,48 @@ definitions:
       version:
         type: string
     type: object
+  rule.Alert:
+    properties:
+      created_at:
+        type: string
+      device_id:
+        type: string
+      id:
+        type: string
+      message:
+        type: string
+      metric:
+        type: string
+      observed_value:
+        type: number
+      operator:
+        type: string
+      rule_id:
+        type: string
+      telemetry_id:
+        type: string
+      threshold:
+        type: number
+    type: object
+  rule.Rule:
+    properties:
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      metric:
+        type: string
+      name:
+        type: string
+      operator:
+        type: string
+      threshold:
+        type: number
+      updated_at:
+        type: string
+    type: object
   shadow.Shadow:
     properties:
       desired:
@@ -220,6 +292,24 @@ info:
   title: ARGUS API
   version: "1.0"
 paths:
+  /alerts:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/rule.Alert'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List rule alerts
+      tags:
+      - rules
   /devices:
     get:
       produces:
@@ -895,4 +985,126 @@ paths:
       summary: Get firmware artifact
       tags:
       - ota
+  /rules:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/rule.Rule'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List telemetry rules
+      tags:
+      - rules
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Rule payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateRuleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/rule.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Create telemetry rule
+      tags:
+      - rules
+  /rules/{ruleID}:
+    delete:
+      parameters:
+      - description: Rule ID
+        in: path
+        name: ruleID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Delete telemetry rule
+      tags:
+      - rules
+    get:
+      parameters:
+      - description: Rule ID
+        in: path
+        name: ruleID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rule.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get telemetry rule
+      tags:
+      - rules
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Rule ID
+        in: path
+        name: ruleID
+        required: true
+        type: string
+      - description: Rule update payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateRuleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/rule.Rule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Update telemetry rule
+      tags:
+      - rules
 swagger: "2.0"

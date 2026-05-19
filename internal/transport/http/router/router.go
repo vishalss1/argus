@@ -10,7 +10,7 @@ import (
 	"github.com/vishalss1/argus/internal/transport/http/middleware"
 )
 
-func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler) http.Handler {
+func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler, ruleHandler *handler.RuleHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
@@ -19,6 +19,24 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 	})
 	r.Get("/docs", http.RedirectHandler("/docs/index.html", http.StatusMovedPermanently).ServeHTTP)
 	r.Get("/docs/*", httpSwagger.WrapHandler)
+
+	r.Get("/alerts", ruleHandler.ListAlerts)
+
+	r.Route("/rules", func(r chi.Router) {
+		r.Get("/", ruleHandler.ListRules)
+		r.Post("/", ruleHandler.CreateRule)
+		r.Route("/{ruleID}", func(r chi.Router) {
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				ruleHandler.GetRule(w, r, chi.URLParam(r, "ruleID"))
+			})
+			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
+				ruleHandler.UpdateRule(w, r, chi.URLParam(r, "ruleID"))
+			})
+			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
+				ruleHandler.DeleteRule(w, r, chi.URLParam(r, "ruleID"))
+			})
+		})
+	})
 
 	r.Route("/ota/firmware", func(r chi.Router) {
 		r.Get("/", otaHandler.ListFirmware)
