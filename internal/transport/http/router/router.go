@@ -10,7 +10,7 @@ import (
 	"github.com/vishalss1/argus/internal/transport/http/middleware"
 )
 
-func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler) http.Handler {
+func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
@@ -19,6 +19,14 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 	})
 	r.Get("/docs", http.RedirectHandler("/docs/index.html", http.StatusMovedPermanently).ServeHTTP)
 	r.Get("/docs/*", httpSwagger.WrapHandler)
+
+	r.Route("/ota/firmware", func(r chi.Router) {
+		r.Get("/", otaHandler.ListFirmware)
+		r.Post("/", otaHandler.UploadFirmware)
+		r.Get("/{firmwareID}", func(w http.ResponseWriter, r *http.Request) {
+			otaHandler.GetFirmware(w, r, chi.URLParam(r, "firmwareID"))
+		})
+	})
 
 	r.Route("/devices", func(r chi.Router) {
 		r.Get("/", deviceHandler.ListDevices)
@@ -50,6 +58,21 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 			})
 			r.Post("/commands/{commandID}/nack", func(w http.ResponseWriter, r *http.Request) {
 				commandHandler.NackCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
+			})
+			r.Get("/ota", func(w http.ResponseWriter, r *http.Request) {
+				otaHandler.ListDeployments(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Post("/ota", func(w http.ResponseWriter, r *http.Request) {
+				otaHandler.DeployFirmware(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Get("/ota/{deploymentID}/manifest", func(w http.ResponseWriter, r *http.Request) {
+				otaHandler.GetManifest(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
+			})
+			r.Post("/ota/{deploymentID}/ack", func(w http.ResponseWriter, r *http.Request) {
+				otaHandler.AckDeployment(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
+			})
+			r.Post("/ota/{deploymentID}/nack", func(w http.ResponseWriter, r *http.Request) {
+				otaHandler.NackDeployment(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
 			})
 			r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
 				shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))

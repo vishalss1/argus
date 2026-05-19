@@ -1,0 +1,23 @@
+package ota
+
+import (
+	"context"
+	"io"
+	"time"
+)
+
+type Repository interface {
+	CreateArtifact(ctx context.Context, artifact FirmwareArtifact) (*FirmwareArtifact, error)
+	ListArtifacts(ctx context.Context) ([]FirmwareArtifact, error)
+	GetArtifact(ctx context.Context, id string) (*FirmwareArtifact, error)
+	CreateDeployment(ctx context.Context, deployment Deployment) (*Deployment, error)
+	ListDeploymentsByDevice(ctx context.Context, deviceID string) ([]Deployment, error)
+	GetDeployment(ctx context.Context, deviceID string, id string) (*Deployment, error)
+	AckDeployment(ctx context.Context, deviceID string, id string, message string) (*Deployment, error)
+	NackDeployment(ctx context.Context, deviceID string, id string, reason string) (*Deployment, error)
+}
+
+type ObjectStore interface {
+	PutFirmware(ctx context.Context, objectKey string, reader io.Reader, sizeBytes int64, contentType string) error
+	FirmwareURL(ctx context.Context, objectKey string, filename string, expires time.Duration) (string, error)
+}

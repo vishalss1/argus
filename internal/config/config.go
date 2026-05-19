@@ -21,6 +21,11 @@ type Config struct {
 	RedisAddr           string
 	RedisPassword       string
 	RedisDB             int
+	MinIOEndpoint       string
+	MinIOAccessKey      string
+	MinIOSecretKey      string
+	MinIOBucket         string
+	MinIOUseSSL         bool
 }
 
 func Load() *Config {
@@ -39,6 +44,10 @@ func Load() *Config {
 		KafkaCommandTopic:   os.Getenv("KAFKA_COMMAND_TOPIC"),
 		RedisAddr:           os.Getenv("REDIS_ADDR"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
+		MinIOEndpoint:       os.Getenv("MINIO_ENDPOINT"),
+		MinIOAccessKey:      os.Getenv("MINIO_ACCESS_KEY"),
+		MinIOSecretKey:      os.Getenv("MINIO_SECRET_KEY"),
+		MinIOBucket:         os.Getenv("MINIO_BUCKET"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -70,8 +79,30 @@ func Load() *Config {
 		}
 		cfg.RedisDB = parsed
 	}
+	if cfg.MinIOEndpoint == "" {
+		cfg.MinIOEndpoint = "localhost:9000"
+	}
+	if cfg.MinIOAccessKey == "" {
+		cfg.MinIOAccessKey = "argus"
+	}
+	if cfg.MinIOSecretKey == "" {
+		cfg.MinIOSecretKey = "arguspassword"
+	}
+	if cfg.MinIOBucket == "" {
+		cfg.MinIOBucket = "argus-firmware"
+	}
+	cfg.MinIOUseSSL = parseBool(os.Getenv("MINIO_USE_SSL"))
 
 	return cfg
+}
+
+func parseBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitCSV(value string) []string {

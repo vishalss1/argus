@@ -74,6 +74,13 @@ definitions:
     required:
     - metrics
     type: object
+  dto.DeployOTARequest:
+    properties:
+      artifact_id:
+        type: string
+    required:
+    - artifact_id
+    type: object
   dto.ErrorResponse:
     properties:
       error:
@@ -82,6 +89,11 @@ definitions:
   dto.HeartbeatRequest:
     properties:
       status:
+        type: string
+    type: object
+  dto.OTAResultRequest:
+    properties:
+      message:
         type: string
     type: object
   dto.SendCommandRequest:
@@ -112,6 +124,67 @@ definitions:
         type: object
     required:
     - state
+    type: object
+  ota.Deployment:
+    properties:
+      acknowledged_at:
+        type: string
+      artifact_id:
+        type: string
+      created_at:
+        type: string
+      device_id:
+        type: string
+      id:
+        type: string
+      result_message:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  ota.FirmwareArtifact:
+    properties:
+      checksum_sha256:
+        type: string
+      content_type:
+        type: string
+      created_at:
+        type: string
+      filename:
+        type: string
+      id:
+        type: string
+      object_key:
+        type: string
+      size_bytes:
+        type: integer
+      version:
+        type: string
+    type: object
+  ota.Manifest:
+    properties:
+      checksum_sha256:
+        type: string
+      content_type:
+        type: string
+      deployment_id:
+        type: string
+      device_id:
+        type: string
+      download_url:
+        type: string
+      expires_at:
+        type: string
+      filename:
+        type: string
+      firmware_id:
+        type: string
+      size_bytes:
+        type: integer
+      version:
+        type: string
     type: object
   shadow.Shadow:
     properties:
@@ -470,6 +543,170 @@ paths:
       summary: Record device heartbeat
       tags:
       - devices
+  /devices/{deviceID}/ota:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/ota.Deployment'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List device OTA deployments
+      tags:
+      - ota
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: OTA deployment payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.DeployOTARequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/ota.Manifest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Create OTA deployment manifest for a device
+      tags:
+      - ota
+  /devices/{deviceID}/ota/{deploymentID}/ack:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: OTA deployment ID
+        in: path
+        name: deploymentID
+        required: true
+        type: string
+      - description: ACK payload
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/dto.OTAResultRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ota.Deployment'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: ACK OTA deployment
+      tags:
+      - ota
+  /devices/{deviceID}/ota/{deploymentID}/manifest:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: OTA deployment ID
+        in: path
+        name: deploymentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ota.Manifest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get OTA deployment manifest
+      tags:
+      - ota
+  /devices/{deviceID}/ota/{deploymentID}/nack:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      - description: OTA deployment ID
+        in: path
+        name: deploymentID
+        required: true
+        type: string
+      - description: NACK payload
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/dto.OTAResultRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ota.Deployment'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: NACK OTA deployment
+      tags:
+      - ota
   /devices/{deviceID}/shadow:
     get:
       parameters:
@@ -590,4 +827,72 @@ paths:
       summary: Ingest telemetry
       tags:
       - telemetry
+  /ota/firmware:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/ota.FirmwareArtifact'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: List firmware artifacts
+      tags:
+      - ota
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Firmware version
+        in: formData
+        name: version
+        required: true
+        type: string
+      - description: Firmware binary
+        in: formData
+        name: firmware
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/ota.FirmwareArtifact'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Upload firmware artifact
+      tags:
+      - ota
+  /ota/firmware/{firmwareID}:
+    get:
+      parameters:
+      - description: Firmware artifact ID
+        in: path
+        name: firmwareID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ota.FirmwareArtifact'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get firmware artifact
+      tags:
+      - ota
 swagger: "2.0"

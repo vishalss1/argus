@@ -8,9 +8,11 @@ import (
 	"github.com/vishalss1/argus/internal/config"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
+	otadomain "github.com/vishalss1/argus/internal/domain/ota"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
+	minioinfra "github.com/vishalss1/argus/internal/infrastructure/minio"
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
 	redisinfra "github.com/vishalss1/argus/internal/infrastructure/redis"
@@ -24,6 +26,7 @@ type Server struct {
 	kafkaProducer *kafka.Producer
 	mqttClient    *mqtt.Client
 	redisClient   *redisinfra.Client
+	minioClient   *minioinfra.Client
 }
 
 func Bootstrap() (*Server, error) {
@@ -73,6 +76,20 @@ func Bootstrap() (*Server, error) {
 	shadowService := shadowdomain.NewService(shadowRepository)
 	shadowHandler := transporthandler.NewShadowHandler(shadowService)
 
+	minioClient, err := minioinfra.New(context.Background(), minioinfra.Config{
+		Endpoint:        cfg.MinIOEndpoint,
+		AccessKeyID:     cfg.MinIOAccessKey,
+		SecretAccessKey: cfg.MinIOSecretKey,
+		Bucket:          cfg.MinIOBucket,
+		UseSSL:          cfg.MinIOUseSSL,
+	})
+	if err != nil {
+		return nil, err
+	}
+	otaRepository := postgres.NewOTARepository(database)
+	otaService := otadomain.NewService(otaRepository, minioClient)
+	otaHandler := transporthandler.NewOTAHandler(otaService)
+
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
 		mqttClient, err = mqtt.New(mqtt.Config{
@@ -85,13 +102,14 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler)
+	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler)
 
 	return &Server{
 		db:            database,
 		kafkaProducer: kafkaProducer,
 		mqttClient:    mqttClient,
 		redisClient:   redisClient,
+		minioClient:   minioClient,
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
