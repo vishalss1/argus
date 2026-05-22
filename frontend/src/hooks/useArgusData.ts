@@ -1,0 +1,98 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../services/api";
+
+export const queryKeys = {
+  devices: ["devices"] as const,
+  alerts: ["alerts"] as const,
+  rules: ["rules"] as const,
+  firmware: ["firmware"] as const,
+  health: ["health"] as const,
+  metrics: ["metrics"] as const,
+  commands: (deviceID: string) => ["commands", deviceID] as const,
+  deployments: (deviceID: string) => ["deployments", deviceID] as const,
+  shadow: (deviceID: string) => ["shadow", deviceID] as const
+};
+
+export function useDevices() {
+  return useQuery({ queryKey: queryKeys.devices, queryFn: api.devices.list });
+}
+
+export function useAlerts() {
+  return useQuery({ queryKey: queryKeys.alerts, queryFn: api.alerts.list });
+}
+
+export function useRules() {
+  return useQuery({ queryKey: queryKeys.rules, queryFn: api.rules.list });
+}
+
+export function useFirmware() {
+  return useQuery({ queryKey: queryKeys.firmware, queryFn: api.firmware.list });
+}
+
+export function useHealth() {
+  return useQuery({
+    queryKey: queryKeys.health,
+    queryFn: api.health,
+    refetchInterval: 30_000
+  });
+}
+
+export function useMetrics() {
+  return useQuery({
+    queryKey: queryKeys.metrics,
+    queryFn: api.metrics,
+    refetchInterval: 30_000
+  });
+}
+
+export function useCommands(deviceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.commands(deviceID ?? ""),
+    queryFn: () => api.commands.list(deviceID!),
+    enabled: Boolean(deviceID)
+  });
+}
+
+export function useDeployments(deviceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.deployments(deviceID ?? ""),
+    queryFn: () => api.deployments.list(deviceID!),
+    enabled: Boolean(deviceID)
+  });
+}
+
+export function useShadow(deviceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.shadow(deviceID ?? ""),
+    queryFn: () => api.shadows.get(deviceID!),
+    enabled: Boolean(deviceID),
+    retry: false
+  });
+}
+
+export function useInvalidateFleet() {
+  const client = useQueryClient();
+  return () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: queryKeys.devices }),
+      client.invalidateQueries({ queryKey: queryKeys.alerts }),
+      client.invalidateQueries({ queryKey: queryKeys.rules }),
+      client.invalidateQueries({ queryKey: queryKeys.firmware })
+    ]);
+}
+
+export function useCreateDevice() {
+  const invalidate = useInvalidateFleet();
+  return useMutation({
+    mutationFn: api.devices.create,
+    onSuccess: invalidate
+  });
+}
+
+export function useHeartbeat() {
+  const invalidate = useInvalidateFleet();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status?: string }) => api.devices.heartbeat(id, status),
+    onSuccess: invalidate
+  });
+}

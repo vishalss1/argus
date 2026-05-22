@@ -1,0 +1,135 @@
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type DeviceStatus = "online" | "offline" | "warning" | "critical" | string;
+
+export interface Device {
+  id: string;
+  name: string;
+  type: string;
+  firmware_version: string;
+  status: DeviceStatus;
+  metadata?: JsonValue;
+  last_seen?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDeviceRequest {
+  name: string;
+  type: string;
+  firmware_version: string;
+  status?: string;
+  metadata?: JsonValue;
+}
+
+export interface Telemetry {
+  id: string;
+  device_id: string;
+  recorded_at: string;
+  metrics: JsonValue;
+  created_at: string;
+}
+
+export interface CreateTelemetryRequest {
+  recorded_at?: string;
+  metrics: JsonValue;
+}
+
+export type CommandStatus = "pending" | "acked" | "nacked" | string;
+
+export interface Command {
+  id: string;
+  device_id: string;
+  type: string;
+  payload?: JsonValue;
+  status: CommandStatus;
+  result_message?: string;
+  created_at: string;
+  sent_at?: string;
+  acknowledged_at?: string;
+  updated_at: string;
+}
+
+export interface FirmwareArtifact {
+  id: string;
+  version: string;
+  filename: string;
+  object_key: string;
+  content_type: string;
+  size_bytes: number;
+  checksum_sha256: string;
+  created_at: string;
+}
+
+export interface Deployment {
+  id: string;
+  device_id: string;
+  artifact_id: string;
+  status: CommandStatus;
+  result_message?: string;
+  created_at: string;
+  acknowledged_at?: string;
+  updated_at: string;
+}
+
+export interface Manifest {
+  deployment_id: string;
+  device_id: string;
+  firmware_id: string;
+  version: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  checksum_sha256: string;
+  download_url: string;
+  expires_at: string;
+}
+
+export interface Rule {
+  id: string;
+  name: string;
+  metric: string;
+  operator: string;
+  threshold: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Alert {
+  id: string;
+  rule_id: string;
+  device_id: string;
+  telemetry_id: string;
+  metric: string;
+  operator: string;
+  threshold: number;
+  observed_value: number;
+  message: string;
+  created_at: string;
+}
+
+export interface Shadow {
+  device_id: string;
+  desired: JsonValue;
+  reported: JsonValue;
+  drift: boolean;
+  version: number;
+  updated_at: string;
+}
+
+export interface ApiErrorBody {
+  error?: string;
+}
+
+export interface MetricSample {
+  name: string;
+  labels: Record<string, string>;
+  value: number;
+}
