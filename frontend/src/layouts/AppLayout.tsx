@@ -1,35 +1,63 @@
 import { NavLink, Outlet } from "react-router-dom";
+import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   AlertTriangle,
   BarChart3,
+  BookOpen,
   Cpu,
   FileText,
   Gauge,
-  Home,
+  Key,
   RadioTower,
   Rocket,
+  ScrollText,
   Send,
   Settings,
   Workflow
 } from "lucide-react";
+import { LiveIndicator, SearchBar } from "../components/ui";
 
-const appLinks = [
-  { to: "/dashboard", label: "Dashboard", icon: BarChart3 },
+const monitorLinks = [
+  { to: "/dashboard", label: "Fleet Overview", icon: BarChart3 },
   { to: "/devices", label: "Devices", icon: Cpu },
-  { to: "/telemetry", label: "Telemetry", icon: RadioTower },
-  { to: "/ota", label: "OTA Updates", icon: Rocket },
-  { to: "/commands", label: "Commands", icon: Send },
-  { to: "/alerts", label: "Alerts", icon: AlertTriangle },
-  { to: "/observability", label: "Observability", icon: Gauge },
-  { to: "/settings", label: "Settings", icon: Settings }
+  { to: "/telemetry", label: "Telemetry", icon: RadioTower }
 ];
 
-const resourceLinks = [
-  { to: "/", label: "Overview", icon: Home },
-  { to: "/architecture", label: "Architecture", icon: Workflow },
-  { to: "/documentation", label: "Documentation", icon: FileText }
+const controlLinks = [
+  { to: "/commands", label: "Commands", icon: Send },
+  { to: "/ota", label: "OTA Updates", icon: Rocket },
+  { to: "/alerts", label: "Automations", icon: Workflow }
 ];
+
+const observeLinks = [
+  { to: "/observability", label: "Observability", icon: Gauge },
+  { to: "/alerts", label: "Alerts", icon: AlertTriangle }
+];
+
+const bottomLinks = [
+  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/settings", label: "API Keys", icon: Key },
+  { to: "/settings", label: "Audit Log", icon: ScrollText },
+  { to: "/documentation", label: "Documentation", icon: BookOpen }
+];
+
+function NavGroup({ label, links }: { label: string; links: { to: string; label: string; icon: LucideIcon }[] }) {
+  return (
+    <div className="nav-group">
+      <span>{label}</span>
+      {links.map((link) => {
+        const Icon = link.icon;
+        return (
+          <NavLink key={link.to + link.label} to={link.to}>
+            <Icon size={16} aria-hidden />
+            {link.label}
+          </NavLink>
+        );
+      })}
+    </div>
+  );
+}
 
 export function AppLayout() {
   return (
@@ -44,30 +72,10 @@ export function AppLayout() {
             <small>Fleet Control</small>
           </span>
         </NavLink>
-        <div className="nav-group">
-          <span>Operate</span>
-          {appLinks.map((link) => {
-            const Icon = link.icon;
-            return (
-              <NavLink key={link.to} to={link.to}>
-                <Icon size={16} aria-hidden />
-                {link.label}
-              </NavLink>
-            );
-          })}
-        </div>
-        <div className="nav-group">
-          <span>Resources</span>
-          {resourceLinks.map((link) => {
-            const Icon = link.icon;
-            return (
-              <NavLink key={link.to} to={link.to}>
-                <Icon size={16} aria-hidden />
-                {link.label}
-              </NavLink>
-            );
-          })}
-        </div>
+        <NavGroup label="Monitor" links={monitorLinks} />
+        <NavGroup label="Control" links={controlLinks} />
+        <NavGroup label="Observe" links={observeLinks} />
+        <NavGroup label="" links={bottomLinks} />
         <div className="operator-card">
           <div>VS</div>
           <span>
@@ -78,10 +86,8 @@ export function AppLayout() {
       </aside>
       <div className="app-main">
         <header className="app-topbar">
-          <span>Distributed IoT Fleet Intelligence Platform</span>
-          <NavLink className="button secondary compact" to="/documentation">
-            API Docs
-          </NavLink>
+          <SearchBar placeholder="Search devices..." />
+          <LiveIndicator />
         </header>
         <main className="workspace">
           <Outlet />

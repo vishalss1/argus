@@ -1,15 +1,54 @@
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { PageHeader, Panel } from "../components/ui";
 
-const nav = [
-  ["intro", "Introduction"],
-  ["run", "Run Locally"],
-  ["devices", "Devices API"],
-  ["telemetry", "Telemetry API"],
-  ["commands", "Commands API"],
-  ["ota", "OTA API"],
-  ["rules", "Rules API"],
-  ["observability", "Observability"]
+const sidebarSections = [
+  {
+    label: "Getting Started",
+    items: [
+      { id: "intro", text: "Introduction" },
+      { id: "architecture-overview", text: "Architecture Overview" },
+      { id: "run", text: "Quick Start" }
+    ]
+  },
+  {
+    label: "Core Concepts",
+    items: [
+      { id: "devices", text: "Device Registry" },
+      { id: "shadow", text: "Digital Twin / Shadow" },
+      { id: "telemetry", text: "Telemetry Pipeline" }
+    ]
+  },
+  {
+    label: "API Reference",
+    items: [
+      { id: "devices-api", text: "Devices API" },
+      { id: "telemetry-api", text: "Telemetry API" },
+      { id: "commands", text: "Commands API" },
+      { id: "ota", text: "OTA API" },
+      { id: "shadow-api", text: "Shadow API" },
+      { id: "rules", text: "Rules & Alerts API" }
+    ]
+  },
+  {
+    label: "Infrastructure",
+    items: [
+      { id: "mqtt", text: "MQTT Integration" },
+      { id: "kafka", text: "Kafka / Redpanda" },
+      { id: "redis", text: "Redis & Shadows" },
+      { id: "minio", text: "MinIO / OTA Store" }
+    ]
+  }
+];
+
+const tocItems = [
+  { id: "intro", text: "What is ARGUS?" },
+  { id: "architecture-overview", text: "Architecture Layers" },
+  { id: "data-flow", text: "Core Data Flow" },
+  { id: "config", text: "Configuration" },
+  { id: "api-ref", text: "API Reference" },
+  { id: "run", text: "Running Locally" }
 ];
 
 const endpoints = [
@@ -37,6 +76,16 @@ const endpoints = [
 ];
 
 export function DocumentationPage() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeSection, setActiveSection] = useState("intro");
+
+  const filteredSections = sidebarSections.map((section) => ({
+    ...section,
+    items: section.items.filter((item) =>
+      item.text.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  })).filter((section) => section.items.length > 0);
+
   return (
     <section className="section">
       <PageHeader
@@ -46,44 +95,77 @@ export function DocumentationPage() {
       />
       <div className="docs-layout">
         <aside className="docs-sidebar">
-          {nav.map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+          <div className="docs-search">
+            <input
+              placeholder="Search docs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          {filteredSections.map((section) => (
+            <div className="docs-nav-group" key={section.label}>
+              <span className="docs-nav-label">{section.label}</span>
+              {section.items.map((item) => (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  className={`docs-nav-item ${activeSection === item.id ? "active" : ""}`}
+                  onClick={() => setActiveSection(item.id)}
+                >
+                  {item.text}
+                  <ChevronRight size={12} />
+                </a>
+              ))}
+            </div>
+          ))}
         </aside>
         <article className="docs-content">
-          <Panel title="Introduction">
+          <Panel title="Introduction to ARGUS">
             <section id="intro">
               <p className="muted">
-                ARGUS is a Go modular monolith for distributed IoT fleet intelligence. It exposes device registry,
-                heartbeat, telemetry ingestion, commands, Redis-backed shadows, MinIO-backed OTA firmware,
-                threshold rules, alerts, Swagger docs, and Prometheus metrics.
+                ARGUS is a production-grade IoT fleet orchestration system built for distributed edge device management.
+                It exposes a REST API for device registry, heartbeat tracking, telemetry ingestion, command dispatch,
+                Redis-backed shadows, MinIO-backed OTA firmware delivery, threshold-based rules, alert generation,
+                and Prometheus metrics.
+              </p>
+              <h2 id="architecture-overview">What is ARGUS?</h2>
+              <p className="muted">
+                ARGUS (Adaptive Remote Grid Utilization System) is a modular monolith that exposes a REST API for fleet
+                management. The backend persists data in PostgreSQL, stores device shadows in Redis, handles firmware in MinIO, and publishes
+                events to Kafka for downstream processing.
               </p>
             </section>
-            <section id="run">
-              <h2>Run Locally</h2>
+            <section>
+              <h2>Architecture Layers</h2>
+              <p className="muted">
+                The system is composed of five core layers: Device Runtime (edge), Fleet Gateway (ingestion),
+                Domain Services (business logic), Infrastructure Adapters (persistence, messaging, caching, metadata), and Operator Interfaces (REST/UI).
+              </p>
+            </section>
+            <section id="data-flow">
+              <h2>Core Data Flow</h2>
+              <p className="muted">
+                Device → MQTT/HTTP → Ingestion API → Kafka Decorator → Rules Evaluation → PostgreSQL → Shadow Sync → Alerts → Operator Dashboard.
+              </p>
+            </section>
+            <section id="config">
+              <h2 id="run">Configuration</h2>
               <pre className="code-block">{`docker compose -f deployments/compose/docker-compose.yml up -d postgres redis minio
 go run ./cmd/api/main.go
 cd frontend
 npm run dev`}</pre>
             </section>
-            <section id="devices">
-              <h2>Devices API</h2>
+            <section id="api-ref">
+              <h2 id="devices">API Reference</h2>
               <p className="muted">Devices are the central resource. Heartbeats update status and last_seen.</p>
-              <pre className="code-block">{`POST /devices/
-{
-  "name": "Line Controller",
-  "type": "gateway",
-  "firmware_version": "1.0.0",
-  "metadata": {}
-}`}</pre>
+              <pre className="code-block">{`POST /devices/{deviceID}/telemetry
+Content-Type: application/json
+
+{ "metrics": { "temp": 38.2, "cpu": 12, "humidity": 62.1 } }`}</pre>
             </section>
             <section id="telemetry">
               <h2>Telemetry API</h2>
               <p className="muted">The backend currently exposes ingestion only. Rule evaluation happens after persistence.</p>
-              <pre className="code-block">{`POST /devices/{deviceID}/telemetry
-{
-  "metrics": {
-    "temperature": 32
-  }
-}`}</pre>
             </section>
             <section id="commands">
               <h2>Commands API</h2>
@@ -104,9 +186,17 @@ npm run dev`}</pre>
           </Panel>
         </article>
         <aside className="toc">
-          <strong>API Reference</strong>
-          <a href="/api/docs/index.html" target="_blank" rel="noreferrer">Swagger UI</a>
-          <NavLink to="/observability">Observability</NavLink>
+          <strong>On this page</strong>
+          {tocItems.map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className={activeSection === item.id ? "active" : ""}
+              onClick={() => setActiveSection(item.id)}
+            >
+              {item.text}
+            </a>
+          ))}
         </aside>
       </div>
       <div style={{ marginTop: 22 }}>

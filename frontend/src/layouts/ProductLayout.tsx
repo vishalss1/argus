@@ -23,15 +23,20 @@ export function ProductLayout() {
         </NavLink>
         <nav className="topnav" aria-label="Primary navigation">
           {productLinks.map((link) => (
-            <NavLink key={link.to} to={link.to}>
+            <NavLink key={link.to} to={link.to} end={link.to === "/"}>
               {link.label}
             </NavLink>
           ))}
         </nav>
-        <NavLink className="button primary compact" to="/dashboard">
-          <BarChart3 size={15} aria-hidden />
-          Dashboard
-        </NavLink>
+        <div className="topbar-right">
+          <NavLink className="button secondary compact" to="/documentation">
+            View Docs
+          </NavLink>
+          <NavLink className="button primary compact" to="/dashboard">
+            <BarChart3 size={15} aria-hidden />
+            Dashboard →
+          </NavLink>
+        </div>
       </header>
       <main>
         <Outlet />

@@ -745,6 +745,528 @@ textarea:focus {
   border-radius: var(--radius-sm);
 }
 
+/* ── Stats bar ── */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  padding: 32px max(24px, calc((100vw - var(--content)) / 2));
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 12px;
+  position: relative;
+}
+
+.stat-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 18%;
+  height: 64%;
+  width: 1px;
+  background: var(--line);
+}
+
+.stat-item strong {
+  font-size: 32px;
+  letter-spacing: -0.5px;
+}
+
+.stat-item span {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* ── Feature icon background ── */
+.icon-box {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: rgb(79 140 255 / 12%);
+  color: var(--accent);
+}
+
+/* ── Footer ── */
+.site-footer {
+  padding: 28px max(24px, calc((100vw - var(--content)) / 2));
+  border-top: 1px solid var(--line-soft);
+  text-align: center;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.site-footer span {
+  margin: 0 8px;
+}
+
+/* ── Filter tabs ── */
+.filter-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.filter-tabs button {
+  padding: 7px 14px;
+  border: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.filter-tabs button:last-child {
+  border-right: none;
+}
+
+.filter-tabs button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.filter-tabs button.active {
+  background: var(--accent-2);
+  color: #fff;
+}
+
+/* ── Signal strength indicator ── */
+.signal-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+
+.signal-bars span {
+  display: block;
+  width: 4px;
+  border-radius: 1px;
+  background: var(--line);
+  transition: background 200ms ease;
+}
+
+.signal-bars span:nth-child(1) { height: 5px; }
+.signal-bars span:nth-child(2) { height: 8px; }
+.signal-bars span:nth-child(3) { height: 11px; }
+.signal-bars span:nth-child(4) { height: 14px; }
+
+.signal-bars.strength-4 span,
+.signal-bars.strength-3 span:nth-child(-n+3) {
+  background: var(--success);
+}
+
+.signal-bars.strength-2 span:nth-child(-n+2) {
+  background: var(--warning);
+}
+
+.signal-bars.strength-1 span:nth-child(1) {
+  background: var(--danger);
+}
+
+/* ── Event stream ── */
+.event-stream {
+  display: grid;
+  gap: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.event-entry {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+
+.event-entry:last-child {
+  border-bottom: none;
+}
+
+.event-entry time {
+  color: var(--faint);
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.event-entry .event-detail {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Fleet health progress bars ── */
+.health-list {
+  display: grid;
+  gap: 16px;
+}
+
+.health-row {
+  display: grid;
+  gap: 6px;
+}
+
+.health-row .health-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.health-row .health-meta span {
+  color: var(--muted);
+}
+
+.health-row .health-meta strong {
+  font-size: 14px;
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 600ms cubic-bezier(.4,0,.2,1);
+}
+
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 0 4px;
+}
+
+.pagination button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.pagination button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.pagination button.active {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #fff;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination .page-ellipsis {
+  color: var(--faint);
+  padding: 0 4px;
+  font-size: 13px;
+}
+
+/* ── LIVE indicator ── */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid rgb(34 200 120 / 30%);
+  border-radius: 999px;
+  background: rgb(34 200 120 / 10%);
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: live-pulse 2s ease infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ── Topbar enhancements ── */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 200px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.search-input input {
+  border: none;
+  background: transparent;
+  height: auto;
+  padding: 0;
+  width: 100%;
+}
+
+.search-input input:focus {
+  border-color: transparent;
+}
+
+.timestamp-display {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ── Tech stack cards ── */
+.tech-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.tech-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 20px;
+}
+
+.tech-card h4 {
+  margin: 0 0 14px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tech-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.tech-card li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tech-card li::before {
+  content: '◆';
+  font-size: 6px;
+  color: var(--accent);
+}
+
+/* ── Creator card enhanced ── */
+.creator-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.creator-avatar {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.creator-info strong {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.creator-info p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.creator-info small {
+  display: block;
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* ── Sidebar active indicator ── */
+.nav-group a.active {
+  border-left: 2px solid var(--accent);
+  padding-left: 7px;
+}
+
+/* ── Docs sidebar grouped sections ── */
+.docs-nav-group {
+  padding: 10px 0 6px;
+}
+
+.docs-nav-group:not(:first-child) {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 4px;
+}
+
+.docs-nav-label {
+  display: block;
+  padding: 6px 9px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.docs-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.docs-nav-item:hover,
+.docs-nav-item.active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.docs-nav-item svg {
+  color: var(--faint);
+  transition: transform 200ms ease;
+}
+
+.docs-search {
+  margin: 10px 0;
+  padding: 0;
+}
+
+.docs-search input {
+  height: 34px;
+  font-size: 12px;
+  background: var(--surface-2);
+}
+
+/* ── Green dot for eyebrow ── */
+.green-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+/* ── Stat card enhancements ── */
+.stat-card .stat-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.stat-extra.up { color: var(--success); }
+.stat-extra.down { color: var(--danger); }
+.stat-extra.info { color: var(--info); }
+.stat-extra.warn { color: var(--warning); }
+
+/* ── Stat grid 5 columns for dashboard ── */
+.stat-grid.five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* ── Table info bar ── */
+.table-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.table-info h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.table-info .table-count {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -780,6 +1302,15 @@ textarea:focus {
   .stat-grid,
   .grid.three {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tech-grid,
+  .stat-grid.five {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-bar {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
@@ -817,5 +1348,11 @@ textarea:focus {
 
   .page-actions {
     justify-content: flex-start;
+  }
+
+  .tech-grid,
+  .stats-bar,
+  .stat-grid.five {
+    grid-template-columns: 1fr;
   }
 }
