@@ -35,7 +35,7 @@ const sidebarSections = [
     label: "Infrastructure",
     items: [
       { id: "mqtt", text: "MQTT Integration" },
-      { id: "kafka", text: "Kafka / Redpanda" },
+      { id: "redpanda", text: "Redpanda" },
       { id: "redis", text: "Redis & Shadows" },
       { id: "minio", text: "MinIO / OTA Store" }
     ]
@@ -132,7 +132,7 @@ export function DocumentationPage() {
               <p className="muted">
                 ARGUS (Adaptive Remote Grid Utilization System) is a modular monolith that exposes a REST API for fleet
                 management. The backend persists data in PostgreSQL, stores device shadows in Redis, handles firmware in MinIO, and publishes
-                events to Kafka for downstream processing.
+                events to Redpanda for downstream processing.
               </p>
             </section>
             <section>
@@ -145,7 +145,7 @@ export function DocumentationPage() {
             <section id="data-flow">
               <h2>Core Data Flow</h2>
               <p className="muted">
-                Device → MQTT/HTTP → Ingestion API → Kafka Decorator → Rules Evaluation → PostgreSQL → Shadow Sync → Alerts → Operator Dashboard.
+                Device → MQTT/HTTP → Ingestion API → Redpanda Decorator → Rules Evaluation → PostgreSQL → Shadow Sync → Alerts → Operator Dashboard.
               </p>
             </section>
             <section id="config">

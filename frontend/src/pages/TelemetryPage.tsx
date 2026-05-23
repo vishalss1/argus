@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Send } from "lucide-react";
-import { EmptyState, PageHeader, Panel, SelectField } from "../components/ui";
+import { CopyableID, EmptyState, PageHeader, Panel, SelectField } from "../components/ui";
 import { useDevices } from "../hooks/useArgusData";
 import { api } from "../services/api";
 import { safeJsonParse, stringifyJson } from "../lib/format";
@@ -60,7 +60,13 @@ export function TelemetryPage() {
         </Panel>
         <Panel title="Created Record" subtitle="API response">
           {result ? (
-            <pre className="code-block">{stringifyJson(result)}</pre>
+            <>
+              <div className="settings-row" style={{ marginBottom: 12 }}>
+                <strong>Device ID</strong>
+                <CopyableID id={result.device_id} />
+              </div>
+              <pre className="code-block">{stringifyJson(result)}</pre>
+            </>
           ) : (
             <EmptyState title="No telemetry submitted" description="Submit telemetry to see the backend response. No synthetic telemetry history is rendered." />
           )}

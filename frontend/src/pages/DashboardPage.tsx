@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -6,6 +6,7 @@ import {
   ErrorState,
   EventStreamEntry,
   FilterTabs,
+  CopyableID,
   LoadingRows,
   PageHeader,
   Pagination,
@@ -16,7 +17,7 @@ import {
   StatusChip
 } from "../components/ui";
 import { useAlerts, useDevices, useFirmware, useHealth } from "../hooks/useArgusData";
-import { compactID, countByStatus, formatDate } from "../lib/format";
+import { countByStatus, formatDate } from "../lib/format";
 
 const FILTERS = ["All", "Online", "Warning", "Critical", "Offline"];
 const ROWS_PER_PAGE = 12;
@@ -61,11 +62,19 @@ export function DashboardPage() {
   };
 
   const eventEntries = useMemo(() => {
-    const entries: { time: string; type: string; detail: string }[] = [];
+    const entries: { time: string; type: string; detail: ReactNode }[] = [];
     if (alerts.data) {
       alerts.data.slice(0, 6).forEach((alert) => {
         const time = new Date(alert.created_at).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        entries.push({ time, type: "ALERT", detail: `${compactID(alert.device_id, 8)}  ${alert.message}` });
+        entries.push({
+          time,
+          type: "ALERT",
+          detail: (
+            <>
+              <CopyableID id={alert.device_id} length={8} /> {alert.message}
+            </>
+          )
+        });
       });
     }
     return entries;
@@ -157,7 +166,7 @@ export function DashboardPage() {
                     )}
                     {paged.map((device) => (
                       <tr key={device.id}>
-                        <td className="mono muted">{compactID(device.id, 8)}</td>
+                        <td><CopyableID id={device.id} length={8} /></td>
                         <td><strong>{device.name}</strong></td>
                         <td className="muted">{deviceRegion(device.metadata)}</td>
                         <td><StatusChip value={device.status} /></td>

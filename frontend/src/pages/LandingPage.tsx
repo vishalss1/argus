@@ -3,7 +3,7 @@ import { Bell, Boxes, Database, GitBranch, RadioTower, Rocket } from "lucide-rea
 
 const features = [
   { icon: Boxes, title: "Device Registry", text: "Source of truth for fleet metadata. Track firmware, health, region, capabilities, and last-seen state across thousands of nodes." },
-  { icon: RadioTower, title: "Telemetry Pipeline", text: "High-throughput ingestion over HTTP and MQTT. Stream events through Kafka for rule evaluation and persistent storage." },
+  { icon: RadioTower, title: "Telemetry Pipeline", text: "High-throughput ingestion over HTTP and MQTT. Stream events through Redpanda for rule evaluation and persistent storage." },
   { icon: Rocket, title: "OTA Lifecycle", text: "Signed firmware delivery with chunked uploads, SHA-256 checksums, staged rollouts, and ACK/NACK tracking." },
   { icon: GitBranch, title: "Digital Twin", text: "Desired vs reported state sync. Tracks drift, version history, and reconciliation loops for every connected device." },
   { icon: Database, title: "Command & Control", text: "Send typed commands with JSON payloads. Full ACK/NACK delivery guarantees with timeout and retry policies." },
@@ -21,7 +21,7 @@ const pipeline = [
   ["Edge Nodes", "ESP32 / RPi / Linux"],
   ["MQTT Broker", "EMQX / Mosquitto"],
   ["Ingestion API", "HTTP / gRPC"],
-  ["Kafka / NATS", "Event Backbone"],
+  ["Redpanda", "Event Backbone"],
   ["Processing", "Rules + OTA + Cmds"],
   ["Storage", "PG + Redis + MinIO"]
 ];

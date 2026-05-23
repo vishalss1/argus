@@ -1,5 +1,5 @@
 import { type ReactNode, useState, useEffect } from "react";
-import { AlertTriangle, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Check, Copy, RefreshCw, Search } from "lucide-react";
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info";
 
@@ -34,7 +34,7 @@ export function Panel({
   className = ""
 }: {
   title?: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -88,6 +88,36 @@ export function StatusChip({ value }: { value?: string }) {
   if (["critical", "nacked", "disabled", "error"].includes(normalized.toLowerCase())) tone = "danger";
   if (["ota"].includes(normalized.toLowerCase())) tone = "info";
   return <span className={`status-chip tone-${tone}`}>{normalized}</span>;
+}
+
+export function CopyableID({ id, length = 8 }: { id: string; length?: number }) {
+  const [copied, setCopied] = useState(false);
+  const shortID = id.length > length ? id.slice(0, length) : id;
+
+  async function copyID() {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <span className="copy-id-wrap">
+      <button className="copy-id mono" type="button" onClick={copyID} aria-label={`Copy device ID ${id}`}>
+        {shortID}
+      </button>
+      <span className="copy-id-tooltip" role="tooltip">
+        <span className="mono">{id}</span>
+        <button className="copy-id-icon" type="button" onClick={copyID} aria-label="Copy full device ID">
+          {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+        </button>
+      </span>
+      {copied && <span className="copy-toast">Copied!</span>}
+    </span>
+  );
 }
 
 export function EmptyState({
@@ -284,7 +314,7 @@ export function EventStreamEntry({
 }: {
   time: string;
   type: string;
-  detail: string;
+  detail: ReactNode;
 }) {
   return (
     <div className="event-entry">

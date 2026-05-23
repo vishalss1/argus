@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Plus, Trash2, Edit2, Save, X } from "lucide-react";
-import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
+import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
 import { useAlerts, useRules, useUpdateRule } from "../hooks/useArgusData";
 import { compactID, formatDate } from "../lib/format";
 import { api } from "../services/api";
@@ -63,7 +63,7 @@ export function AlertsPage() {
                   {alerts.data?.map((alert) => (
                     <tr key={alert.id}>
                       <td><strong>{alert.message}</strong><div className="muted mono">{compactID(alert.id)}</div></td>
-                      <td className="mono">{compactID(alert.device_id)}</td>
+                      <td><CopyableID id={alert.device_id} /></td>
                       <td>{alert.metric} {alert.operator} {alert.threshold}</td>
                       <td>{alert.observed_value}</td>
                       <td>{formatDate(alert.created_at)}</td>

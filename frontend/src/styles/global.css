@@ -542,6 +542,78 @@ button {
   text-transform: uppercase;
 }
 
+.copy-id-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.copy-id {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: copy;
+  padding: 0;
+  max-width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.copy-id:hover {
+  color: var(--text);
+}
+
+.copy-id-tooltip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  max-width: min(420px, 80vw);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #101318;
+  color: var(--text);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 35%);
+  white-space: nowrap;
+}
+
+.copy-id-wrap:hover .copy-id-tooltip,
+.copy-id-wrap:focus-within .copy-id-tooltip {
+  display: inline-flex;
+}
+
+.copy-id-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.copy-toast {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  padding: 5px 8px;
+  border: 1px solid rgb(34 200 120 / 30%);
+  border-radius: var(--radius-sm);
+  background: rgb(34 200 120 / 12%);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line-soft);

@@ -14,7 +14,7 @@ const techStack = [
   {
     category: "Messaging",
     color: "var(--accent)",
-    items: ["Kafka / Redpanda", "MQTT (Paho)", "NATS (roadmap)"]
+    items: ["Redpanda", "MQTT (Paho)", "NATS (roadmap)"]
   },
   {
     category: "Observability",
@@ -53,7 +53,7 @@ export function AboutPage() {
             <p className="muted">OTA updates on embedded hardware are dangerous without rollback. ARGUS adds checksums, staged rollouts, and ACK/NACK tracking.</p>
           </Panel>
           <Panel title="Scale Observability">
-            <p className="muted">Monitoring thousands of heterogeneous nodes is complex. ARGUS pipelines telemetry through Kafka with rule evaluation.</p>
+            <p className="muted">Monitoring thousands of heterogeneous nodes is complex. ARGUS pipelines telemetry through Redpanda with rule evaluation.</p>
           </Panel>
         </div>
       </section>
@@ -78,7 +78,7 @@ export function AboutPage() {
           <div className="creator-info">
             <strong>Vishal Shetagar</strong>
             <p>Created & Developed ARGUS — Distributed IoT Fleet Intelligence Platform</p>
-            <small>Manipal Institute of Technology Bangalore · 2024</small>
+            <small>Manipal Institute of Technology Bengaluru · 2028</small>
           </div>
         </div>
       </section>

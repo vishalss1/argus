@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Upload, FileText, Check, X as XIcon } from "lucide-react";
-import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
+import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
 import { useDeployments, useDevices, useFirmware } from "../hooks/useArgusData";
 import { compactID, formatBytes, formatDate, stringifyJson } from "../lib/format";
 import { api } from "../services/api";
@@ -93,6 +93,10 @@ export function OTAPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <h4 style={{ margin: 0 }}>Manifest Output</h4>
                   <button className="button compact secondary" onClick={() => setManifest(null)}><XIcon size={14} /></button>
+                </div>
+                <div className="settings-row" style={{ marginBottom: 12 }}>
+                  <strong>Device ID</strong>
+                  <CopyableID id={manifest.device_id} />
                 </div>
                 <pre className="code-block" style={{ margin: 0 }}>{stringifyJson(manifest)}</pre>
               </div>

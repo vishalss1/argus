@@ -1,7 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Plus, RefreshCw, Trash2, Edit2, Save, X } from "lucide-react";
 import { api } from "../services/api";
-import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
+import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
 import { useCreateDevice, useDevices, useUpdateDevice } from "../hooks/useArgusData";
 import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
 import type { Device } from "../types/api";
@@ -87,7 +87,7 @@ export function DevicesPage() {
                   )}
                   {filtered.map((device) => (
                     <tr key={device.id}>
-                      <td><strong>{device.name}</strong><div className="muted mono">{compactID(device.id)}</div></td>        
+                      <td><strong>{device.name}</strong><div><CopyableID id={device.id} /></div></td>
                       <td>{device.type}</td>
                       <td><StatusChip value={device.status} /></td>
                       <td>{device.firmware_version || "Unset"}</td>
@@ -105,7 +105,7 @@ export function DevicesPage() {
             </div>
           )}
         </Panel>
-        <Panel title={editDevice ? "Update Device" : "Create Device"} subtitle={editDevice ? `PUT /devices/${compactID(editDevice.id)}` : "POST /devices"}>
+        <Panel title={editDevice ? "Update Device" : "Create Device"} subtitle={editDevice ? <>PUT /devices/<CopyableID id={editDevice.id} /></> : "POST /devices"}>
           <form className="form-grid" onSubmit={onSubmit} key={editDevice?.id || "create"}>
             <label className="field"><span>Name</span><input name="name" defaultValue={editDevice?.name || ""} required /></label>
             <label className="field"><span>Type</span><input name="type" defaultValue={editDevice?.type || ""} required /></label>
