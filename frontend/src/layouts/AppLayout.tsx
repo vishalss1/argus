@@ -8,19 +8,19 @@ import {
   Cpu,
   FileText,
   Gauge,
-  Key,
   RadioTower,
   Rocket,
-  ScrollText,
   Send,
   Settings,
   Workflow
 } from "lucide-react";
 import { LiveIndicator, SearchBar } from "../components/ui";
+import { useHealth } from "../hooks/useArgusData";
 
 const monitorLinks = [
   { to: "/dashboard", label: "Fleet Overview", icon: BarChart3 },
   { to: "/devices", label: "Devices", icon: Cpu },
+  { to: "/shadow", label: "Shadow State", icon: FileText },
   { to: "/telemetry", label: "Telemetry", icon: RadioTower }
 ];
 
@@ -37,8 +37,6 @@ const observeLinks = [
 
 const bottomLinks = [
   { to: "/settings", label: "Settings", icon: Settings },
-  { to: "/settings", label: "API Keys", icon: Key },
-  { to: "/settings", label: "Audit Log", icon: ScrollText },
   { to: "/documentation", label: "Documentation", icon: BookOpen }
 ];
 
@@ -60,6 +58,8 @@ function NavGroup({ label, links }: { label: string; links: { to: string; label:
 }
 
 export function AppLayout() {
+  const health = useHealth();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -76,18 +76,11 @@ export function AppLayout() {
         <NavGroup label="Control" links={controlLinks} />
         <NavGroup label="Observe" links={observeLinks} />
         <NavGroup label="" links={bottomLinks} />
-        <div className="operator-card">
-          <div>VS</div>
-          <span>
-            <strong>Vishal Shetagar</strong>
-            <small>Admin · Student Plan</small>
-          </span>
-        </div>
       </aside>
       <div className="app-main">
         <header className="app-topbar">
           <SearchBar placeholder="Search devices..." />
-          <LiveIndicator />
+          <LiveIndicator isOnline={health.data?.ok === true && !health.isError} isChecking={health.isLoading || health.isFetching} />
         </header>
         <main className="workspace">
           <Outlet />

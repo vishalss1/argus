@@ -12,6 +12,7 @@ import { LandingPage } from "../pages/LandingPage";
 import { ObservabilityPage } from "../pages/ObservabilityPage";
 import { OTAPage } from "../pages/OTAPage";
 import { SettingsPage } from "../pages/SettingsPage";
+import { ShadowPage } from "../pages/ShadowPage";
 import { TelemetryPage } from "../pages/TelemetryPage";
 
 export function App() {
@@ -26,6 +27,7 @@ export function App() {
       <Route element={<AppLayout />}>
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="devices" element={<DevicesPage />} />
+        <Route path="shadow" element={<ShadowPage />} />
         <Route path="telemetry" element={<TelemetryPage />} />
         <Route path="ota" element={<OTAPage />} />
         <Route path="commands" element={<CommandsPage />} />

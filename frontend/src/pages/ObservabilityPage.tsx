@@ -18,7 +18,7 @@ export function ObservabilityPage() {
         actions={<button className="button secondary" onClick={() => { void health.refetch(); void metrics.refetch(); }}><RefreshCw size={15} />Refresh</button>}
       />
       <div className="stat-grid">
-        <StatCard label="API Health" value={health.isError ? "Down" : health.isLoading ? "Checking" : "Healthy"} tone={health.isError ? "danger" : "success"} />
+        <StatCard label="API Health" value={health.isError ? "Down" : health.isLoading ? "Checking" : "Healthy"} tone={health.isError ? "danger" : health.isLoading ? "warning" : "success"} />
         <StatCard label="Metric Samples" value={samples.length} detail="/metrics output" />
         <StatCard label="HTTP Samples" value={httpSamples.length} />
         <StatCard label="Grafana" value=":3000" detail="Local compose port" tone="info" />

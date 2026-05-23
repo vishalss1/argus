@@ -84,6 +84,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ artifact_id: artifactID })
       }),
+    manifest: (deviceID: string, deploymentID: string) =>
+      request<Manifest>(`/devices/${deviceID}/ota/${deploymentID}/manifest`),
     ack: (deviceID: string, deploymentID: string, message?: string) =>
       request<Deployment>(`/devices/${deviceID}/ota/${deploymentID}/ack`, {
         method: "POST",

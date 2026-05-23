@@ -1,27 +1,37 @@
 import { FormEvent, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Edit2, Save, X } from "lucide-react";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
-import { useAlerts, useRules } from "../hooks/useArgusData";
+import { useAlerts, useRules, useUpdateRule } from "../hooks/useArgusData";
 import { compactID, formatDate } from "../lib/format";
 import { api } from "../services/api";
+import type { Rule } from "../types/api";
 
 export function AlertsPage() {
   const alerts = useAlerts();
   const rules = useRules();
+  const updateRule = useUpdateRule();
   const [error, setError] = useState("");
+  const [editRuleState, setEditRuleState] = useState<Rule | null>(null);
 
-  async function createRule(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     const form = new FormData(event.currentTarget);
+    const payload = {
+      name: String(form.get("name") || ""),
+      metric: String(form.get("metric") || ""),
+      operator: String(form.get("operator") || ">"),
+      threshold: Number(form.get("threshold") || 0),
+      enabled: form.get("enabled") === "on"
+    };
+
     try {
-      await api.rules.create({
-        name: String(form.get("name") || ""),
-        metric: String(form.get("metric") || ""),
-        operator: String(form.get("operator") || ">"),
-        threshold: Number(form.get("threshold") || 0),
-        enabled: form.get("enabled") === "on"
-      });
+      if (editRuleState) {
+        await updateRule.mutateAsync({ id: editRuleState.id, payload });
+        setEditRuleState(null);
+      } else {
+        await api.rules.create(payload);
+      }
       event.currentTarget.reset();
       await rules.refetch();
     } catch (err) {
@@ -32,6 +42,10 @@ export function AlertsPage() {
   async function removeRule(id: string) {
     await api.rules.remove(id);
     await rules.refetch();
+  }
+
+  async function toggleRule(rule: Rule) {
+    await updateRule.mutateAsync({ id: rule.id, payload: { enabled: !rule.enabled } });
   }
 
   return (
@@ -73,23 +87,36 @@ export function AlertsPage() {
                       <p className="muted">{rule.metric} {rule.operator} {rule.threshold}</p>
                     </div>
                     <div className="page-actions">
-                      <StatusChip value={rule.enabled ? "enabled" : "disabled"} />
-                      <button className="button compact danger" onClick={() => void removeRule(rule.id)}><Trash2 size={14} /></button>
+                      <button className="button compact secondary" onClick={() => void toggleRule(rule)} aria-label={`Toggle ${rule.name}`}>
+                        <StatusChip value={rule.enabled ? "enabled" : "disabled"} />
+                      </button>
+                      <button className="button compact secondary" onClick={() => setEditRuleState(rule)} aria-label={`Edit ${rule.name}`}><Edit2 size={14} /></button>
+                      <button className="button compact danger" onClick={() => void removeRule(rule.id)} aria-label={`Delete ${rule.name}`}><Trash2 size={14} /></button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </Panel>
-          <Panel title="Create Rule" subtitle="POST /rules">
-            <form className="form-grid" onSubmit={createRule}>
-              <label className="field full"><span>Name</span><input name="name" required /></label>
-              <label className="field"><span>Metric</span><input name="metric" required /></label>
-              <label className="field"><span>Operator</span><select name="operator"><option>&gt;</option><option>&gt;=</option><option>&lt;</option><option>&lt;=</option><option>==</option><option>!=</option></select></label>
-              <label className="field"><span>Threshold</span><input name="threshold" type="number" step="any" required /></label>
-              <label className="field"><span>Enabled</span><input name="enabled" type="checkbox" defaultChecked /></label>
+          <Panel title={editRuleState ? "Update Rule" : "Create Rule"} subtitle={editRuleState ? `PUT /rules/${compactID(editRuleState.id)}` : "POST /rules"}>
+            <form className="form-grid" onSubmit={onSubmit} key={editRuleState?.id || "create"}>
+              <label className="field full"><span>Name</span><input name="name" defaultValue={editRuleState?.name || ""} required /></label>
+              <label className="field"><span>Metric</span><input name="metric" defaultValue={editRuleState?.metric || ""} required /></label>
+              <label className="field"><span>Operator</span><select name="operator" defaultValue={editRuleState?.operator || ">"}><option>&gt;</option><option>&gt;=</option><option>&lt;</option><option>&lt;=</option><option>==</option><option>!=</option></select></label>
+              <label className="field"><span>Threshold</span><input name="threshold" type="number" step="any" defaultValue={editRuleState?.threshold ?? ""} required /></label>
+              <label className="field"><span>Enabled</span><input name="enabled" type="checkbox" defaultChecked={editRuleState ? editRuleState.enabled : true} /></label>
               {error && <p className="muted field full">{error}</p>}
-              <button className="button primary" type="submit"><Plus size={15} />Create Rule</button>
+              <div className="field full page-actions" style={{ marginTop: "1rem" }}>
+                <button className="button primary" type="submit" disabled={updateRule.isPending}>
+                  {editRuleState ? <Save size={15} /> : <Plus size={15} />}
+                  {editRuleState ? "Save Changes" : "Create Rule"}
+                </button>
+                {editRuleState && (
+                  <button className="button secondary" type="button" onClick={() => setEditRuleState(null)}>
+                    <X size={15} /> Cancel
+                  </button>
+                )}
+              </div>
             </form>
           </Panel>
         </div>

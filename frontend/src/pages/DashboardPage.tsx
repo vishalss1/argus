@@ -21,29 +21,18 @@ import { compactID, countByStatus, formatDate } from "../lib/format";
 const FILTERS = ["All", "Online", "Warning", "Critical", "Offline"];
 const ROWS_PER_PAGE = 12;
 
-// Simulated regions/signals for demo display (assigns deterministically based on device name hash)
-const REGIONS = ["us-east-1", "eu-west-2", "ap-south-1", "us-west-1", "eu-central", "sa-east-1", "eu-north-1", "ap-east-1"];
-
-function hashStr(s: string) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
+function deviceRegion(metadata: any) {
+  if (metadata && typeof metadata === "object" && typeof metadata.region === "string") {
+    return metadata.region;
+  }
+  return "Unknown";
 }
 
-function deviceRegion(name: string) {
-  return REGIONS[hashStr(name) % REGIONS.length];
-}
-
-function deviceSignal(name: string, status?: string) {
-  if (status === "offline") return 0;
-  if (status === "critical") return 1;
-  if (status === "warning") return 2;
-  return 2 + (hashStr(name) % 3); // 2-4
-}
-
-function formatEventTime() {
-  const d = new Date();
-  return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function deviceSignal(metadata: any) {
+  if (metadata && typeof metadata === "object" && typeof metadata.signal === "number") {
+    return metadata.signal;
+  }
+  return 0;
 }
 
 export function DashboardPage() {
@@ -71,21 +60,16 @@ export function DashboardPage() {
     void health.refetch();
   };
 
-  // Generate simulated event stream entries from recent data
   const eventEntries = useMemo(() => {
     const entries: { time: string; type: string; detail: string }[] = [];
-    const now = formatEventTime();
-    deviceList.slice(0, 3).forEach((d) => {
-      entries.push({ time: now, type: "TELEMETRY", detail: `${compactID(d.id, 8)}  cpu=12% temp>38°C` });
-    });
-    deviceList.slice(0, 2).forEach((d) => {
-      entries.push({ time: now, type: "HEARTBEAT", detail: `${compactID(d.id, 8)}  ${d.status === "online" ? "14ms RTT" : "timeout"}` });
-    });
-    if ((alerts.data?.length ?? 0) > 0) {
-      entries.push({ time: now, type: "CRITICAL", detail: `${compactID(alerts.data![0].device_id, 8)}  ${alerts.data![0].message}` });
+    if (alerts.data) {
+      alerts.data.slice(0, 6).forEach((alert) => {
+        const time = new Date(alert.created_at).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        entries.push({ time, type: "ALERT", detail: `${compactID(alert.device_id, 8)}  ${alert.message}` });
+      });
     }
-    return entries.slice(0, 6);
-  }, [deviceList, alerts.data]);
+    return entries;
+  }, [alerts.data]);
 
   const totalDevices = deviceList.length;
   const onlineCount = statusCounts.online ?? 0;
@@ -110,34 +94,29 @@ export function DashboardPage() {
           label="Total Devices"
           value={totalDevices.toLocaleString()}
           detail="Total Devices"
-          extra={totalDevices > 0 ? <span className="stat-extra up">+{Math.min(totalDevices, 12)} today</span> : undefined}
         />
         <StatCard
           label="Online"
           value={onlineCount.toLocaleString()}
           detail="Online"
           tone="success"
-          extra={onlineCount > 0 ? <span className="stat-extra info">{totalDevices > 0 ? ((onlineCount / totalDevices) * 100).toFixed(1) : 0}% uptime</span> : undefined}
         />
         <StatCard
           label="Warnings"
           value={warningCount.toLocaleString()}
           detail="Warnings"
           tone="warning"
-          extra={warningCount > 0 ? <span className="stat-extra warn">↑ {warningCount} in 1h</span> : undefined}
         />
         <StatCard
           label="Critical"
           value={criticalCount.toLocaleString()}
           detail="Critical"
           tone="danger"
-          extra={criticalCount > 0 ? <span className="stat-extra down">↓ {Math.min(criticalCount, 4)} resolved</span> : undefined}
         />
         <StatCard
           label="Active OTA Jobs"
           value={otaCount}
           detail="Active OTA Jobs"
-          extra={otaCount > 0 ? <span className="stat-extra info">{otaCount} pending ack</span> : undefined}
         />
       </div>
       <div className="split">
@@ -180,11 +159,11 @@ export function DashboardPage() {
                       <tr key={device.id}>
                         <td className="mono muted">{compactID(device.id, 8)}</td>
                         <td><strong>{device.name}</strong></td>
-                        <td className="muted">{deviceRegion(device.name)}</td>
+                        <td className="muted">{deviceRegion(device.metadata)}</td>
                         <td><StatusChip value={device.status} /></td>
                         <td>{device.firmware_version || "Unset"}</td>
                         <td className="muted">{formatDate(device.last_seen)}</td>
-                        <td><SignalStrength strength={deviceSignal(device.name, device.status)} /></td>
+                        <td><SignalStrength strength={deviceSignal(device.metadata)} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -198,9 +177,9 @@ export function DashboardPage() {
           )}
         </Panel>
         <div className="grid">
-          <Panel title="Event Stream" actions={<span className="muted" style={{ fontSize: 12 }}>2.8K / min</span>}>
+          <Panel title="Recent Alerts" actions={<Link to="/alerts" className="muted" style={{ fontSize: 12 }}>View All</Link>}>
             {eventEntries.length === 0 ? (
-              <EmptyState title="No events" description="Events appear when telemetry or heartbeats are ingested." />
+              <EmptyState title="No alerts" description="No alerts have been generated." />        
             ) : (
               <div className="event-stream">
                 {eventEntries.map((entry, i) => (

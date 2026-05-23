@@ -1,38 +1,46 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Edit2, Save, X } from "lucide-react";
 import { api } from "../services/api";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
-import { useCreateDevice, useDevices, useHeartbeat } from "../hooks/useArgusData";
-import { compactID, formatDate, safeJsonParse } from "../lib/format";
+import { useCreateDevice, useDevices, useUpdateDevice } from "../hooks/useArgusData";
+import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
+import type { Device } from "../types/api";
 
 export function DevicesPage() {
   const devices = useDevices();
   const create = useCreateDevice();
-  const heartbeat = useHeartbeat();
+  const update = useUpdateDevice();
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
+  const [editDevice, setEditDevice] = useState<Device | null>(null);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return devices.data ?? [];
     return (devices.data ?? []).filter((device) =>
-      [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle)
+      [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle) 
     );
   }, [devices.data, query]);
 
-  async function onCreate(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
     const form = new FormData(event.currentTarget);
+    const payload = {
+      name: String(form.get("name") || ""),
+      type: String(form.get("type") || ""),
+      firmware_version: String(form.get("firmware_version") || ""),
+      metadata: safeJsonParse(String(form.get("metadata") || "{}"))
+    };
+
     try {
-      await create.mutateAsync({
-        name: String(form.get("name") || ""),
-        type: String(form.get("type") || ""),
-        firmware_version: String(form.get("firmware_version") || ""),
-        status: String(form.get("status") || ""),
-        metadata: safeJsonParse(String(form.get("metadata") || "{}"))
-      });
-      event.currentTarget.reset();
+      if (editDevice) {
+        await update.mutateAsync({ id: editDevice.id, payload });
+        setEditDevice(null);
+      } else {
+        await create.mutateAsync(payload);
+        event.currentTarget.reset();
+      }
     } catch (error) {
       setFormError((error as Error).message);
     }
@@ -48,7 +56,7 @@ export function DevicesPage() {
       <PageHeader
         eyebrow="Device Registry"
         title="Devices"
-        description="Create, inspect, heartbeat, and delete real device records from the ARGUS backend."
+        description="Create, inspect, update, and delete real device records from the ARGUS backend. Device status is reported by backend heartbeat state."
         actions={<button className="button secondary" onClick={() => void devices.refetch()}><RefreshCw size={15} />Refresh</button>}
       />
       <div className="split">
@@ -79,14 +87,14 @@ export function DevicesPage() {
                   )}
                   {filtered.map((device) => (
                     <tr key={device.id}>
-                      <td><strong>{device.name}</strong><div className="muted mono">{compactID(device.id)}</div></td>
+                      <td><strong>{device.name}</strong><div className="muted mono">{compactID(device.id)}</div></td>        
                       <td>{device.type}</td>
                       <td><StatusChip value={device.status} /></td>
                       <td>{device.firmware_version || "Unset"}</td>
                       <td>{formatDate(device.last_seen)}</td>
                       <td>
                         <div className="page-actions">
-                          <button className="button compact secondary" onClick={() => heartbeat.mutate({ id: device.id, status: "online" })}>Heartbeat</button>
+                          <button className="button compact secondary" onClick={() => setEditDevice(device)} aria-label={`Edit ${device.name}`}><Edit2 size={14} /></button>
                           <button className="button compact danger" onClick={() => void removeDevice(device.id)} aria-label={`Delete ${device.name}`}><Trash2 size={14} /></button>
                         </div>
                       </td>
@@ -97,15 +105,25 @@ export function DevicesPage() {
             </div>
           )}
         </Panel>
-        <Panel title="Create Device" subtitle="POST /devices">
-          <form className="form-grid" onSubmit={onCreate}>
-            <label className="field"><span>Name</span><input name="name" required /></label>
-            <label className="field"><span>Type</span><input name="type" required /></label>
-            <label className="field"><span>Firmware Version</span><input name="firmware_version" /></label>
-            <label className="field"><span>Status</span><select name="status" defaultValue="online"><option>online</option><option>offline</option><option>warning</option><option>critical</option></select></label>
-            <label className="field full"><span>Metadata JSON</span><textarea name="metadata" defaultValue="{}" /></label>
+        <Panel title={editDevice ? "Update Device" : "Create Device"} subtitle={editDevice ? `PUT /devices/${compactID(editDevice.id)}` : "POST /devices"}>
+          <form className="form-grid" onSubmit={onSubmit} key={editDevice?.id || "create"}>
+            <label className="field"><span>Name</span><input name="name" defaultValue={editDevice?.name || ""} required /></label>
+            <label className="field"><span>Type</span><input name="type" defaultValue={editDevice?.type || ""} required /></label>
+            <label className="field"><span>Firmware Version</span><input name="firmware_version" defaultValue={editDevice?.firmware_version || ""} /></label>
+            {editDevice && <div className="field status-field"><span>Status</span><StatusChip value={editDevice.status} /></div>}
+            <label className="field full"><span>Metadata JSON</span><textarea name="metadata" defaultValue={editDevice ? stringifyJson(editDevice.metadata) : "{}"} /></label>   
             {formError && <p className="muted field full">{formError}</p>}
-            <button className="button primary" type="submit" disabled={create.isPending}><Plus size={15} />Create Device</button>
+            <div className="field full page-actions" style={{ marginTop: "1rem" }}>
+              <button className="button primary" type="submit" disabled={create.isPending || update.isPending}>
+                {editDevice ? <Save size={15} /> : <Plus size={15} />}
+                {editDevice ? "Save Changes" : "Create Device"}
+              </button>
+              {editDevice && (
+                <button className="button secondary" type="button" onClick={() => setEditDevice(null)}>
+                  <X size={15} /> Cancel
+                </button>
+              )}
+            </div>
           </form>
         </Panel>
       </div>

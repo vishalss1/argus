@@ -33,6 +33,7 @@ export function useHealth() {
   return useQuery({
     queryKey: queryKeys.health,
     queryFn: api.health,
+    retry: false,
     refetchInterval: 30_000
   });
 }
@@ -85,6 +86,22 @@ export function useCreateDevice() {
   const invalidate = useInvalidateFleet();
   return useMutation({
     mutationFn: api.devices.create,
+    onSuccess: invalidate
+  });
+}
+
+export function useUpdateDevice() {
+  const invalidate = useInvalidateFleet();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<Parameters<typeof api.devices.create>[0]> }) => api.devices.update(id, payload),
+    onSuccess: invalidate
+  });
+}
+
+export function useUpdateRule() {
+  const invalidate = useInvalidateFleet();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof api.rules.update>[1] }) => api.rules.update(id, payload),
     onSuccess: invalidate
   });
 }

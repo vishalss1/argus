@@ -11,10 +11,10 @@ const features = [
 ];
 
 const stats = [
-  ["10K+", "Edge Nodes Supported"],
-  ["< 50ms", "Telemetry Latency"],
-  ["99.9%", "Command Delivery"],
-  ["Multi-Region", "Fleet Distribution"]
+  ["HTTP + MQTT", "Telemetry Ingest"],
+  ["PostgreSQL", "Device Registry"],
+  ["Redis", "Shadow State"],
+  ["MinIO", "Firmware Storage"]
 ];
 
 const pipeline = [

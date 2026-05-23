@@ -417,6 +417,7 @@ button {
   min-height: 58px;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 0 26px;
   color: var(--muted);
 }
@@ -447,6 +448,7 @@ button {
 .page-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   justify-content: flex-end;
 }
@@ -592,6 +594,7 @@ tr:last-child td {
 
 .field {
   display: grid;
+  align-content: start;
   gap: 7px;
 }
 
@@ -626,6 +629,14 @@ textarea {
   min-height: 120px;
   padding: 10px 11px;
   resize: vertical;
+}
+
+.status-field {
+  min-height: 68px;
+}
+
+.status-field .status-chip {
+  align-self: center;
 }
 
 input:focus,
@@ -775,7 +786,7 @@ textarea:focus {
 
 .stat-item strong {
   font-size: 32px;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
 }
 
 .stat-item span {
@@ -999,26 +1010,47 @@ textarea:focus {
   font-size: 13px;
 }
 
-/* ── LIVE indicator ── */
+/* ── Backend health indicator ── */
 .live-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  border: 1px solid rgb(34 200 120 / 30%);
+  border: 1px solid rgb(142 149 161 / 30%);
   border-radius: 999px;
-  background: rgb(34 200 120 / 10%);
-  color: var(--success);
+  background: rgb(142 149 161 / 10%);
+  color: var(--muted);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
+}
+
+.live-badge.online {
+  border-color: rgb(34 200 120 / 30%);
+  background: rgb(34 200 120 / 10%);
+  color: var(--success);
+}
+
+.live-badge.checking {
+  border-color: rgb(246 177 75 / 36%);
+  background: rgb(246 177 75 / 10%);
+  color: var(--warning);
+}
+
+.live-badge.offline {
+  border-color: rgb(240 82 95 / 42%);
+  background: rgb(240 82 95 / 10%);
+  color: #ff9aa3;
 }
 
 .live-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--success);
+  background: currentColor;
+}
+
+.live-badge.online .live-dot {
   animation: live-pulse 2s ease infinite;
 }
 
@@ -1064,6 +1096,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 14px;
+  justify-content: flex-end;
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
@@ -1181,7 +1214,7 @@ textarea:focus {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 
 .docs-nav-item {
