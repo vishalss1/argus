@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -26,6 +27,8 @@ type Config struct {
 	MinIOSecretKey      string
 	MinIOBucket         string
 	MinIOUseSSL         bool
+	HeartbeatTimeout    time.Duration
+	HeartbeatInterval   time.Duration
 }
 
 func Load() *Config {
@@ -92,8 +95,24 @@ func Load() *Config {
 		cfg.MinIOBucket = "argus-firmware"
 	}
 	cfg.MinIOUseSSL = parseBool(os.Getenv("MINIO_USE_SSL"))
+	cfg.HeartbeatTimeout = parseDurationSeconds("HEARTBEAT_TIMEOUT_SECONDS", 60)
+	cfg.HeartbeatInterval = parseDurationSeconds("HEARTBEAT_MONITOR_INTERVAL_SECONDS", 30)
 
 	return cfg
+}
+
+func parseDurationSeconds(key string, defaultSeconds int) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		log.Fatalf("%s must be a positive integer", key)
+	}
+
+	return time.Duration(seconds) * time.Second
 }
 
 func parseBool(value string) bool {

@@ -3,7 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/vishalss1/argus/internal/config"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
@@ -29,6 +33,8 @@ type Server struct {
 	mqttClient    *mqtt.Client
 	redisClient   *redisinfra.Client
 	minioClient   *minioinfra.Client
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 func Bootstrap() (*Server, error) {
@@ -110,18 +116,22 @@ func Bootstrap() (*Server, error) {
 	}
 
 	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler)
-
-	return &Server{
+	appCtx, cancel := context.WithCancel(context.Background())
+	server := &Server{
 		db:            database,
 		kafkaProducer: kafkaProducer,
 		mqttClient:    mqttClient,
 		redisClient:   redisClient,
 		minioClient:   minioClient,
+		cancel:        cancel,
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
 		},
-	}, nil
+	}
+	server.startHeartbeatMonitor(appCtx, deviceService, cfg.HeartbeatInterval, cfg.HeartbeatTimeout)
+
+	return server, nil
 }
 
 func (s *Server) Start() error {
@@ -131,10 +141,21 @@ func (s *Server) Start() error {
 		}
 	}
 
-	return s.httpServer.ListenAndServe()
+	err := s.httpServer.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func (s *Server) Close() error {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.wg.Wait()
+	if s.httpServer != nil {
+		_ = s.httpServer.Close()
+	}
 	if s.mqttClient != nil {
 		s.mqttClient.Close()
 	}
@@ -149,4 +170,37 @@ func (s *Server) Close() error {
 	}
 
 	return s.db.Close()
+}
+
+func (s *Server) startHeartbeatMonitor(ctx context.Context, service *devicedomain.Service, interval time.Duration, timeout time.Duration) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		runHeartbeatMonitor(ctx, service, timeout)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runHeartbeatMonitor(ctx, service, timeout)
+			}
+		}
+	}()
+}
+
+func runHeartbeatMonitor(ctx context.Context, service *devicedomain.Service, timeout time.Duration) {
+	marked, err := service.MarkStaleOffline(ctx, timeout)
+	if err != nil {
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			log.Printf("heartbeat monitor failed: %v", err)
+		}
+		return
+	}
+
+	log.Printf("heartbeat monitor marked %d device(s) offline", marked)
 }

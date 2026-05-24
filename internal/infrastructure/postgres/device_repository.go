@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vishalss1/argus/internal/domain/device"
 )
@@ -162,6 +163,28 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 	}
 
 	return entity, nil
+}
+
+func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Duration) (int64, error) {
+	const query = `
+		UPDATE devices
+		SET status = 'offline',
+			updated_at = NOW()
+		WHERE status <> 'offline'
+			AND last_seen IS NOT NULL
+			AND last_seen < NOW() - ($1::bigint * INTERVAL '1 second')`
+
+	result, err := r.db.ExecContext(ctx, query, int64(timeout.Seconds()))
+	if err != nil {
+		return 0, fmt.Errorf("mark stale devices offline: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("mark stale devices offline rows affected: %w", err)
+	}
+
+	return rowsAffected, nil
 }
 
 func (r *DeviceRepository) Delete(ctx context.Context, id string) error {

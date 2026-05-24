@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../services/api";
+import { withEffectiveDeviceStatus } from "../lib/format";
 
 export const queryKeys = {
   devices: ["devices"] as const,
@@ -14,7 +15,15 @@ export const queryKeys = {
 };
 
 export function useDevices() {
-  return useQuery({ queryKey: queryKeys.devices, queryFn: api.devices.list });
+  return useQuery({
+    queryKey: queryKeys.devices,
+    queryFn: api.devices.list,
+    refetchInterval: 15_000,
+    select: (devices) => {
+      const now = Date.now();
+      return devices.map((device) => withEffectiveDeviceStatus(device, now));
+    }
+  });
 }
 
 export function useAlerts() {

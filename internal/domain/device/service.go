@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Service struct {
@@ -105,6 +106,14 @@ func (s *Service) RecordHeartbeat(ctx context.Context, id string, input Heartbea
 	}
 
 	return s.repo.UpdateHeartbeat(ctx, deviceID, status)
+}
+
+func (s *Service) MarkStaleOffline(ctx context.Context, timeout time.Duration) (int64, error) {
+	if timeout <= 0 {
+		return 0, errors.New("heartbeat timeout must be positive")
+	}
+
+	return s.repo.MarkStaleOffline(ctx, timeout)
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {

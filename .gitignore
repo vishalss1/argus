@@ -2,6 +2,7 @@ CLAUDE.md
 .env
 .antigravitycli
 report.md
+argus_must_haves.md
 
 node_modules
 dist
