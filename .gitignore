@@ -1,6 +1,7 @@
 CLAUDE.md
 .env
 .antigravitycli
+*.exe
 report.md
 argus_must_haves.md
 

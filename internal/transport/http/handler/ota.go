@@ -180,6 +180,29 @@ func (h *OTAHandler) GetManifest(w http.ResponseWriter, r *http.Request, deviceI
 	writeJSON(w, http.StatusOK, manifest)
 }
 
+// GetPendingDeployment godoc
+// @Summary Get pending OTA deployment manifest
+// @Tags ota
+// @Produce json
+// @Param deviceID path string true "Device ID"
+// @Success 200 {object} ota.Manifest
+// @Success 204
+// @Failure 400 {object} dto.ErrorResponse
+// @Router /devices/{deviceID}/ota/pending [get]
+func (h *OTAHandler) GetPendingDeployment(w http.ResponseWriter, r *http.Request, deviceID string) {
+	manifest, err := h.service.GetPendingManifest(r.Context(), deviceID)
+	if errors.Is(err, ota.ErrDeploymentNotFound) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, manifest)
+}
+
 // AckDeployment godoc
 // @Summary ACK OTA deployment
 // @Tags ota

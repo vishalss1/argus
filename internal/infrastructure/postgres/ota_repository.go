@@ -158,6 +158,25 @@ func (r *OTARepository) GetDeployment(ctx context.Context, deviceID string, id s
 	return deployment, nil
 }
 
+func (r *OTARepository) GetOldestPendingDeployment(ctx context.Context, deviceID string) (*ota.Deployment, error) {
+	const query = `
+		SELECT id, device_id, artifact_id, status, result_message, created_at, acknowledged_at, updated_at
+		FROM ota_deployments
+		WHERE device_id = $1::uuid AND status = $2
+		ORDER BY created_at ASC
+		LIMIT 1`
+
+	deployment, err := scanDeployment(r.db.QueryRowContext(ctx, query, deviceID, ota.StatusPending))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ota.ErrDeploymentNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get oldest pending ota deployment: %w", err)
+	}
+
+	return deployment, nil
+}
+
 func (r *OTARepository) AckDeployment(ctx context.Context, deviceID string, id string, message string) (*ota.Deployment, error) {
 	return r.updateDeploymentResult(ctx, deviceID, id, ota.StatusAcked, message)
 }

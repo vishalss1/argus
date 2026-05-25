@@ -139,6 +139,20 @@ func (s *Service) GetManifest(ctx context.Context, deviceID string, id string) (
 	return s.manifest(ctx, deployment, artifact)
 }
 
+func (s *Service) GetPendingManifest(ctx context.Context, deviceID string) (*Manifest, error) {
+	deployment, err := s.repo.GetOldestPendingDeployment(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	artifact, err := s.repo.GetArtifact(ctx, deployment.ArtifactID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.manifest(ctx, deployment, artifact)
+}
+
 func (s *Service) Ack(ctx context.Context, deviceID string, id string, input ResultInput) (*Deployment, error) {
 	return s.recordResult(ctx, deviceID, id, input, s.repo.AckDeployment)
 }

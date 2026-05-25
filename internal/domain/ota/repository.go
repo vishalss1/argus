@@ -13,6 +13,7 @@ type Repository interface {
 	CreateDeployment(ctx context.Context, deployment Deployment) (*Deployment, error)
 	ListDeploymentsByDevice(ctx context.Context, deviceID string) ([]Deployment, error)
 	GetDeployment(ctx context.Context, deviceID string, id string) (*Deployment, error)
+	GetOldestPendingDeployment(ctx context.Context, deviceID string) (*Deployment, error)
 	AckDeployment(ctx context.Context, deviceID string, id string, message string) (*Deployment, error)
 	NackDeployment(ctx context.Context, deviceID string, id string, reason string) (*Deployment, error)
 }

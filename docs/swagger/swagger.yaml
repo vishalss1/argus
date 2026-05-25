@@ -826,6 +826,30 @@ paths:
       summary: NACK OTA deployment
       tags:
       - ota
+  /devices/{deviceID}/ota/pending:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: deviceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ota.Manifest'
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get pending OTA deployment manifest
+      tags:
+      - ota
   /devices/{deviceID}/shadow:
     get:
       parameters:

@@ -89,6 +89,9 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 			r.Post("/ota", func(w http.ResponseWriter, r *http.Request) {
 				otaHandler.DeployFirmware(w, r, chi.URLParam(r, "deviceID"))
 			})
+			r.Get("/ota/pending", func(w http.ResponseWriter, r *http.Request) {
+				otaHandler.GetPendingDeployment(w, r, chi.URLParam(r, "deviceID"))
+			})
 			r.Get("/ota/{deploymentID}/manifest", func(w http.ResponseWriter, r *http.Request) {
 				otaHandler.GetManifest(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
 			})
