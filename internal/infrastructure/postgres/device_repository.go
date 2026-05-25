@@ -165,26 +165,36 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 	return entity, nil
 }
 
-func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Duration) (int64, error) {
+func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]device.Device, error) {
 	const query = `
 		UPDATE devices
 		SET status = 'offline',
 			updated_at = NOW()
 		WHERE status <> 'offline'
 			AND last_seen IS NOT NULL
-			AND last_seen < NOW() - ($1::bigint * INTERVAL '1 second')`
+			AND last_seen < NOW() - ($1::bigint * INTERVAL '1 second')
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
 
-	result, err := r.db.ExecContext(ctx, query, int64(timeout.Seconds()))
+	rows, err := r.db.QueryContext(ctx, query, int64(timeout.Seconds()))
 	if err != nil {
-		return 0, fmt.Errorf("mark stale devices offline: %w", err)
+		return nil, fmt.Errorf("mark stale devices offline: %w", err)
+	}
+	defer rows.Close()
+
+	devices := make([]device.Device, 0)
+	for rows.Next() {
+		entity, err := scanDevice(rows)
+		if err != nil {
+			return nil, err
+		}
+		devices = append(devices, *entity)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("mark stale devices offline rows affected: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mark stale devices offline rows: %w", err)
 	}
 
-	return rowsAffected, nil
+	return devices, nil
 }
 
 func (r *DeviceRepository) Delete(ctx context.Context, id string) error {

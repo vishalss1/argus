@@ -14,11 +14,11 @@ export const queryKeys = {
   shadow: (deviceID: string) => ["shadow", deviceID] as const
 };
 
-export function useDevices() {
+export function useDevices({ realtime = false }: { realtime?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.devices,
     queryFn: api.devices.list,
-    refetchInterval: 15_000,
+    refetchInterval: realtime ? false : 15_000,
     select: (devices) => {
       const now = Date.now();
       return devices.map((device) => withEffectiveDeviceStatus(device, now));

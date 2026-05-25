@@ -1,7 +1,20 @@
 import type { ApiErrorBody } from "../types/api";
 
 const envBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
+const envWebSocketURL = import.meta.env.VITE_WS_URL as string | undefined;
 export const API_BASE_URL = envBase?.replace(/\/$/, "") || "/api";
+
+export function websocketURL(path = "/ws") {
+  if (envWebSocketURL) return envWebSocketURL;
+
+  if (!envBase || !envBase.startsWith("http")) return `ws://localhost:8080${path}`;
+
+  const apiURL = new URL(API_BASE_URL);
+  apiURL.protocol = apiURL.protocol === "https:" ? "wss:" : "ws:";
+  apiURL.pathname = path;
+  apiURL.search = "";
+  return apiURL.toString();
+}
 
 export class ApiError extends Error {
   status: number;

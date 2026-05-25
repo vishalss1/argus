@@ -12,11 +12,20 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo      Repository
+	publisher EventPublisher
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+type EventPublisher interface {
+	PublishDeviceUpdate(ctx context.Context, entity Device)
+}
+
+func (s *Service) SetEventPublisher(publisher EventPublisher) {
+	s.publisher = publisher
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error) {
@@ -105,15 +114,33 @@ func (s *Service) RecordHeartbeat(ctx context.Context, id string, input Heartbea
 		status = "online"
 	}
 
-	return s.repo.UpdateHeartbeat(ctx, deviceID, status)
-}
-
-func (s *Service) MarkStaleOffline(ctx context.Context, timeout time.Duration) (int64, error) {
-	if timeout <= 0 {
-		return 0, errors.New("heartbeat timeout must be positive")
+	entity, err := s.repo.UpdateHeartbeat(ctx, deviceID, status)
+	if err != nil {
+		return nil, err
+	}
+	if s.publisher != nil {
+		s.publisher.PublishDeviceUpdate(ctx, *entity)
 	}
 
-	return s.repo.MarkStaleOffline(ctx, timeout)
+	return entity, nil
+}
+
+func (s *Service) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]Device, error) {
+	if timeout <= 0 {
+		return nil, errors.New("heartbeat timeout must be positive")
+	}
+
+	devices, err := s.repo.MarkStaleOffline(ctx, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if s.publisher != nil {
+		for _, entity := range devices {
+			s.publisher.PublishDeviceUpdate(ctx, entity)
+		}
+	}
+
+	return devices, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {

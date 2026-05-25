@@ -24,6 +24,7 @@ import (
 	rulesinfra "github.com/vishalss1/argus/internal/infrastructure/rules"
 	transporthandler "github.com/vishalss1/argus/internal/transport/http/handler"
 	transportrouter "github.com/vishalss1/argus/internal/transport/http/router"
+	transportws "github.com/vishalss1/argus/internal/transport/websocket"
 )
 
 type Server struct {
@@ -33,6 +34,7 @@ type Server struct {
 	mqttClient    *mqtt.Client
 	redisClient   *redisinfra.Client
 	minioClient   *minioinfra.Client
+	websocketHub  *transportws.Hub
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 }
@@ -47,6 +49,9 @@ func Bootstrap() (*Server, error) {
 
 	deviceRepository := postgres.NewDeviceRepository(database)
 	deviceService := devicedomain.NewService(deviceRepository)
+	websocketHub := transportws.NewHub()
+	realtime := &realtimePublisher{hub: websocketHub}
+	deviceService.SetEventPublisher(realtime)
 	deviceHandler := transporthandler.NewDeviceHandler(deviceService)
 
 	ruleRepository := postgres.NewRuleRepository(database)
@@ -68,6 +73,7 @@ func Bootstrap() (*Server, error) {
 		telemetryRepository = kafka.NewTelemetryRepository(telemetryRepository, kafkaProducer)
 	}
 	telemetryService := telemetrydomain.NewService(telemetryRepository)
+	telemetryService.SetEventPublisher(realtime)
 	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService)
 
 	commandRepository := commanddomain.Repository(postgres.NewCommandRepository(database))
@@ -115,7 +121,8 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler)
+	websocketHandler := transportws.NewHandler(websocketHub)
+	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler, websocketHandler)
 	appCtx, cancel := context.WithCancel(context.Background())
 	server := &Server{
 		db:            database,
@@ -123,12 +130,18 @@ func Bootstrap() (*Server, error) {
 		mqttClient:    mqttClient,
 		redisClient:   redisClient,
 		minioClient:   minioClient,
+		websocketHub:  websocketHub,
 		cancel:        cancel,
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
 		},
 	}
+	server.wg.Add(1)
+	go func() {
+		defer server.wg.Done()
+		websocketHub.Run(appCtx)
+	}()
 	server.startHeartbeatMonitor(appCtx, deviceService, cfg.HeartbeatInterval, cfg.HeartbeatTimeout)
 
 	return server, nil
@@ -155,6 +168,9 @@ func (s *Server) Close() error {
 	s.wg.Wait()
 	if s.httpServer != nil {
 		_ = s.httpServer.Close()
+	}
+	if s.websocketHub != nil {
+		s.websocketHub.Close()
 	}
 	if s.mqttClient != nil {
 		s.mqttClient.Close()
@@ -194,7 +210,7 @@ func (s *Server) startHeartbeatMonitor(ctx context.Context, service *devicedomai
 }
 
 func runHeartbeatMonitor(ctx context.Context, service *devicedomain.Service, timeout time.Duration) {
-	marked, err := service.MarkStaleOffline(ctx, timeout)
+	devices, err := service.MarkStaleOffline(ctx, timeout)
 	if err != nil {
 		if !errors.Is(ctx.Err(), context.Canceled) {
 			log.Printf("heartbeat monitor failed: %v", err)
@@ -202,5 +218,5 @@ func runHeartbeatMonitor(ctx context.Context, service *devicedomain.Service, tim
 		return
 	}
 
-	log.Printf("heartbeat monitor marked %d device(s) offline", marked)
+	log.Printf("heartbeat monitor marked %d device(s) offline", len(devices))
 }

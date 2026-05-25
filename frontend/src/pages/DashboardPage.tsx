@@ -37,7 +37,7 @@ function deviceSignal(metadata: any) {
 }
 
 export function DashboardPage() {
-  const devices = useDevices();
+  const devices = useDevices({ realtime: true });
   const alerts = useAlerts();
   const firmware = useFirmware();
   const health = useHealth();

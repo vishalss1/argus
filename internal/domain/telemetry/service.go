@@ -12,11 +12,20 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo      Repository
+	publisher EventPublisher
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+type EventPublisher interface {
+	PublishTelemetry(ctx context.Context, entity Telemetry)
+}
+
+func (s *Service) SetEventPublisher(publisher EventPublisher) {
+	s.publisher = publisher
 }
 
 func (s *Service) Ingest(ctx context.Context, deviceID string, input CreateInput) (*Telemetry, error) {
@@ -42,12 +51,20 @@ func (s *Service) Ingest(ctx context.Context, deviceID string, input CreateInput
 		return nil, err
 	}
 
-	return s.repo.Create(ctx, Telemetry{
+	entity, err := s.repo.Create(ctx, Telemetry{
 		ID:         id,
 		DeviceID:   deviceID,
 		RecordedAt: recordedAt,
 		Metrics:    input.Metrics,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if s.publisher != nil {
+		s.publisher.PublishTelemetry(ctx, *entity)
+	}
+
+	return entity, nil
 }
 
 func newTelemetryID() (string, error) {

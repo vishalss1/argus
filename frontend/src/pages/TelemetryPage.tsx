@@ -2,15 +2,18 @@ import { FormEvent, useState } from "react";
 import { Send } from "lucide-react";
 import { CopyableID, EmptyState, PageHeader, Panel, SelectField } from "../components/ui";
 import { useDevices } from "../hooks/useArgusData";
+import { useRealtime } from "../hooks/useRealtime";
 import { api } from "../services/api";
 import { safeJsonParse, stringifyJson } from "../lib/format";
 import type { Telemetry } from "../types/api";
 
 export function TelemetryPage() {
   const devices = useDevices();
+  const realtime = useRealtime();
   const [deviceID, setDeviceID] = useState("");
   const [result, setResult] = useState<Telemetry | null>(null);
   const [error, setError] = useState("");
+  const liveTelemetry = deviceID ? realtime.telemetryByDevice[deviceID] : null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,6 +72,21 @@ export function TelemetryPage() {
             </>
           ) : (
             <EmptyState title="No telemetry submitted" description="Submit telemetry to see the backend response. No synthetic telemetry history is rendered." />
+          )}
+        </Panel>
+        <Panel title="Live Telemetry" subtitle={deviceID ? (realtime.status === "connected" ? "Live WebSocket" : "Waiting for WebSocket") : "Select a device"}>
+          {!deviceID ? (
+            <EmptyState title="No device selected" description="Select a device to inspect its live telemetry stream." />
+          ) : liveTelemetry ? (
+            <>
+              <div className="settings-row" style={{ marginBottom: 12 }}>
+                <strong>Device ID</strong>
+                <CopyableID id={liveTelemetry.device_id} />
+              </div>
+              <pre className="code-block">{stringifyJson(liveTelemetry)}</pre>
+            </>
+          ) : (
+            <EmptyState title="No live telemetry" description="Live telemetry for the selected device will appear when it publishes an event." />
           )}
         </Panel>
       </div>

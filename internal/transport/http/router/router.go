@@ -9,9 +9,10 @@ import (
 	_ "github.com/vishalss1/argus/docs/swagger"
 	"github.com/vishalss1/argus/internal/transport/http/handler"
 	"github.com/vishalss1/argus/internal/transport/http/middleware"
+	transportws "github.com/vishalss1/argus/internal/transport/websocket"
 )
 
-func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler, ruleHandler *handler.RuleHandler) http.Handler {
+func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler, ruleHandler *handler.RuleHandler, websocketHandler *transportws.Handler) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Metrics)
@@ -22,6 +23,7 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/docs", http.RedirectHandler("/docs/index.html", http.StatusMovedPermanently).ServeHTTP)
 	r.Get("/docs/*", httpSwagger.WrapHandler)
+	r.Get("/ws", websocketHandler.ServeHTTP)
 
 	r.Get("/alerts", ruleHandler.ListAlerts)
 
