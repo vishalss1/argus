@@ -24,6 +24,7 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 	r.Get("/docs", http.RedirectHandler("/docs/index.html", http.StatusMovedPermanently).ServeHTTP)
 	r.Get("/docs/*", httpSwagger.WrapHandler)
 	r.Get("/ws", websocketHandler.ServeHTTP)
+	r.Post("/provision", deviceHandler.ProvisionDevice)
 
 	r.Get("/alerts", ruleHandler.ListAlerts)
 

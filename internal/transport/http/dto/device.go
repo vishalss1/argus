@@ -22,6 +22,13 @@ type HeartbeatRequest struct {
 	Status string `json:"status,omitempty"`
 }
 
+type ProvisionDeviceRequest struct {
+	HardwareID      string          `json:"hardware_id" validate:"required"`
+	DeviceType      string          `json:"device_type" validate:"required"`
+	FirmwareVersion string          `json:"firmware_version"`
+	Capabilities    json.RawMessage `json:"capabilities,omitempty" swaggertype:"object"`
+}
+
 type ErrorResponse struct {
 	Error string `json:"error"`
 }

@@ -12,12 +12,20 @@ import (
 )
 
 type Service struct {
-	repo      Repository
-	publisher EventPublisher
+	repo               Repository
+	publisher          EventPublisher
+	provisioningConfig ProvisioningConfig
 }
 
 func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{
+		repo: repo,
+		provisioningConfig: ProvisioningConfig{
+			MQTTTelemetryPattern: "argus/devices/+/telemetry",
+			SamplingIntervalMS:   5000,
+			HeartbeatIntervalMS:  5000,
+		},
+	}
 }
 
 type EventPublisher interface {
@@ -26,6 +34,21 @@ type EventPublisher interface {
 
 func (s *Service) SetEventPublisher(publisher EventPublisher) {
 	s.publisher = publisher
+}
+
+func (s *Service) SetProvisioningConfig(config ProvisioningConfig) {
+	if strings.TrimSpace(config.MQTTBrokerURL) != "" {
+		s.provisioningConfig.MQTTBrokerURL = strings.TrimSpace(config.MQTTBrokerURL)
+	}
+	if strings.TrimSpace(config.MQTTTelemetryPattern) != "" {
+		s.provisioningConfig.MQTTTelemetryPattern = strings.TrimSpace(config.MQTTTelemetryPattern)
+	}
+	if config.SamplingIntervalMS > 0 {
+		s.provisioningConfig.SamplingIntervalMS = config.SamplingIntervalMS
+	}
+	if config.HeartbeatIntervalMS > 0 {
+		s.provisioningConfig.HeartbeatIntervalMS = config.HeartbeatIntervalMS
+	}
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error) {
@@ -68,6 +91,57 @@ func (s *Service) List(ctx context.Context) ([]Device, error) {
 
 func (s *Service) GetByID(ctx context.Context, id string) (*Device, error) {
 	return s.repo.GetByID(ctx, strings.TrimSpace(id))
+}
+
+func (s *Service) Provision(ctx context.Context, input ProvisionInput) (*ProvisionResponse, error) {
+	hardwareID := strings.TrimSpace(input.HardwareID)
+	deviceType := strings.TrimSpace(input.DeviceType)
+	firmwareVersion := strings.TrimSpace(input.FirmwareVersion)
+
+	if hardwareID == "" {
+		return nil, errors.New("hardware id is required")
+	}
+	if deviceType == "" {
+		return nil, errors.New("device type is required")
+	}
+
+	if len(input.Capabilities) > 0 && !json.Valid(input.Capabilities) {
+		return nil, errors.New("capabilities must be valid JSON")
+	}
+
+	existing, err := s.repo.GetByHardwareID(ctx, hardwareID)
+	if err == nil {
+		return s.provisionResponse(existing), nil
+	}
+	if !errors.Is(err, ErrDeviceNotFound) {
+		return nil, err
+	}
+
+	metadata, err := provisioningMetadata(hardwareID, input.Capabilities)
+	if err != nil {
+		return nil, err
+	}
+
+	entity, err := s.Create(ctx, CreateInput{
+		Name:            hardwareID,
+		Type:            deviceType,
+		FirmwareVersion: firmwareVersion,
+		Status:          "offline",
+		Metadata:        metadata,
+	})
+	if err != nil {
+		existing, lookupErr := s.repo.GetByHardwareID(ctx, hardwareID)
+		if lookupErr == nil {
+			return s.provisionResponse(existing), nil
+		}
+		return nil, err
+	}
+
+	if s.publisher != nil {
+		s.publisher.PublishDeviceUpdate(ctx, *entity)
+	}
+
+	return s.provisionResponse(entity), nil
 }
 
 func (s *Service) Update(ctx context.Context, id string, input UpdateInput) (*Device, error) {
@@ -145,6 +219,49 @@ func (s *Service) MarkStaleOffline(ctx context.Context, timeout time.Duration) (
 
 func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, strings.TrimSpace(id))
+}
+
+func (s *Service) provisionResponse(entity *Device) *ProvisionResponse {
+	deviceID := entity.ID
+	return &ProvisionResponse{
+		DeviceUUID:          deviceID,
+		MQTTBrokerURL:       s.provisioningConfig.MQTTBrokerURL,
+		MQTTTelemetryTopic:  deviceTopic(s.provisioningConfig.MQTTTelemetryPattern, deviceID),
+		MQTTCommandTopic:    fmt.Sprintf("argus/devices/%s/commands", deviceID),
+		SamplingIntervalMS:  s.provisioningConfig.SamplingIntervalMS,
+		HeartbeatIntervalMS: s.provisioningConfig.HeartbeatIntervalMS,
+	}
+}
+
+func provisioningMetadata(hardwareID string, capabilities json.RawMessage) (json.RawMessage, error) {
+	metadata := map[string]any{
+		"hardware_id": hardwareID,
+	}
+	if len(capabilities) > 0 {
+		var value any
+		if err := json.Unmarshal(capabilities, &value); err != nil {
+			return nil, fmt.Errorf("decode capabilities: %w", err)
+		}
+		metadata["capabilities"] = value
+	}
+
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("encode provisioning metadata: %w", err)
+	}
+
+	return payload, nil
+}
+
+func deviceTopic(pattern string, deviceID string) string {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return fmt.Sprintf("argus/devices/%s/telemetry", deviceID)
+	}
+	if strings.Contains(pattern, "+") {
+		return strings.Replace(pattern, "+", deviceID, 1)
+	}
+	return pattern
 }
 
 func newDeviceID() (string, error) {

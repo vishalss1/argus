@@ -49,6 +49,10 @@ func Bootstrap() (*Server, error) {
 
 	deviceRepository := postgres.NewDeviceRepository(database)
 	deviceService := devicedomain.NewService(deviceRepository)
+	deviceService.SetProvisioningConfig(devicedomain.ProvisioningConfig{
+		MQTTBrokerURL:        cfg.ProvisioningBroker,
+		MQTTTelemetryPattern: cfg.MQTTTelemetryTopic,
+	})
 	websocketHub := transportws.NewHub()
 	realtime := &realtimePublisher{hub: websocketHub}
 	deviceService.SetEventPublisher(realtime)

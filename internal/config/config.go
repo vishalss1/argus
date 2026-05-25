@@ -29,6 +29,7 @@ type Config struct {
 	MinIOUseSSL         bool
 	HeartbeatTimeout    time.Duration
 	HeartbeatInterval   time.Duration
+	ProvisioningBroker  string
 }
 
 func Load() *Config {
@@ -97,6 +98,10 @@ func Load() *Config {
 	cfg.MinIOUseSSL = parseBool(os.Getenv("MINIO_USE_SSL"))
 	cfg.HeartbeatTimeout = parseDurationSeconds("HEARTBEAT_TIMEOUT_SECONDS", 60)
 	cfg.HeartbeatInterval = parseDurationSeconds("HEARTBEAT_MONITOR_INTERVAL_SECONDS", 30)
+	cfg.ProvisioningBroker = os.Getenv("PROVISIONING_MQTT_BROKER_URL")
+	if cfg.ProvisioningBroker == "" {
+		cfg.ProvisioningBroker = cfg.MQTTBrokerURL
+	}
 
 	return cfg
 }

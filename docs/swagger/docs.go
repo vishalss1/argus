@@ -1075,6 +1075,51 @@ const docTemplate = `{
                 }
             }
         },
+        "/provision": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Provision device",
+                "parameters": [
+                    {
+                        "description": "Provisioning payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.ProvisionDeviceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/device.ProvisionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/rules": {
             "get": {
                 "produces": [
@@ -1331,6 +1376,29 @@ const docTemplate = `{
                 }
             }
         },
+        "device.ProvisionResponse": {
+            "type": "object",
+            "properties": {
+                "device_uuid": {
+                    "type": "string"
+                },
+                "heartbeat_interval_ms": {
+                    "type": "integer"
+                },
+                "mqtt_broker_url": {
+                    "type": "string"
+                },
+                "mqtt_command_topic": {
+                    "type": "string"
+                },
+                "mqtt_telemetry_topic": {
+                    "type": "string"
+                },
+                "sampling_interval_ms": {
+                    "type": "integer"
+                }
+            }
+        },
         "dto.CommandResultRequest": {
             "type": "object",
             "properties": {
@@ -1433,6 +1501,27 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ProvisionDeviceRequest": {
+            "type": "object",
+            "required": [
+                "device_type",
+                "hardware_id"
+            ],
+            "properties": {
+                "capabilities": {
+                    "type": "object"
+                },
+                "device_type": {
+                    "type": "string"
+                },
+                "firmware_version": {
+                    "type": "string"
+                },
+                "hardware_id": {
                     "type": "string"
                 }
             }

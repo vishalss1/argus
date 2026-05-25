@@ -89,6 +89,37 @@ func (h *DeviceHandler) GetDevice(w http.ResponseWriter, r *http.Request, id str
 	writeJSON(w, http.StatusOK, entity)
 }
 
+// ProvisionDevice godoc
+// @Summary Provision device
+// @Tags devices
+// @Accept json
+// @Produce json
+// @Param request body dto.ProvisionDeviceRequest true "Provisioning payload"
+// @Success 200 {object} device.ProvisionResponse
+// @Failure 400 {object} dto.ErrorResponse
+// @Failure 500 {object} dto.ErrorResponse
+// @Router /provision [post]
+func (h *DeviceHandler) ProvisionDevice(w http.ResponseWriter, r *http.Request) {
+	var req dto.ProvisionDeviceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	response, err := h.service.Provision(r.Context(), device.ProvisionInput{
+		HardwareID:      req.HardwareID,
+		DeviceType:      req.DeviceType,
+		FirmwareVersion: req.FirmwareVersion,
+		Capabilities:    req.Capabilities,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 // UpdateDevice godoc
 // @Summary Update device
 // @Tags devices

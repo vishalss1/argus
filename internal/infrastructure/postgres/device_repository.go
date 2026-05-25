@@ -92,6 +92,25 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Devi
 	return entity, nil
 }
 
+func (r *DeviceRepository) GetByHardwareID(ctx context.Context, hardwareID string) (*device.Device, error) {
+	const query = `
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at
+		FROM devices
+		WHERE metadata->>'hardware_id' = $1
+		ORDER BY created_at ASC
+		LIMIT 1`
+
+	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, hardwareID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, device.ErrDeviceNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get device by hardware id: %w", err)
+	}
+
+	return entity, nil
+}
+
 func (r *DeviceRepository) Update(ctx context.Context, id string, input device.UpdateInput) (*device.Device, error) {
 	current, err := r.GetByID(ctx, id)
 	if err != nil {

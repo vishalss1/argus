@@ -44,6 +44,21 @@ definitions:
       updated_at:
         type: string
     type: object
+  device.ProvisionResponse:
+    properties:
+      device_uuid:
+        type: string
+      heartbeat_interval_ms:
+        type: integer
+      mqtt_broker_url:
+        type: string
+      mqtt_command_topic:
+        type: string
+      mqtt_telemetry_topic:
+        type: string
+      sampling_interval_ms:
+        type: integer
+    type: object
   dto.CommandResultRequest:
     properties:
       message:
@@ -112,6 +127,20 @@ definitions:
     properties:
       message:
         type: string
+    type: object
+  dto.ProvisionDeviceRequest:
+    properties:
+      capabilities:
+        type: object
+      device_type:
+        type: string
+      firmware_version:
+        type: string
+      hardware_id:
+        type: string
+    required:
+    - device_type
+    - hardware_id
     type: object
   dto.SendCommandRequest:
     properties:
@@ -985,6 +1014,35 @@ paths:
       summary: Get firmware artifact
       tags:
       - ota
+  /provision:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Provisioning payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ProvisionDeviceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/device.ProvisionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Provision device
+      tags:
+      - devices
   /rules:
     get:
       produces:

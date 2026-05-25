@@ -36,3 +36,26 @@ type UpdateInput struct {
 type HeartbeatInput struct {
 	Status string
 }
+
+type ProvisionInput struct {
+	HardwareID      string
+	DeviceType      string
+	FirmwareVersion string
+	Capabilities    json.RawMessage
+}
+
+type ProvisioningConfig struct {
+	MQTTBrokerURL        string
+	MQTTTelemetryPattern string
+	SamplingIntervalMS   int
+	HeartbeatIntervalMS  int
+}
+
+type ProvisionResponse struct {
+	DeviceUUID          string `json:"device_uuid"`
+	MQTTBrokerURL       string `json:"mqtt_broker_url"`
+	MQTTTelemetryTopic  string `json:"mqtt_telemetry_topic"`
+	MQTTCommandTopic    string `json:"mqtt_command_topic"`
+	SamplingIntervalMS  int    `json:"sampling_interval_ms"`
+	HeartbeatIntervalMS int    `json:"heartbeat_interval_ms"`
+}
