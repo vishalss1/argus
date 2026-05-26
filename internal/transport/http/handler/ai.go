@@ -5,10 +5,12 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/vishalss1/argus/internal/ai/actions"
 	"github.com/vishalss1/argus/internal/ai/query"
 	"github.com/vishalss1/argus/internal/domain/event"
 	"github.com/vishalss1/argus/internal/domain/incident"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
+	"github.com/vishalss1/argus/internal/domain/policy"
 	"github.com/vishalss1/argus/internal/transport/http/dto"
 )
 
@@ -17,6 +19,8 @@ type AIHandler struct {
 	incidentService *incident.Service
 	contextService *ctxdomain.Service
 	queryEngine    *query.Engine
+	actionEngine   *actions.Engine
+	policyService  *policy.Service
 }
 
 func NewAIHandler(
@@ -24,12 +28,16 @@ func NewAIHandler(
 	incidentService *incident.Service,
 	contextService *ctxdomain.Service,
 	queryEngine *query.Engine,
+	actionEngine *actions.Engine,
+	policyService *policy.Service,
 ) *AIHandler {
 	return &AIHandler{
 		eventRepo:      eventRepo,
 		incidentService: incidentService,
 		contextService: contextService,
 		queryEngine:    queryEngine,
+		actionEngine:   actionEngine,
+		policyService:  policyService,
 	}
 }
 
@@ -111,4 +119,34 @@ func (h *AIHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, dto.ToOperationalMemoryResponses(memories))
+}
+
+func (h *AIHandler) ListActions(w http.ResponseWriter, r *http.Request) {
+	records, err := h.policyService.ListRecords(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list actions")
+		return
+	}
+	writeJSON(w, http.StatusOK, dto.ToExecutionRecordResponses(records))
+}
+
+func (h *AIHandler) ApproveAction(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "actionID")
+	var req dto.ApproveActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.policyService.ApproveAction(r.Context(), id, req.ApprovedBy); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to approve action")
+		return
+	}
+
+	if err := h.actionEngine.Execute(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to execute action: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

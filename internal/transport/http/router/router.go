@@ -41,6 +41,8 @@ func New(
 		r.Post("/query", aiHandler.Ask)
 		r.Get("/events", aiHandler.ListEvents)
 		r.Get("/incidents", aiHandler.ListIncidents)
+		r.Get("/actions", aiHandler.ListActions)
+		r.Post("/actions/{actionID}/approve", aiHandler.ApproveAction)
 		r.Route("/incidents/{incidentID}", func(r chi.Router) {
 			r.Get("/", aiHandler.GetIncident)
 			r.Post("/resolve", aiHandler.ResolveIncident)

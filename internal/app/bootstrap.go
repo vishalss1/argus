@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vishalss1/argus/internal/config"
+	"github.com/vishalss1/argus/internal/ai/actions"
 	"github.com/vishalss1/argus/internal/ai/memory"
 	"github.com/vishalss1/argus/internal/ai/query"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
@@ -17,6 +18,7 @@ import (
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
 	incidentdomain "github.com/vishalss1/argus/internal/domain/incident"
 	otadomain "github.com/vishalss1/argus/internal/domain/ota"
+	policydomain "github.com/vishalss1/argus/internal/domain/policy"
 	ruledomain "github.com/vishalss1/argus/internal/domain/rule"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
@@ -146,6 +148,10 @@ func Bootstrap() (*Server, error) {
 	ruleService := ruledomain.NewService(ruleRepository)
 	ruleHandler := transporthandler.NewRuleHandler(ruleService)
 
+	policyRepository := postgres.NewPolicyRepository(database)
+	policyService := policydomain.NewService(policyRepository)
+	actionEngine := actions.NewEngine(commandService, policyService)
+
 	incidentRepository := postgres.NewIncidentRepository(database)
 	incidentService := incidentdomain.NewService(incidentRepository)
 	incidentService.OnResolved = func(ctx context.Context, inc incidentdomain.Incident) {
@@ -157,7 +163,7 @@ func Bootstrap() (*Server, error) {
 	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
 	queryEngine := query.NewEngine(embeddingProvider, aiProvider, vectorStore, eventRepository, incidentRepository, contextRepository)
 
-	aiHandler := transporthandler.NewAIHandler(eventRepository, incidentService, contextService, queryEngine)
+	aiHandler := transporthandler.NewAIHandler(eventRepository, incidentService, contextService, queryEngine, actionEngine, policyService)
 
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
@@ -198,6 +204,9 @@ func Bootstrap() (*Server, error) {
 		defer server.wg.Done()
 		monitorPresence(appCtx, presenceService, cfg.HeartbeatTimeout, cfg.HeartbeatInterval)
 	}()
+
+	// Use actionEngine if needed elsewhere or just keep it initialized
+	_ = actionEngine
 
 	return server, nil
 }

@@ -7,74 +7,75 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vishalss1/argus/internal/domain/policy"
 	"github.com/vishalss1/argus/internal/domain/command"
+	"github.com/vishalss1/argus/internal/domain/policy"
 )
 
 type Engine struct {
 	commandService *command.Service
-	policies       []policy.Policy
+	policyService  *policy.Service
 }
 
-func NewEngine(commandService *command.Service) *Engine {
+func NewEngine(commandService *command.Service, policyService *policy.Service) *Engine {
 	return &Engine{
 		commandService: commandService,
-		// Hardcoded policies for now
-		policies: []policy.Policy{
-			{
-				Action:           policy.ActionReboot,
-				RequiresApproval: true,
-			},
-			{
-				Action:           policy.ActionRestartService,
-				RequiresApproval: false,
-			},
-		},
+		policyService:  policyService,
 	}
 }
 
-func (e *Engine) ProcessSuggestion(ctx context.Context, deviceID string, actionType policy.ActionType, metadata string) (*policy.ExecutionRecord, error) {
-	// 1. Find policy
-	var targetPolicy *policy.Policy
-	for _, p := range e.policies {
-		if p.Action == actionType {
-			targetPolicy = &p
-			break
-		}
+func (e *Engine) ProcessSuggestion(ctx context.Context, deviceID string, incidentID *string, actionType policy.ActionType, metadata string) (*policy.ExecutionRecord, error) {
+	// 1. Validate Action against Policy
+	allowed, requiresApproval, err := e.policyService.ValidateAction(ctx, actionType, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("policy validation failed: %w", err)
 	}
 
-	if targetPolicy == nil {
-		return nil, fmt.Errorf("no policy defined for action %s", actionType)
+	if !allowed {
+		return nil, fmt.Errorf("action %s is not allowed for device %s", actionType, deviceID)
 	}
 
 	// 2. Create execution record
-	record := &policy.ExecutionRecord{
+	status := "pending"
+	if !requiresApproval {
+		status = "approved"
+	}
+
+	record := policy.ExecutionRecord{
 		ID:          uuid.New().String(),
 		Action:      actionType,
 		DeviceID:    deviceID,
-		Status:      "pending",
+		IncidentID:  incidentID,
+		Status:      status,
 		SuggestedBy: "argus_ai",
 		Metadata:    metadata,
 		CreatedAt:   time.Now(),
 	}
 
-	// 3. Validate Policy
-	if targetPolicy.RequiresApproval {
-		// Just return the record as pending
-		return record, nil
+	created, err := e.policyService.CreateRecord(ctx, record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create execution record: %w", err)
 	}
 
-	// 4. Execute Action
-	if err := e.Execute(ctx, record); err != nil {
-		record.Status = "failed"
-		return record, fmt.Errorf("execution failed: %w", err)
+	// 3. If no approval required, execute immediately
+	if !requiresApproval {
+		if err := e.Execute(ctx, created.ID); err != nil {
+			return created, fmt.Errorf("immediate execution failed: %w", err)
+		}
 	}
 
-	record.Status = "executed"
-	return record, nil
+	return created, nil
 }
 
-func (e *Engine) Execute(ctx context.Context, record *policy.ExecutionRecord) error {
+func (e *Engine) Execute(ctx context.Context, recordID string) error {
+	record, err := e.policyService.GetRecord(ctx, recordID)
+	if err != nil {
+		return fmt.Errorf("failed to get execution record: %w", err)
+	}
+
+	if record.Status != "approved" {
+		return fmt.Errorf("action is not approved for execution (status: %s)", record.Status)
+	}
+
 	// Map action type to actual device command
 	var cmdName string
 	var payload map[string]interface{}
@@ -84,6 +85,10 @@ func (e *Engine) Execute(ctx context.Context, record *policy.ExecutionRecord) er
 		cmdName = "reboot"
 	case policy.ActionRestartService:
 		cmdName = "restart_service"
+	case policy.ActionUpdateConfig:
+		cmdName = "update_config"
+	case policy.ActionRollbackFirmware:
+		cmdName = "rollback_firmware"
 	default:
 		return fmt.Errorf("unsupported action type for execution: %s", record.Action)
 	}
@@ -93,9 +98,15 @@ func (e *Engine) Execute(ctx context.Context, record *policy.ExecutionRecord) er
 		jsonPayload, _ = json.Marshal(payload)
 	}
 
-	_, err := e.commandService.Send(ctx, record.DeviceID, command.SendInput{
+	_, err = e.commandService.Send(ctx, record.DeviceID, command.SendInput{
 		Type:    cmdName,
 		Payload: jsonPayload,
 	})
-	return err
+
+	if err != nil {
+		e.policyService.MarkFailed(ctx, recordID)
+		return fmt.Errorf("send command failed: %w", err)
+	}
+
+	return e.policyService.MarkExecuted(ctx, recordID)
 }
