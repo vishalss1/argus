@@ -32,10 +32,11 @@ func main() {
 	}
 	defer db.Close()
 
-	embeddingProvider := embedding.NewDummyProvider(768)
+	embeddingProvider := embedding.NewOllamaProvider(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
 	vectorStore := postgres.NewVectorStore(db)
 	semanticEmbedding := semantic.NewEmbeddingService(embeddingProvider, vectorStore)
 	correlationEmbedding := correlation.NewEmbeddingService(embeddingProvider, vectorStore)
+	memoryEmbedding := memory.NewEmbeddingService(embeddingProvider, vectorStore)
 
 	eventRepo := postgres.NewEventRepository(db)
 	semanticEngine := semantic.NewEngine(eventRepo)
@@ -61,6 +62,11 @@ func main() {
 
 	contextRepo := postgres.NewContextRepository(db)
 	contextService := ctxdomain.NewService(contextRepo)
+	contextService.OnRecord = func(ctx context.Context, mem ctxdomain.OperationalMemory) {
+		if err := memoryEmbedding.EmbedMemory(ctx, mem); err != nil {
+			log.Printf("failed to embed operational memory: %v", err)
+		}
+	}
 	memoryManager := memory.NewManager(contextService)
 
 	incidentRepo := postgres.NewIncidentRepository(db)

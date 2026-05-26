@@ -9,7 +9,8 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo     Repository
+	OnRecord func(ctx context.Context, mem OperationalMemory)
 }
 
 func NewService(repo Repository) *Service {
@@ -30,7 +31,12 @@ func (s *Service) RecordMemory(ctx context.Context, mem OperationalMemory) (*Ope
 		mem.Data = json.RawMessage("{}")
 	}
 
-	return s.repo.Create(ctx, mem)
+	created, err := s.repo.Create(ctx, mem)
+	if err == nil && s.OnRecord != nil {
+		s.OnRecord(ctx, *created)
+	}
+
+	return created, err
 }
 
 func (s *Service) GetDeviceHistory(ctx context.Context, deviceID string) ([]OperationalMemory, error) {

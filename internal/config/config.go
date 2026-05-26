@@ -35,6 +35,9 @@ type Config struct {
 	GroqAPIKey          string
 	GroqModel           string
 	GroqBaseURL         string
+	OllamaBaseURL       string
+	OllamaEmbedModel    string
+	OllamaReasonModel   string
 }
 
 func Load() *Config {
@@ -61,6 +64,9 @@ func Load() *Config {
 		GroqAPIKey:          os.Getenv("GROQ_API_KEY"),
 		GroqModel:           os.Getenv("GROQ_MODEL"),
 		GroqBaseURL:         os.Getenv("GROQ_BASE_URL"),
+		OllamaBaseURL:       os.Getenv("OLLAMA_BASE_URL"),
+		OllamaEmbedModel:    os.Getenv("OLLAMA_EMBED_MODEL"),
+		OllamaReasonModel:   os.Getenv("OLLAMA_REASON_MODEL"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -128,6 +134,16 @@ func Load() *Config {
 	}
 	if cfg.GroqBaseURL == "" {
 		cfg.GroqBaseURL = "https://api.groq.com/openai/v1"
+	}
+
+	if cfg.OllamaBaseURL == "" {
+		cfg.OllamaBaseURL = "http://localhost:11434"
+	}
+	if cfg.OllamaEmbedModel == "" {
+		cfg.OllamaEmbedModel = "nomic-embed-text"
+	}
+	if cfg.OllamaReasonModel == "" {
+		cfg.OllamaReasonModel = "qwen2.5:7b-instruct"
 	}
 
 	return cfg

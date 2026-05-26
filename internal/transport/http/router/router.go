@@ -38,6 +38,7 @@ func New(
 	r.Get("/alerts", ruleHandler.ListAlerts)
 
 	r.Route("/ai", func(r chi.Router) {
+		r.Post("/query", aiHandler.Ask)
 		r.Get("/events", aiHandler.ListEvents)
 		r.Get("/incidents", aiHandler.ListIncidents)
 		r.Route("/incidents/{incidentID}", func(r chi.Router) {

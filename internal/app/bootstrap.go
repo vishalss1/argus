@@ -11,6 +11,7 @@ import (
 
 	"github.com/vishalss1/argus/internal/config"
 	"github.com/vishalss1/argus/internal/ai/memory"
+	"github.com/vishalss1/argus/internal/ai/query"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
@@ -19,6 +20,8 @@ import (
 	ruledomain "github.com/vishalss1/argus/internal/domain/rule"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
+	"github.com/vishalss1/argus/internal/infrastructure/ai"
+	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/internal/infrastructure/minio"
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
@@ -103,9 +106,18 @@ func Bootstrap() (*Server, error) {
 	shadowService := shadowdomain.NewService(shadowRepository)
 	shadowHandler := transporthandler.NewShadowHandler(shadowService)
 
+	embeddingProvider := embedding.NewOllamaProvider(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
+	vectorStore := postgres.NewVectorStore(database)
+	memoryEmbedding := memory.NewEmbeddingService(embeddingProvider, vectorStore)
+
 	eventRepository := postgres.NewEventRepository(database)
 	contextRepository := postgres.NewContextRepository(database)
 	contextService := ctxdomain.NewService(contextRepository)
+	contextService.OnRecord = func(ctx context.Context, mem ctxdomain.OperationalMemory) {
+		if err := memoryEmbedding.EmbedMemory(ctx, mem); err != nil {
+			log.Printf("failed to embed operational memory: %v", err)
+		}
+	}
 	memoryManager := memory.NewManager(contextService)
 
 	commandRepository := postgres.NewCommandRepository(database)
@@ -142,7 +154,10 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	aiHandler := transporthandler.NewAIHandler(eventRepository, incidentService, contextService)
+	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
+	queryEngine := query.NewEngine(embeddingProvider, aiProvider, vectorStore, eventRepository, incidentRepository, contextRepository)
+
+	aiHandler := transporthandler.NewAIHandler(eventRepository, incidentService, contextService, queryEngine)
 
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
