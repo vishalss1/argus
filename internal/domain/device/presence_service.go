@@ -69,6 +69,25 @@ func (s *PresenceService) RecordHeartbeat(deviceID string, timestamp time.Time) 
 	s.cache[deviceID] = state
 }
 
+func (s *PresenceService) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]Device, error) {
+	devices, err := s.deviceService.MarkStaleOffline(ctx, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, d := range devices {
+		state := s.cache[d.ID]
+		state.Online = false
+		state.Status = PresenceOffline
+		s.cache[d.ID] = state
+	}
+
+	return devices, nil
+}
+
 func (s *PresenceService) Snapshot() map[string]PresenceState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

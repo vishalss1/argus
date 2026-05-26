@@ -12,7 +12,8 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo     Repository
+	OnResult func(ctx context.Context, cmd Command)
 }
 
 func NewService(repo Repository) *Service {
@@ -111,7 +112,11 @@ func (s *Service) recordResult(
 		return nil, errors.New("command id is required")
 	}
 
-	return record(ctx, deviceID, id, strings.TrimSpace(input.Message))
+	cmd, err := record(ctx, deviceID, id, strings.TrimSpace(input.Message))
+	if err == nil && s.OnResult != nil {
+		s.OnResult(ctx, *cmd)
+	}
+	return cmd, err
 }
 
 func newCommandID() (string, error) {

@@ -16,8 +16,9 @@ import (
 const manifestURLTTL = 15 * time.Minute
 
 type Service struct {
-	repo  Repository
-	store ObjectStore
+	repo     Repository
+	store    ObjectStore
+	OnResult func(ctx context.Context, deployment Deployment)
 }
 
 func NewService(repo Repository, store ObjectStore) *Service {
@@ -190,7 +191,11 @@ func (s *Service) recordResult(
 		return nil, errors.New("deployment id is required")
 	}
 
-	return record(ctx, deviceID, id, strings.TrimSpace(input.Message))
+	deployment, err := record(ctx, deviceID, id, strings.TrimSpace(input.Message))
+	if err == nil && s.OnResult != nil {
+		s.OnResult(ctx, *deployment)
+	}
+	return deployment, err
 }
 
 func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact *FirmwareArtifact) (*Manifest, error) {
