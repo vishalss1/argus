@@ -20,6 +20,7 @@ type Config struct {
 	KafkaBrokers        []string
 	KafkaTelemetryTopic string
 	KafkaCommandTopic   string
+	KafkaAIWorkerGroupID string
 	RedisAddr           string
 	RedisPassword       string
 	RedisDB             int
@@ -77,6 +78,10 @@ func Load() *Config {
 	}
 	if cfg.KafkaCommandTopic == "" {
 		cfg.KafkaCommandTopic = "argus.commands"
+	}
+	cfg.KafkaAIWorkerGroupID = os.Getenv("KAFKA_AI_WORKER_GROUP_ID")
+	if cfg.KafkaAIWorkerGroupID == "" {
+		cfg.KafkaAIWorkerGroupID = "argus-ai-worker"
 	}
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "localhost:6379"

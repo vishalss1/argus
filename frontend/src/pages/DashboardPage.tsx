@@ -19,6 +19,7 @@ import {
 import { useAlerts, useDevices, useFirmware, useHealth } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
 import { countByStatus, formatDate } from "../lib/format";
+import type { JsonValue } from "../types/api";
 
 const FILTERS = ["All", "Online", "Warning", "Critical", "Offline"];
 const ROWS_PER_PAGE = 12;
@@ -30,8 +31,47 @@ function deviceRegion(metadata: any) {
   return "Unknown";
 }
 
+interface SignalReading {
+  level: number;
+  label: string;
+}
+
+function toNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.trim().replace(/dbm$/i, ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function objectValue(value: JsonValue | undefined, key: string): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const foundKey = Object.keys(record).find((item) => item.toLowerCase() === key.toLowerCase());
+  return foundKey ? record[foundKey] : undefined;
+}
+
+function nestedObject(value: JsonValue | undefined, key: string): JsonValue | undefined {
+  const nested = objectValue(value, key);
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return undefined;
+  return nested as JsonValue;
+}
+
+function signalMetricValue(source: JsonValue | undefined): number | undefined {
+  const directKeys = ["rssi", "wifi_rssi", "signal", "signal_strength", "signalStrength"];
+  for (const key of directKeys) {
+    const value = toNumber(objectValue(source, key));
+    if (value !== undefined) return value;
+  }
+
+  const wifi = nestedObject(source, "wifi");
+  const wireless = nestedObject(source, "wireless");
+  return toNumber(objectValue(wifi, "rssi")) ?? toNumber(objectValue(wifi, "signal")) ?? toNumber(objectValue(wireless, "rssi"));
+}
+
 function convertToSignalLevel(val?: number): number {
-  if (val === undefined || val === null) return 0;
+  if (val === undefined || val === null || !Number.isFinite(val)) return 0;
   
   // If it's a percentage or 0-4 level
   if (val >= 0) {
@@ -51,25 +91,19 @@ function convertToSignalLevel(val?: number): number {
   return 0;
 }
 
-function extractSignalLevel(device: any, liveTelemetry: any): number {
-  // Check live telemetry first for any common signal metric
-  if (liveTelemetry && liveTelemetry.metrics) {
-    const metrics = liveTelemetry.metrics;
-    const rssi = metrics.rssi ?? metrics.wifi_rssi ?? metrics.signal ?? metrics.signal_strength;
-    if (typeof rssi === "number") {
-      return convertToSignalLevel(rssi);
-    }
-  }
+function formatSignalLabel(value: number): string {
+  if (value < 0) return `${Math.round(value)} dBm`;
+  if (value <= 4) return `${Math.round(value)}/4`;
+  return `${Math.round(value)}%`;
+}
 
-  // Fallback to device metadata (useful for initial load before telemetry streams)
-  if (device.metadata && typeof device.metadata === "object") {
-    const sig = device.metadata.signal ?? device.metadata.rssi ?? device.metadata.wifi_rssi ?? device.metadata.signal_strength;
-    if (typeof sig === "number") {
-      return convertToSignalLevel(sig);
-    }
-  }
-
-  return 0;
+function extractSignalReading(device: { metadata?: JsonValue }, liveTelemetry?: { metrics?: JsonValue }): SignalReading {
+  const value = signalMetricValue(liveTelemetry?.metrics) ?? signalMetricValue(device.metadata);
+  if (value === undefined) return { level: 0, label: "No signal" };
+  return {
+    level: convertToSignalLevel(value),
+    label: formatSignalLabel(value)
+  };
 }
 
 export function DashboardPage() {
@@ -203,6 +237,7 @@ export function DashboardPage() {
                     )}
                     {paged.map((device) => {
                       const telemetry = telemetryByDevice[device.id];
+                      const signal = extractSignalReading(device, telemetry);
                       return (
                         <tr key={device.id}>
                           <td><CopyableID id={device.id} length={8} /></td>
@@ -211,7 +246,12 @@ export function DashboardPage() {
                           <td><StatusChip value={device.status} /></td>
                           <td>{device.firmware_version || "Unset"}</td>
                           <td className="muted">{formatDate(device.last_seen)}</td>
-                          <td><SignalStrength strength={extractSignalLevel(device, telemetry)} /></td>
+                          <td>
+                            <span className="signal-cell">
+                              <SignalStrength strength={signal.level} />
+                              <span className="muted">{signal.label}</span>
+                            </span>
+                          </td>
                         </tr>
                       );
                     })}

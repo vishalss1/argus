@@ -947,6 +947,13 @@ textarea:focus {
 .signal-bars span:nth-child(3) { height: 11px; }
 .signal-bars span:nth-child(4) { height: 14px; }
 
+.signal-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
 .signal-bars.strength-4 span,
 .signal-bars.strength-3 span:nth-child(-n+3) {
   background: var(--success);
