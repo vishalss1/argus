@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type GroqProvider struct {
@@ -51,6 +52,12 @@ func (p *GroqProvider) Reason(ctx context.Context, systemPrompt, userPrompt stri
 		return nil, fmt.Errorf("GROQ_API_KEY is not set")
 	}
 
+	LLMRequestsTotal.WithLabelValues("groq").Inc()
+	start := time.Now()
+	defer func() {
+		ReasoningLatencySeconds.WithLabelValues("groq").Observe(time.Since(start).Seconds())
+	}()
+
 	reqBody := groqRequest{
 		Model: p.model,
 		Messages: []groqMessage{
@@ -64,11 +71,13 @@ func (p *GroqProvider) Reason(ctx context.Context, systemPrompt, userPrompt stri
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		return nil, fmt.Errorf("marshal groq request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
 	if err != nil {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		return nil, fmt.Errorf("create groq request: %w", err)
 	}
 
@@ -77,26 +86,31 @@ func (p *GroqProvider) Reason(ctx context.Context, systemPrompt, userPrompt stri
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		return nil, fmt.Errorf("do groq request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("groq API error (%d): %s", resp.StatusCode, string(body))
 	}
 
 	var groqResp groqResponse
 	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		return nil, fmt.Errorf("decode groq response: %w", err)
 	}
 
 	if len(groqResp.Choices) == 0 {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		return nil, fmt.Errorf("no choices in groq response")
 	}
 
 	var reasoningResp ReasoningResponse
 	if err := json.Unmarshal([]byte(groqResp.Choices[0].Message.Content), &reasoningResp); err != nil {
+		LLMFailuresTotal.WithLabelValues("groq").Inc()
 		return nil, fmt.Errorf("unmarshal reasoning response: %w", err)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type OllamaProvider struct {
@@ -48,6 +49,12 @@ type ollamaChatResponse struct {
 }
 
 func (p *OllamaProvider) Reason(ctx context.Context, systemPrompt, userPrompt string) (*ReasoningResponse, error) {
+	LLMRequestsTotal.WithLabelValues("ollama").Inc()
+	start := time.Now()
+	defer func() {
+		ReasoningLatencySeconds.WithLabelValues("ollama").Observe(time.Since(start).Seconds())
+	}()
+
 	reqBody := ollamaChatRequest{
 		Model: p.model,
 		Messages: []ollamaMessage{
@@ -60,11 +67,13 @@ func (p *OllamaProvider) Reason(ctx context.Context, systemPrompt, userPrompt st
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
+		LLMFailuresTotal.WithLabelValues("ollama").Inc()
 		return nil, fmt.Errorf("marshal ollama request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/chat", bytes.NewBuffer(jsonBody))
 	if err != nil {
+		LLMFailuresTotal.WithLabelValues("ollama").Inc()
 		return nil, fmt.Errorf("create ollama request: %w", err)
 	}
 
@@ -72,22 +81,26 @@ func (p *OllamaProvider) Reason(ctx context.Context, systemPrompt, userPrompt st
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		LLMFailuresTotal.WithLabelValues("ollama").Inc()
 		return nil, fmt.Errorf("do ollama request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		LLMFailuresTotal.WithLabelValues("ollama").Inc()
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("ollama API error (%d): %s", resp.StatusCode, string(body))
 	}
 
 	var ollamaResp ollamaChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		LLMFailuresTotal.WithLabelValues("ollama").Inc()
 		return nil, fmt.Errorf("decode ollama response: %w", err)
 	}
 
 	var reasoningResp ReasoningResponse
 	if err := json.Unmarshal([]byte(ollamaResp.Message.Content), &reasoningResp); err != nil {
+		LLMFailuresTotal.WithLabelValues("ollama").Inc()
 		return nil, fmt.Errorf("unmarshal reasoning response: %w", err)
 	}
 

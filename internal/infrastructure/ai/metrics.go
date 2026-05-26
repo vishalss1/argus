@@ -13,19 +13,21 @@ var (
 		},
 		[]string{"type", "severity"},
 	)
-	ReasoningLatencySeconds = promauto.NewHistogram(
+	ReasoningLatencySeconds = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "argus_ai_reasoning_latency_seconds",
 			Help:    "Latency of the LLM reasoning layer in seconds.",
-			Buckets: []float64{0.5, 1, 2, 5, 10, 30},
+			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30},
 		},
+		[]string{"provider"},
 	)
-	EmbeddingLatencySeconds = promauto.NewHistogram(
+	EmbeddingLatencySeconds = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "argus_ai_embedding_latency_seconds",
 			Help:    "Latency of the embedding generation in seconds.",
 			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2},
 		},
+		[]string{"provider"},
 	)
 	IncidentsCreatedTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
@@ -33,10 +35,25 @@ var (
 			Help: "Total number of incidents created by the correlation engine.",
 		},
 	)
-	LLMFailuresTotal = promauto.NewCounter(
+	VectorQueriesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_ai_vector_queries_total",
+			Help: "Total number of vector search queries performed.",
+		},
+		[]string{"table"},
+	)
+	LLMRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_ai_llm_requests_total",
+			Help: "Total number of LLM reasoning requests.",
+		},
+		[]string{"provider"},
+	)
+	LLMFailuresTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "argus_ai_llm_failures_total",
 			Help: "Total number of LLM reasoning failures.",
 		},
+		[]string{"provider"},
 	)
 )

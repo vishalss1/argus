@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/pgvector/pgvector-go"
+	"github.com/vishalss1/argus/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/internal/infrastructure/vectorstore"
 )
 
@@ -27,6 +28,8 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 	if !allowedTables[table] {
 		return nil, fmt.Errorf("table %s not allowed for vector search", table)
 	}
+
+	ai.VectorQueriesTotal.WithLabelValues(table).Inc()
 
 	query := fmt.Sprintf(`
 		SELECT id, embedding <=> $1 as distance

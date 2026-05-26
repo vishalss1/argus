@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/vishalss1/argus/internal/infrastructure/ai"
 )
 
 type OllamaProvider struct {
@@ -39,6 +42,11 @@ type ollamaEmbeddingResponse struct {
 }
 
 func (p *OllamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	start := time.Now()
+	defer func() {
+		ai.EmbeddingLatencySeconds.WithLabelValues("ollama").Observe(time.Since(start).Seconds())
+	}()
+
 	reqBody := ollamaEmbeddingRequest{
 		Model:  p.model,
 		Prompt: text,
