@@ -15,6 +15,7 @@ type Config struct {
 	Port                string
 	MQTTBrokerURL       string
 	MQTTClientID        string
+	MQTTStateTopic      string
 	MQTTTelemetryTopic  string
 	KafkaBrokers        []string
 	KafkaTelemetryTopic string
@@ -42,6 +43,7 @@ func Load() *Config {
 		Port:                os.Getenv("PORT"),
 		MQTTBrokerURL:       os.Getenv("MQTT_BROKER_URL"),
 		MQTTClientID:        os.Getenv("MQTT_CLIENT_ID"),
+		MQTTStateTopic:      os.Getenv("MQTT_STATE_TOPIC"),
 		MQTTTelemetryTopic:  os.Getenv("MQTT_TELEMETRY_TOPIC"),
 		KafkaBrokers:        splitCSV(os.Getenv("KAFKA_BROKERS")),
 		KafkaTelemetryTopic: os.Getenv("KAFKA_TELEMETRY_TOPIC"),
@@ -64,8 +66,11 @@ func Load() *Config {
 	if cfg.MQTTClientID == "" {
 		cfg.MQTTClientID = "argus-api"
 	}
+	if cfg.MQTTStateTopic == "" {
+		cfg.MQTTStateTopic = "devices/+/state"
+	}
 	if cfg.MQTTTelemetryTopic == "" {
-		cfg.MQTTTelemetryTopic = "argus/devices/+/telemetry"
+		cfg.MQTTTelemetryTopic = "devices/+/telemetry"
 	}
 	if cfg.KafkaTelemetryTopic == "" {
 		cfg.KafkaTelemetryTopic = "argus.telemetry"
@@ -96,8 +101,12 @@ func Load() *Config {
 		cfg.MinIOBucket = "argus-firmware"
 	}
 	cfg.MinIOUseSSL = parseBool(os.Getenv("MINIO_USE_SSL"))
-	cfg.HeartbeatTimeout = parseDurationSeconds("HEARTBEAT_TIMEOUT_SECONDS", 60)
-	cfg.HeartbeatInterval = parseDurationSeconds("HEARTBEAT_MONITOR_INTERVAL_SECONDS", 30)
+	cfg.HeartbeatTimeout = parseDurationSeconds("HEARTBEAT_TIMEOUT_SECONDS", 45)
+	if strings.TrimSpace(os.Getenv("HEARTBEAT_INTERVAL_SECONDS")) != "" {
+		cfg.HeartbeatInterval = parseDurationSeconds("HEARTBEAT_INTERVAL_SECONDS", 30)
+	} else {
+		cfg.HeartbeatInterval = parseDurationSeconds("HEARTBEAT_MONITOR_INTERVAL_SECONDS", 30)
+	}
 	cfg.ProvisioningBroker = os.Getenv("PROVISIONING_MQTT_BROKER_URL")
 	if cfg.ProvisioningBroker == "" {
 		cfg.ProvisioningBroker = cfg.MQTTBrokerURL

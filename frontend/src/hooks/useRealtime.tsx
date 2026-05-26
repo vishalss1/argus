@@ -8,8 +8,11 @@ import { queryKeys } from "./useArgusData";
 type RealtimeStatus = "connecting" | "connected" | "disconnected";
 
 interface RealtimeMessage {
-  type: "device_update" | "telemetry";
+  type: "device_update" | "telemetry" | "device_presence";
   payload: unknown;
+  deviceId?: string;
+  status?: string;
+  timestamp?: string;
 }
 
 interface RealtimeContextValue {
@@ -62,6 +65,20 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
               if (!exists) return [device, ...current];
               return current.map((item) => (item.id === device.id ? device : item));
             });
+          }
+          if (message.type === "device_presence" && message.deviceId && message.status) {
+            queryClient.setQueryData<Device[]>(queryKeys.devices, (current = []) =>
+              current.map((device) =>
+                device.id === message.deviceId
+                  ? {
+                      ...device,
+                      status: message.status!,
+                      last_seen: message.timestamp ?? device.last_seen,
+                      updated_at: message.timestamp ?? device.updated_at
+                    }
+                  : device
+              )
+            );
           }
           if (message.type === "telemetry") {
             const telemetry = message.payload as Telemetry;

@@ -16,6 +16,10 @@ func (p *realtimePublisher) PublishDeviceUpdate(ctx context.Context, entity devi
 	p.hub.Broadcast("device_update", entity)
 }
 
+func (p *realtimePublisher) PublishDevicePresence(ctx context.Context, event devicedomain.PresenceEvent) {
+	p.hub.BroadcastPayload(event)
+}
+
 func (p *realtimePublisher) PublishTelemetry(ctx context.Context, entity telemetrydomain.Telemetry) {
 	p.hub.Broadcast("telemetry", entity)
 }

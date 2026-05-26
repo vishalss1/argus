@@ -37,6 +37,36 @@ type HeartbeatInput struct {
 	Status string
 }
 
+type PresenceStatus string
+
+const (
+	PresenceOnline  PresenceStatus = "online"
+	PresenceOffline PresenceStatus = "offline"
+)
+
+type PresenceState struct {
+	DeviceID      string         `json:"deviceId"`
+	Online        bool           `json:"online"`
+	Status        PresenceStatus `json:"status"`
+	LastSeen      time.Time      `json:"lastSeen"`
+	ConnectedAt   *time.Time     `json:"connectedAt,omitempty"`
+	LastHeartbeat *time.Time     `json:"lastHeartbeat,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+}
+
+type PresenceInput struct {
+	Status    PresenceStatus
+	Timestamp time.Time
+	Metadata  map[string]any
+}
+
+type PresenceEvent struct {
+	Type      string `json:"type"`
+	DeviceID  string `json:"deviceId"`
+	Status    string `json:"status"`
+	Timestamp string `json:"timestamp"`
+}
+
 type ProvisionInput struct {
 	HardwareID      string
 	DeviceType      string

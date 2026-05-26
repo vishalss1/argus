@@ -21,15 +21,16 @@ func NewService(repo Repository) *Service {
 	return &Service{
 		repo: repo,
 		provisioningConfig: ProvisioningConfig{
-			MQTTTelemetryPattern: "argus/devices/+/telemetry",
+			MQTTTelemetryPattern: "devices/+/telemetry",
 			SamplingIntervalMS:   5000,
-			HeartbeatIntervalMS:  5000,
+			HeartbeatIntervalMS:  30000,
 		},
 	}
 }
 
 type EventPublisher interface {
 	PublishDeviceUpdate(ctx context.Context, entity Device)
+	PublishDevicePresence(ctx context.Context, event PresenceEvent)
 }
 
 func (s *Service) SetEventPublisher(publisher EventPublisher) {
@@ -192,7 +193,37 @@ func (s *Service) RecordHeartbeat(ctx context.Context, id string, input Heartbea
 	if err != nil {
 		return nil, err
 	}
+
+	return entity, nil
+}
+
+func (s *Service) RecordPresence(ctx context.Context, id string, input PresenceInput) (*Device, error) {
+	deviceID := strings.TrimSpace(id)
+	if deviceID == "" {
+		return nil, errors.New("device id is required")
+	}
+
+	status := PresenceStatus(strings.ToLower(strings.TrimSpace(string(input.Status))))
+	if status != PresenceOnline && status != PresenceOffline {
+		return nil, errors.New("presence status must be online or offline")
+	}
+
+	timestamp := input.Timestamp.UTC()
+	if timestamp.IsZero() {
+		timestamp = time.Now().UTC()
+	}
+
+	entity, err := s.repo.UpdatePresence(ctx, deviceID, string(status), timestamp)
+	if err != nil {
+		return nil, err
+	}
 	if s.publisher != nil {
+		s.publisher.PublishDevicePresence(ctx, PresenceEvent{
+			Type:      "device_presence",
+			DeviceID:  deviceID,
+			Status:    string(status),
+			Timestamp: timestamp.Format(time.RFC3339),
+		})
 		s.publisher.PublishDeviceUpdate(ctx, *entity)
 	}
 
@@ -210,6 +241,13 @@ func (s *Service) MarkStaleOffline(ctx context.Context, timeout time.Duration) (
 	}
 	if s.publisher != nil {
 		for _, entity := range devices {
+			timestamp := entity.UpdatedAt.UTC()
+			s.publisher.PublishDevicePresence(ctx, PresenceEvent{
+				Type:      "device_presence",
+				DeviceID:  entity.ID,
+				Status:    string(PresenceOffline),
+				Timestamp: timestamp.Format(time.RFC3339),
+			})
 			s.publisher.PublishDeviceUpdate(ctx, entity)
 		}
 	}
@@ -227,7 +265,7 @@ func (s *Service) provisionResponse(entity *Device) *ProvisionResponse {
 		DeviceUUID:          deviceID,
 		MQTTBrokerURL:       s.provisioningConfig.MQTTBrokerURL,
 		MQTTTelemetryTopic:  deviceTopic(s.provisioningConfig.MQTTTelemetryPattern, deviceID),
-		MQTTCommandTopic:    fmt.Sprintf("argus/devices/%s/commands", deviceID),
+		MQTTCommandTopic:    fmt.Sprintf("devices/%s/commands", deviceID),
 		SamplingIntervalMS:  s.provisioningConfig.SamplingIntervalMS,
 		HeartbeatIntervalMS: s.provisioningConfig.HeartbeatIntervalMS,
 	}
@@ -256,7 +294,7 @@ func provisioningMetadata(hardwareID string, capabilities json.RawMessage) (json
 func deviceTopic(pattern string, deviceID string) string {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
-		return fmt.Sprintf("argus/devices/%s/telemetry", deviceID)
+		return fmt.Sprintf("devices/%s/telemetry", deviceID)
 	}
 	if strings.Contains(pattern, "+") {
 		return strings.Replace(pattern, "+", deviceID, 1)

@@ -56,6 +56,10 @@ func (r *fakeRepository) UpdateHeartbeat(ctx context.Context, id string, status 
 	return nil, ErrDeviceNotFound
 }
 
+func (r *fakeRepository) UpdatePresence(ctx context.Context, id string, status string, timestamp time.Time) (*Device, error) {
+	return nil, ErrDeviceNotFound
+}
+
 func (r *fakeRepository) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]Device, error) {
 	return nil, nil
 }
@@ -69,7 +73,7 @@ func TestProvisionCreatesDeviceWithHardwareMetadata(t *testing.T) {
 	service := NewService(repo)
 	service.SetProvisioningConfig(ProvisioningConfig{
 		MQTTBrokerURL:        "tcp://broker:1883",
-		MQTTTelemetryPattern: "argus/devices/+/telemetry",
+		MQTTTelemetryPattern: "devices/+/telemetry",
 	})
 
 	response, err := service.Provision(context.Background(), ProvisionInput{
@@ -88,10 +92,10 @@ func TestProvisionCreatesDeviceWithHardwareMetadata(t *testing.T) {
 	if response.MQTTBrokerURL != "tcp://broker:1883" {
 		t.Fatalf("unexpected broker url: %s", response.MQTTBrokerURL)
 	}
-	if response.MQTTTelemetryTopic != "argus/devices/"+response.DeviceUUID+"/telemetry" {
+	if response.MQTTTelemetryTopic != "devices/"+response.DeviceUUID+"/telemetry" {
 		t.Fatalf("unexpected telemetry topic: %s", response.MQTTTelemetryTopic)
 	}
-	if response.MQTTCommandTopic != "argus/devices/"+response.DeviceUUID+"/commands" {
+	if response.MQTTCommandTopic != "devices/"+response.DeviceUUID+"/commands" {
 		t.Fatalf("unexpected command topic: %s", response.MQTTCommandTopic)
 	}
 

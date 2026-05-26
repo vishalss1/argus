@@ -139,7 +139,8 @@ Common optional variables:
 ```env
 MQTT_BROKER_URL=tcp://localhost:1883
 MQTT_CLIENT_ID=argus-api
-MQTT_TELEMETRY_TOPIC=argus/devices/+/telemetry
+MQTT_STATE_TOPIC=devices/+/state
+MQTT_TELEMETRY_TOPIC=devices/+/telemetry
 KAFKA_BROKERS=localhost:9092
 KAFKA_TELEMETRY_TOPIC=argus.telemetry
 KAFKA_COMMAND_TOPIC=argus.commands
@@ -151,6 +152,27 @@ MINIO_ACCESS_KEY=argus
 MINIO_SECRET_KEY=arguspassword
 MINIO_BUCKET=argus-firmware
 MINIO_USE_SSL=false
+HEARTBEAT_INTERVAL_SECONDS=30
+HEARTBEAT_TIMEOUT_SECONDS=45
+```
+
+## MQTT Device Presence
+
+ARGUS uses MQTT retained state messages and Last Will and Testament for near-realtime device presence. Devices should publish telemetry and commands on:
+
+- `devices/{deviceId}/state`
+- `devices/{deviceId}/telemetry`
+- `devices/{deviceId}/events`
+- `devices/{deviceId}/commands`
+
+On MQTT connect, an ESP32 should use keepalive `10` seconds, configure an LWT on `devices/{deviceId}/state` with QoS 1, retain enabled, and payload `{"status":"offline","timestamp":"<iso8601>"}`. After a successful connect it should publish `{"status":"online","timestamp":"<iso8601>"}` to the same state topic with QoS 1 and retain enabled.
+
+The backend subscribes to `devices/+/state` with a persistent MQTT session. Mosquitto retained messages rebuild the in-memory presence cache on backend startup, and presence changes are pushed immediately to WebSocket clients as `{"type":"device_presence","deviceId":"esp32-01","status":"offline","timestamp":"2026-05-26T10:00:00Z"}`. Heartbeat timeout is retained only as a safety fallback for stale devices; it is not the primary online/offline detector.
+
+For Mosquitto, enable persistence:
+
+```conf
+persistence true
 ```
 
 ### Run With Docker Compose

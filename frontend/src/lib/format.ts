@@ -1,7 +1,5 @@
 import type { Device, JsonValue } from "../types/api";
 
-const DEVICE_HEARTBEAT_TIMEOUT_MS = 60_000;
-
 export function formatDate(value?: string) {
   if (!value) return "Never";
   const date = new Date(value);
@@ -58,15 +56,9 @@ export function countByStatus<T extends { status?: string }>(items: T[]) {
 }
 
 export function effectiveDeviceStatus(device: Pick<Device, "status" | "last_seen">, now = Date.now()) {
-  const status = device.status?.toLowerCase() || "offline";
-  if (status === "offline") return "offline";
-  if (!device.last_seen) return "offline";
-
-  const lastSeen = new Date(device.last_seen).getTime();
-  if (Number.isNaN(lastSeen)) return "offline";
-  if (now - lastSeen > DEVICE_HEARTBEAT_TIMEOUT_MS) return "offline";
-
-  return status;
+  void now;
+  void device.last_seen;
+  return device.status?.toLowerCase() || "offline";
 }
 
 export function withEffectiveDeviceStatus<T extends Device>(device: T, now = Date.now()): T {

@@ -60,6 +60,20 @@ func (h *Hub) Broadcast(messageType string, payload any) {
 		return
 	}
 
+	h.BroadcastJSON(message)
+}
+
+func (h *Hub) BroadcastPayload(payload any) {
+	message, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("websocket marshal failed: %v", err)
+		return
+	}
+
+	h.BroadcastJSON(message)
+}
+
+func (h *Hub) BroadcastJSON(message []byte) {
 	h.mu.Lock()
 	closed := h.closed
 	h.mu.Unlock()

@@ -184,6 +184,26 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 	return entity, nil
 }
 
+func (r *DeviceRepository) UpdatePresence(ctx context.Context, id string, status string, timestamp time.Time) (*device.Device, error) {
+	const query = `
+		UPDATE devices
+		SET status = $2,
+			last_seen = $3,
+			updated_at = NOW()
+		WHERE id = $1::uuid
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+
+	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status, timestamp.UTC()))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, device.ErrDeviceNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update device presence: %w", err)
+	}
+
+	return entity, nil
+}
+
 func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]device.Device, error) {
 	const query = `
 		UPDATE devices

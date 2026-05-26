@@ -17,6 +17,7 @@ import {
   StatusChip
 } from "../components/ui";
 import { useAlerts, useDevices, useFirmware, useHealth } from "../hooks/useArgusData";
+import { useRealtime } from "../hooks/useRealtime";
 import { countByStatus, formatDate } from "../lib/format";
 
 const FILTERS = ["All", "Online", "Warning", "Critical", "Offline"];
@@ -29,15 +30,51 @@ function deviceRegion(metadata: any) {
   return "Unknown";
 }
 
-function deviceSignal(metadata: any) {
-  if (metadata && typeof metadata === "object" && typeof metadata.signal === "number") {
-    return metadata.signal;
+function convertToSignalLevel(val?: number): number {
+  if (val === undefined || val === null) return 0;
+  
+  // If it's a percentage or 0-4 level
+  if (val >= 0) {
+    if (val <= 4) return Math.round(val);
+    if (val >= 80) return 4;
+    if (val >= 60) return 3;
+    if (val >= 40) return 2;
+    if (val >= 20) return 1;
+    return 0;
   }
+  
+  // If it's a negative dBm (RSSI)
+  if (val >= -50) return 4;
+  if (val >= -65) return 3;
+  if (val >= -75) return 2;
+  if (val >= -85) return 1;
+  return 0;
+}
+
+function extractSignalLevel(device: any, liveTelemetry: any): number {
+  // Check live telemetry first for any common signal metric
+  if (liveTelemetry && liveTelemetry.metrics) {
+    const metrics = liveTelemetry.metrics;
+    const rssi = metrics.rssi ?? metrics.wifi_rssi ?? metrics.signal ?? metrics.signal_strength;
+    if (typeof rssi === "number") {
+      return convertToSignalLevel(rssi);
+    }
+  }
+
+  // Fallback to device metadata (useful for initial load before telemetry streams)
+  if (device.metadata && typeof device.metadata === "object") {
+    const sig = device.metadata.signal ?? device.metadata.rssi ?? device.metadata.wifi_rssi ?? device.metadata.signal_strength;
+    if (typeof sig === "number") {
+      return convertToSignalLevel(sig);
+    }
+  }
+
   return 0;
 }
 
 export function DashboardPage() {
   const devices = useDevices({ realtime: true });
+  const { telemetryByDevice } = useRealtime();
   const alerts = useAlerts();
   const firmware = useFirmware();
   const health = useHealth();
@@ -164,17 +201,20 @@ export function DashboardPage() {
                         </td>
                       </tr>
                     )}
-                    {paged.map((device) => (
-                      <tr key={device.id}>
-                        <td><CopyableID id={device.id} length={8} /></td>
-                        <td><strong>{device.name}</strong></td>
-                        <td className="muted">{deviceRegion(device.metadata)}</td>
-                        <td><StatusChip value={device.status} /></td>
-                        <td>{device.firmware_version || "Unset"}</td>
-                        <td className="muted">{formatDate(device.last_seen)}</td>
-                        <td><SignalStrength strength={deviceSignal(device.metadata)} /></td>
-                      </tr>
-                    ))}
+                    {paged.map((device) => {
+                      const telemetry = telemetryByDevice[device.id];
+                      return (
+                        <tr key={device.id}>
+                          <td><CopyableID id={device.id} length={8} /></td>
+                          <td><strong>{device.name}</strong></td>
+                          <td className="muted">{deviceRegion(device.metadata)}</td>
+                          <td><StatusChip value={device.status} /></td>
+                          <td>{device.firmware_version || "Unset"}</td>
+                          <td className="muted">{formatDate(device.last_seen)}</td>
+                          <td><SignalStrength strength={extractSignalLevel(device, telemetry)} /></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

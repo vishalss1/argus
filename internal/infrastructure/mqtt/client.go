@@ -9,6 +9,7 @@ import (
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
+	"github.com/vishalss1/argus/internal/domain/device"
 	"github.com/vishalss1/argus/internal/domain/telemetry"
 )
 
@@ -16,12 +17,15 @@ type Config struct {
 	BrokerURL      string
 	ClientID       string
 	TelemetryTopic string
+	StateTopic     string
 }
 
 type Client struct {
 	client           paho.Client
 	telemetryService *telemetry.Service
+	presenceService  *device.PresenceService
 	telemetryTopic   string
+	stateTopic       string
 }
 
 type telemetryMessage struct {
@@ -29,7 +33,13 @@ type telemetryMessage struct {
 	Metrics    json.RawMessage `json:"metrics"`
 }
 
-func New(config Config, telemetryService *telemetry.Service) (*Client, error) {
+type stateMessage struct {
+	Status    string         `json:"status"`
+	Timestamp string         `json:"timestamp"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+func New(config Config, telemetryService *telemetry.Service, presenceService *device.PresenceService) (*Client, error) {
 	if config.BrokerURL == "" {
 		return nil, fmt.Errorf("mqtt broker url is required")
 	}
@@ -37,19 +47,36 @@ func New(config Config, telemetryService *telemetry.Service) (*Client, error) {
 		config.ClientID = "argus-api"
 	}
 	if config.TelemetryTopic == "" {
-		config.TelemetryTopic = "argus/devices/+/telemetry"
+		config.TelemetryTopic = "devices/+/telemetry"
+	}
+	if config.StateTopic == "" {
+		config.StateTopic = "devices/+/state"
 	}
 
 	mqttClient := &Client{
 		telemetryService: telemetryService,
+		presenceService:  presenceService,
 		telemetryTopic:   config.TelemetryTopic,
+		stateTopic:       config.StateTopic,
 	}
 
 	options := paho.NewClientOptions().
 		AddBroker(config.BrokerURL).
 		SetClientID(config.ClientID).
+		SetCleanSession(false).
+		SetKeepAlive(30 * time.Second).
 		SetAutoReconnect(true).
 		SetConnectRetry(true).
+		SetConnectionLostHandler(func(_ paho.Client, err error) {
+			log.Printf("mqtt connection lost: %v", err)
+		}).
+		SetOnConnectHandler(func(client paho.Client) {
+			log.Printf("mqtt connected: broker=%s client_id=%s", config.BrokerURL, config.ClientID)
+			mqttClient.subscribe(client)
+		}).
+		SetReconnectingHandler(func(_ paho.Client, _ *paho.ClientOptions) {
+			log.Printf("mqtt reconnecting: broker=%s client_id=%s", config.BrokerURL, config.ClientID)
+		}).
 		SetDefaultPublishHandler(mqttClient.handleMessage)
 
 	mqttClient.client = paho.NewClient(options)
@@ -61,11 +88,6 @@ func (c *Client) Start() error {
 		return fmt.Errorf("connect mqtt broker: %w", token.Error())
 	}
 
-	if token := c.client.Subscribe(c.telemetryTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
-		return fmt.Errorf("subscribe mqtt telemetry topic: %w", token.Error())
-	}
-
-	log.Printf("mqtt subscribed to %s", c.telemetryTopic)
 	return nil
 }
 
@@ -78,7 +100,32 @@ func (c *Client) Close() {
 }
 
 func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
-	deviceID, err := deviceIDFromTelemetryTopic(c.telemetryTopic, message.Topic())
+	switch {
+	case topicMatches(c.stateTopic, message.Topic()):
+		c.handleStateMessage(message)
+	case topicMatches(c.telemetryTopic, message.Topic()):
+		c.handleTelemetryMessage(message)
+	default:
+		log.Printf("mqtt ignored unexpected topic: %s", message.Topic())
+	}
+}
+
+func (c *Client) subscribe(client paho.Client) {
+	if token := client.Subscribe(c.stateTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+		log.Printf("mqtt subscribe state topic failed: %v", token.Error())
+		return
+	}
+	log.Printf("mqtt subscribed to %s", c.stateTopic)
+
+	if token := client.Subscribe(c.telemetryTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+		log.Printf("mqtt subscribe telemetry topic failed: %v", token.Error())
+		return
+	}
+	log.Printf("mqtt subscribed to %s", c.telemetryTopic)
+}
+
+func (c *Client) handleTelemetryMessage(message paho.Message) {
+	deviceID, err := deviceIDFromTopic(c.telemetryTopic, message.Topic())
 	if err != nil {
 		log.Printf("mqtt telemetry ignored: %v", err)
 		return
@@ -100,11 +147,50 @@ func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
 	}
 }
 
-func deviceIDFromTelemetryTopic(pattern string, topic string) (string, error) {
+func (c *Client) handleStateMessage(message paho.Message) {
+	deviceID, err := deviceIDFromTopic(c.stateTopic, message.Topic())
+	if err != nil {
+		log.Printf("mqtt presence ignored: %v", err)
+		return
+	}
+
+	var payload stateMessage
+	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
+		log.Printf("mqtt presence decode failed for device %s: %v", deviceID, err)
+		return
+	}
+
+	timestamp := time.Now().UTC()
+	if strings.TrimSpace(payload.Timestamp) != "" {
+		parsed, err := time.Parse(time.RFC3339, payload.Timestamp)
+		if err != nil {
+			log.Printf("mqtt presence invalid timestamp for device %s: %v", deviceID, err)
+			return
+		}
+		timestamp = parsed.UTC()
+	}
+
+	_, err = c.presenceService.RecordState(context.Background(), deviceID, device.PresenceInput{
+		Status:    device.PresenceStatus(payload.Status),
+		Timestamp: timestamp,
+		Metadata:  payload.Metadata,
+	}, message.Retained())
+	if err != nil {
+		log.Printf("mqtt presence update failed for device %s: %v", deviceID, err)
+		return
+	}
+}
+
+func topicMatches(pattern string, topic string) bool {
+	_, err := deviceIDFromTopic(pattern, topic)
+	return err == nil
+}
+
+func deviceIDFromTopic(pattern string, topic string) (string, error) {
 	patternParts := strings.Split(pattern, "/")
 	parts := strings.Split(topic, "/")
 	if len(patternParts) != len(parts) {
-		return "", fmt.Errorf("unexpected telemetry topic %q", topic)
+		return "", fmt.Errorf("unexpected mqtt topic %q", topic)
 	}
 
 	deviceID := ""
@@ -114,12 +200,12 @@ func deviceIDFromTelemetryTopic(pattern string, topic string) (string, error) {
 			continue
 		}
 		if patternPart != parts[i] {
-			return "", fmt.Errorf("unexpected telemetry topic %q", topic)
+			return "", fmt.Errorf("unexpected mqtt topic %q", topic)
 		}
 	}
 
 	if deviceID == "" {
-		return "", fmt.Errorf("missing device id in telemetry topic %q", topic)
+		return "", fmt.Errorf("missing device id in mqtt topic %q", topic)
 	}
 
 	return deviceID, nil

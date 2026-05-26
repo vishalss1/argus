@@ -52,7 +52,9 @@ func Bootstrap() (*Server, error) {
 	deviceService.SetProvisioningConfig(devicedomain.ProvisioningConfig{
 		MQTTBrokerURL:        cfg.ProvisioningBroker,
 		MQTTTelemetryPattern: cfg.MQTTTelemetryTopic,
+		HeartbeatIntervalMS:  int(cfg.HeartbeatInterval / time.Millisecond),
 	})
+	presenceService := devicedomain.NewPresenceService(deviceService)
 	websocketHub := transportws.NewHub()
 	realtime := &realtimePublisher{hub: websocketHub}
 	deviceService.SetEventPublisher(realtime)
@@ -119,7 +121,8 @@ func Bootstrap() (*Server, error) {
 			BrokerURL:      cfg.MQTTBrokerURL,
 			ClientID:       cfg.MQTTClientID,
 			TelemetryTopic: cfg.MQTTTelemetryTopic,
-		}, telemetryService)
+			StateTopic:     cfg.MQTTStateTopic,
+		}, telemetryService, presenceService)
 		if err != nil {
 			return nil, err
 		}
@@ -222,5 +225,5 @@ func runHeartbeatMonitor(ctx context.Context, service *devicedomain.Service, tim
 		return
 	}
 
-	log.Printf("heartbeat monitor marked %d device(s) offline", len(devices))
+	log.Printf("heartbeat fallback monitor marked %d device(s) offline", len(devices))
 }

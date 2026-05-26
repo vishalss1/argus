@@ -15,10 +15,11 @@ export const queryKeys = {
 };
 
 export function useDevices({ realtime = false }: { realtime?: boolean } = {}) {
+  void realtime;
   return useQuery({
     queryKey: queryKeys.devices,
     queryFn: api.devices.list,
-    refetchInterval: realtime ? false : 15_000,
+    refetchInterval: false,
     select: (devices) => {
       const now = Date.now();
       return devices.map((device) => withEffectiveDeviceStatus(device, now));
