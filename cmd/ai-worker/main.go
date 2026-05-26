@@ -8,9 +8,17 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/vishalss1/argus/internal/ai/anomaly"
+	"github.com/vishalss1/argus/internal/ai/correlation"
+	"github.com/vishalss1/argus/internal/ai/memory"
 	"github.com/vishalss1/argus/internal/ai/semantic"
 	"github.com/vishalss1/argus/internal/config"
+	anomalydomain "github.com/vishalss1/argus/internal/domain/anomaly"
+	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
+	eventdomain "github.com/vishalss1/argus/internal/domain/event"
+	incidentdomain "github.com/vishalss1/argus/internal/domain/incident"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
+	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
 )
@@ -24,8 +32,51 @@ func main() {
 	}
 	defer db.Close()
 
+	embeddingProvider := embedding.NewDummyProvider(768)
+	vectorStore := postgres.NewVectorStore(db)
+	semanticEmbedding := semantic.NewEmbeddingService(embeddingProvider, vectorStore)
+	correlationEmbedding := correlation.NewEmbeddingService(embeddingProvider, vectorStore)
+
 	eventRepo := postgres.NewEventRepository(db)
 	semanticEngine := semantic.NewEngine(eventRepo)
+
+	anomalyEngine := anomaly.NewEngine(func(ctx context.Context, a anomalydomain.Anomaly) {
+		// Convert anomaly to semantic event
+		ev := eventdomain.Event{
+			ID:              a.ID,
+			DeviceID:        a.DeviceID,
+			Type:            string(a.Type),
+			Severity:        eventdomain.Severity(a.Severity),
+			Title:           a.Title,
+			Summary:         a.Summary,
+			Source:          "anomaly_engine",
+			ConfidenceScore: a.ConfidenceScore,
+			Metadata:        a.Metadata,
+			CreatedAt:       a.CreatedAt,
+		}
+		if _, err := eventRepo.Create(ctx, ev); err == nil {
+			log.Printf("anomaly detected and persisted as event: %s", ev.Title)
+		}
+	})
+
+	contextRepo := postgres.NewContextRepository(db)
+	contextService := ctxdomain.NewService(contextRepo)
+	memoryManager := memory.NewManager(contextService)
+
+	incidentRepo := postgres.NewIncidentRepository(db)
+	incidentService := incidentdomain.NewService(incidentRepo)
+	incidentService.OnCreated = func(ctx context.Context, inc incidentdomain.Incident) {
+		if err := correlationEmbedding.EmbedIncident(ctx, inc); err != nil {
+			log.Printf("failed to embed incident: %v", err)
+		}
+	}
+	incidentService.OnResolved = func(ctx context.Context, inc incidentdomain.Incident) {
+		if err := memoryManager.SummarizeIncident(ctx, inc); err != nil {
+			log.Printf("failed to summarize incident: %v", err)
+		}
+	}
+
+	correlationEngine := correlation.NewEngine(incidentService, eventRepo)
 
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
@@ -69,11 +120,23 @@ func main() {
 				continue
 			}
 
+			if err := anomalyEngine.Analyze(ctx, t); err != nil {
+				log.Printf("failed to run anomaly detection: %v", err)
+			}
+
 			events, err := semanticEngine.AnalyzeTelemetry(ctx, t)
 			if err != nil {
 				log.Printf("failed to analyze telemetry: %v", err)
 			} else if len(events) > 0 {
 				log.Printf("generated %d semantic events for device %s", len(events), t.DeviceID)
+				for _, ev := range events {
+					if err := semanticEmbedding.EmbedEvent(ctx, ev); err != nil {
+						log.Printf("failed to embed event: %v", err)
+					}
+					if err := correlationEngine.Correlate(ctx, ev); err != nil {
+						log.Printf("failed to correlate event: %v", err)
+					}
+				}
 			}
 
 			if err := consumer.CommitMessages(ctx, msg); err != nil {

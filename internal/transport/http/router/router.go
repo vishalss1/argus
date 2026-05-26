@@ -12,7 +12,16 @@ import (
 	transportws "github.com/vishalss1/argus/internal/transport/websocket"
 )
 
-func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.TelemetryHandler, shadowHandler *handler.ShadowHandler, commandHandler *handler.CommandHandler, otaHandler *handler.OTAHandler, ruleHandler *handler.RuleHandler, websocketHandler *transportws.Handler) http.Handler {
+func New(
+	deviceHandler *handler.DeviceHandler,
+	telemetryHandler *handler.TelemetryHandler,
+	shadowHandler *handler.ShadowHandler,
+	commandHandler *handler.CommandHandler,
+	otaHandler *handler.OTAHandler,
+	ruleHandler *handler.RuleHandler,
+	aiHandler *handler.AIHandler,
+	websocketHandler *transportws.Handler,
+) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Metrics)
@@ -27,6 +36,15 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 	r.Post("/provision", deviceHandler.ProvisionDevice)
 
 	r.Get("/alerts", ruleHandler.ListAlerts)
+
+	r.Route("/ai", func(r chi.Router) {
+		r.Get("/events", aiHandler.ListEvents)
+		r.Get("/incidents", aiHandler.ListIncidents)
+		r.Route("/incidents/{incidentID}", func(r chi.Router) {
+			r.Get("/", aiHandler.GetIncident)
+			r.Post("/resolve", aiHandler.ResolveIncident)
+		})
+	})
 
 	r.Route("/rules", func(r chi.Router) {
 		r.Get("/", ruleHandler.ListRules)
@@ -110,6 +128,8 @@ func New(deviceHandler *handler.DeviceHandler, telemetryHandler *handler.Telemet
 			r.Put("/shadow/reported", func(w http.ResponseWriter, r *http.Request) {
 				shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
 			})
+			r.Get("/ai/events", aiHandler.ListDeviceEvents)
+			r.Get("/ai/history", aiHandler.GetDeviceHistory)
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
 			})

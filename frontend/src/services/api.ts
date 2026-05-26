@@ -10,7 +10,11 @@ import type {
   Manifest,
   MetricSample,
   Rule,
-  Shadow
+  Shadow,
+  SemanticEvent,
+  Incident,
+  OperationalMemory,
+  ReasoningResponse
 } from "../types/api";
 import { request } from "./http";
 
@@ -129,6 +133,15 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ state })
       })
+  },
+
+  ai: {
+    listEvents: () => request<SemanticEvent[]>("/ai/events"),
+    listDeviceEvents: (deviceID: string) => request<SemanticEvent[]>(`/devices/${deviceID}/ai/events`),
+    listIncidents: () => request<Incident[]>("/ai/incidents"),
+    getIncident: (id: string) => request<Incident>(`/ai/incidents/${id}`),
+    resolveIncident: (id: string) => request<void>(`/ai/incidents/${id}/resolve`, { method: "POST" }),
+    getDeviceHistory: (deviceID: string) => request<OperationalMemory[]>(`/devices/${deviceID}/ai/history`)
   }
 };
 

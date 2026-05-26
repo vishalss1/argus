@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vishalss1/argus/internal/domain/event"
 	"github.com/vishalss1/argus/internal/domain/telemetry"
+	"github.com/vishalss1/argus/internal/infrastructure/ai"
 )
 
 type Engine struct {
@@ -96,6 +97,8 @@ func (e *Engine) AnalyzeTelemetry(ctx context.Context, t telemetry.Telemetry) ([
 		if _, err := e.eventRepo.Create(ctx, ev); err != nil {
 			// Log error but continue
 			fmt.Printf("failed to persist event: %v\n", err)
+		} else {
+			ai.EventsGeneratedTotal.WithLabelValues(ev.Type, string(ev.Severity)).Inc()
 		}
 	}
 

@@ -32,6 +32,9 @@ type Config struct {
 	HeartbeatTimeout    time.Duration
 	HeartbeatInterval   time.Duration
 	ProvisioningBroker  string
+	GroqAPIKey          string
+	GroqModel           string
+	GroqBaseURL         string
 }
 
 func Load() *Config {
@@ -55,6 +58,9 @@ func Load() *Config {
 		MinIOAccessKey:      os.Getenv("MINIO_ACCESS_KEY"),
 		MinIOSecretKey:      os.Getenv("MINIO_SECRET_KEY"),
 		MinIOBucket:         os.Getenv("MINIO_BUCKET"),
+		GroqAPIKey:          os.Getenv("GROQ_API_KEY"),
+		GroqModel:           os.Getenv("GROQ_MODEL"),
+		GroqBaseURL:         os.Getenv("GROQ_BASE_URL"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -115,6 +121,13 @@ func Load() *Config {
 	cfg.ProvisioningBroker = os.Getenv("PROVISIONING_MQTT_BROKER_URL")
 	if cfg.ProvisioningBroker == "" {
 		cfg.ProvisioningBroker = cfg.MQTTBrokerURL
+	}
+
+	if cfg.GroqModel == "" {
+		cfg.GroqModel = "llama-3.3-70b-versatile"
+	}
+	if cfg.GroqBaseURL == "" {
+		cfg.GroqBaseURL = "https://api.groq.com/openai/v1"
 	}
 
 	return cfg

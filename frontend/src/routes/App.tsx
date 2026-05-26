@@ -14,6 +14,7 @@ import { OTAPage } from "../pages/OTAPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { ShadowPage } from "../pages/ShadowPage";
 import { TelemetryPage } from "../pages/TelemetryPage";
+import AIPage from "../pages/AIPage";
 
 export function App() {
   return (
@@ -33,6 +34,7 @@ export function App() {
         <Route path="commands" element={<CommandsPage />} />
         <Route path="alerts" element={<AlertsPage />} />
         <Route path="observability" element={<ObservabilityPage />} />
+        <Route path="ai" element={<AIPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

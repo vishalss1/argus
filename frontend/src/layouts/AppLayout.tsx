@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
+  Brain,
   Cpu,
   FileText,
   Gauge,
@@ -32,6 +33,7 @@ const controlLinks = [
 
 const observeLinks = [
   { to: "/observability", label: "Observability", icon: Gauge },
+  { to: "/ai", label: "AI Insights", icon: Brain },
   { to: "/alerts", label: "Alerts", icon: AlertTriangle }
 ];
 

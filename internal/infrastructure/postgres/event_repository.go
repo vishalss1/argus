@@ -39,6 +39,28 @@ func (r *EventRepository) Create(ctx context.Context, ev event.Event) (*event.Ev
 	return &created, nil
 }
 
+func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event, error) {
+	query := `
+		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
+		FROM events
+		WHERE id = $1
+	`
+
+	var ev event.Event
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&ev.ID, &ev.DeviceID, &ev.Type, &ev.Severity, &ev.Title, &ev.Summary, &ev.Source, &ev.ConfidenceScore, &ev.Metadata, &ev.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("event not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get event: %w", err)
+	}
+
+	return &ev, nil
+}
+
 func (r *EventRepository) List(ctx context.Context) ([]event.Event, error) {
 	query := `
 		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at

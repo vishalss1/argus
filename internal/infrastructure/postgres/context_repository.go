@@ -39,6 +39,28 @@ func (r *ContextRepository) Create(ctx context.Context, mem ctxdomain.Operationa
 	return &created, nil
 }
 
+func (r *ContextRepository) GetByID(ctx context.Context, id string) (*ctxdomain.OperationalMemory, error) {
+	query := `
+		SELECT id, device_id, type, summary, data, timestamp, created_at
+		FROM operational_memory
+		WHERE id = $1
+	`
+
+	var mem ctxdomain.OperationalMemory
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&mem.ID, &mem.DeviceID, &mem.Type, &mem.Summary, &mem.Data, &mem.Timestamp, &mem.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("memory not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get memory: %w", err)
+	}
+
+	return &mem, nil
+}
+
 func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string) ([]ctxdomain.OperationalMemory, error) {
 	query := `
 		SELECT id, device_id, type, summary, data, timestamp, created_at

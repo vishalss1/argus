@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/vishalss1/argus/internal/config"
+	"github.com/vishalss1/argus/internal/ai/memory"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
+	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
+	incidentdomain "github.com/vishalss1/argus/internal/domain/incident"
 	otadomain "github.com/vishalss1/argus/internal/domain/ota"
 	ruledomain "github.com/vishalss1/argus/internal/domain/rule"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
@@ -115,6 +118,21 @@ func Bootstrap() (*Server, error) {
 	otaService := otadomain.NewService(otaRepository, minioClient)
 	otaHandler := transporthandler.NewOTAHandler(otaService)
 
+	eventRepository := postgres.NewEventRepository(database)
+	contextRepository := postgres.NewContextRepository(database)
+	contextService := ctxdomain.NewService(contextRepository)
+	memoryManager := memory.NewManager(contextService)
+
+	incidentRepository := postgres.NewIncidentRepository(database)
+	incidentService := incidentdomain.NewService(incidentRepository)
+	incidentService.OnResolved = func(ctx context.Context, inc incidentdomain.Incident) {
+		if err := memoryManager.SummarizeIncident(ctx, inc); err != nil {
+			log.Printf("failed to summarize incident: %v", err)
+		}
+	}
+
+	aiHandler := transporthandler.NewAIHandler(eventRepository, incidentService, contextService)
+
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
 		mqttClient, err = mqtt.New(mqtt.Config{
@@ -129,7 +147,7 @@ func Bootstrap() (*Server, error) {
 	}
 
 	websocketHandler := transportws.NewHandler(websocketHub)
-	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler, websocketHandler)
+	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler, aiHandler, websocketHandler)
 	appCtx, cancel := context.WithCancel(context.Background())
 	server := &Server{
 		db:            database,

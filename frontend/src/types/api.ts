@@ -133,3 +133,47 @@ export interface MetricSample {
   labels: Record<string, string>;
   value: number;
 }
+
+export interface SemanticEvent {
+  id: string;
+  device_id: string;
+  type: string;
+  severity: string;
+  title: string;
+  summary: string;
+  source: string;
+  confidence_score: number;
+  metadata: JsonValue;
+  created_at: string;
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  summary: string;
+  severity: string;
+  status: string;
+  device_ids: string[];
+  event_ids: string[];
+  started_at: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperationalMemory {
+  id: string;
+  device_id?: string;
+  type: string;
+  summary: string;
+  data: JsonValue;
+  timestamp: string;
+  created_at: string;
+}
+
+export interface ReasoningResponse {
+  summary: string;
+  confidence: number;
+  evidence: string[];
+  suggested_actions: string[];
+}
