@@ -114,7 +114,7 @@ const AIPage: React.FC = () => {
                   <div>
                     <span className="ai-evidence-title">Evidence Chain</span>
                     <ul className="ai-evidence-list">
-                      {reasoning.evidence.map((ev, i) => (
+                      {reasoning.evidence?.map((ev, i) => (
                         <li key={i} className="ai-evidence-item">
                           <ShieldCheck size={12} className="ai-evidence-icon" />
                           <span>{ev}</span>
@@ -125,7 +125,7 @@ const AIPage: React.FC = () => {
                   <div>
                     <span className="ai-suggestions-title">Remediation Suggestions</span>
                     <div className="ai-suggestions-list">
-                      {reasoning.suggested_actions.map((act, i) => (
+                      {reasoning.suggested_actions?.map((act, i) => (
                         <div key={i} className="ai-remediation-item">
                           <span>{act}</span>
                           <ArrowRight size={10} />
