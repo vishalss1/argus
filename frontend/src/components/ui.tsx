@@ -33,7 +33,7 @@ export function Panel({
   children,
   className = ""
 }: {
-  title?: string;
+  title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -332,4 +332,47 @@ export function SearchBar({ placeholder = "Search..." }: { placeholder?: string 
       <input placeholder={placeholder} />
     </div>
   );
+}
+
+/* ── Generic UI Primitives ── */
+
+export function Button({
+  children,
+  className = "",
+  disabled,
+  onClick,
+  type = "button"
+}: {
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  onClick?: () => void;
+  type?: "button" | "submit" | "reset";
+}) {
+  return (
+    <button
+      className={`button ${className}`}
+      disabled={disabled}
+      onClick={onClick}
+      type={type}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`panel ${className}`}>{children}</div>;
+}
+
+export function CardHeader({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`panel-header ${className}`}>{children}</div>;
+}
+
+export function CardTitle({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <h2 className={className}>{children}</h2>;
+}
+
+export function CardContent({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={className}>{children}</div>;
 }

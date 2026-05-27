@@ -141,7 +141,11 @@ export const api = {
     listIncidents: () => request<Incident[]>("/ai/incidents"),
     getIncident: (id: string) => request<Incident>(`/ai/incidents/${id}`),
     resolveIncident: (id: string) => request<void>(`/ai/incidents/${id}/resolve`, { method: "POST" }),
-    getDeviceHistory: (deviceID: string) => request<OperationalMemory[]>(`/devices/${deviceID}/ai/history`)
+    getDeviceHistory: (deviceID: string) => request<OperationalMemory[]>(`/devices/${deviceID}/ai/history`),
+    query: (query: string) => request<ReasoningResponse>("/ai/query", {
+      method: "POST",
+      body: JSON.stringify({ query })
+    })
   }
 };
 

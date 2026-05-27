@@ -1,106 +1,259 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../services/api";
-import { SemanticEvent, Incident } from "../types/api";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui";
+import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
+import { Panel, PageHeader, StatusChip, CopyableID, EmptyState } from "../components/ui";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap } from "lucide-react";
 
 const AIPage: React.FC = () => {
   const [events, setEvents] = useState<SemanticEvent[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [query, setQuery] = useState("");
+  const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
+  const [queryLoading, setQueryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [evs, incs] = await Promise.all([
-          api.ai.listEvents(),
-          api.ai.listIncidents()
-        ]);
-        setEvents(evs);
-        setIncidents(incs);
-      } catch (err) {
-        console.error("Failed to fetch AI data", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    fetchBaseData();
   }, []);
 
+  const fetchBaseData = async () => {
+    try {
+      const [evs, incs] = await Promise.all([
+        api.ai.listEvents(),
+        api.ai.listIncidents()
+      ]);
+      setEvents(evs);
+      setIncidents(incs);
+    } catch (err) {
+      console.error("Failed to fetch AI data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+
+    setQueryLoading(true);
+    setReasoning(null);
+    try {
+      const resp = await api.ai.query(query);
+      setReasoning(resp);
+    } catch (err) {
+      console.error("Query failed", err);
+    } finally {
+      setQueryLoading(false);
+    }
+  };
+
   if (loading) {
-    return <div className="p-8">Loading AI insights...</div>;
+    return (
+      <div className="workspace">
+        <div className="empty-state">
+          <Clock className="animate-spin" size={24} />
+          <h3>Initializing Context</h3>
+          <p>Assembling fleet intelligence from operational memory...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="p-8 space-y-8">
-      <h1 className="text-3xl font-bold">AI Runtime Insights</h1>
+    <>
+      <PageHeader 
+        title="AI Operational Intelligence" 
+        description="Real-time semantic reasoning, statistical anomaly detection, and incident correlation."
+        actions={<div className="live-badge online"><span className="live-dot" />LOCAL INFERENCE ACTIVE</div>}
+      />
 
-      <section className="space-y-4">
-        <h2 className="text-2xl font-semibold text-red-500">Active Incidents</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {incidents.filter(i => i.status === "open").map(inc => (
-            <Card key={inc.id} className="border-red-200 bg-red-50">
-              <CardHeader>
-                <CardTitle className="text-red-700">{inc.title}</CardTitle>
-                <div className="text-sm text-red-500 uppercase font-bold">{inc.severity}</div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-red-600">{inc.summary}</p>
-                <div className="mt-4 text-xs text-red-400">
-                  Started: {new Date(inc.started_at).toLocaleString()}
+      <div className="split">
+        <div className="grid">
+          {/* Query Engine */}
+          <Panel
+            title={
+              <span style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--accent)" }}>
+                <Brain size={18} /> Semantic Query Engine
+              </span>
+            }
+          >
+            <form onSubmit={handleQuery} style={{ display: "flex", gap: "12px" }}>
+              <div className="search-input" style={{ flex: 1, height: 38, background: "var(--surface-2)" }}>
+                <Search size={16} />
+                <input
+                  type="text"
+                  placeholder="Ask about fleet state... (e.g. 'Recent anomalies on device-4?')"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <button 
+                type="submit" 
+                className="button primary"
+                disabled={queryLoading}
+                style={{ paddingLeft: 24, paddingRight: 24 }}
+              >
+                {queryLoading ? "Reasoning..." : "Analyze"}
+              </button>
+            </form>
+
+            {reasoning && (
+              <div className="ai-reasoning-panel">
+                <div className="ai-reasoning-header">
+                  <h3>Analysis Result</h3>
+                  <span className="ai-confidence-badge">
+                    {(reasoning.confidence * 100).toFixed(0)}% CONFIDENCE
+                  </span>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-          {incidents.filter(i => i.status === "open").length === 0 && (
-            <p className="text-gray-500 italic">No active incidents detected.</p>
-          )}
-        </div>
-      </section>
+                
+                <p className="ai-reasoning-summary">
+                  {reasoning.summary}
+                </p>
 
-      <section className="space-y-4">
-        <h2 className="text-2xl font-semibold">Semantic Operational Events</h2>
-        <div className="bg-white border rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Severity</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Summary</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {events.map(ev => (
-                <tr key={ev.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(ev.created_at).toLocaleTimeString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {ev.device_id}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {ev.type}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      ev.severity === "critical" ? "bg-red-100 text-red-800" : 
-                      ev.severity === "warning" ? "bg-yellow-100 text-yellow-800" : 
-                      "bg-blue-100 text-blue-800"
-                    }`}>
-                      {ev.severity}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ev.summary}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <div className="grid two">
+                  <div>
+                    <span className="ai-evidence-title">Evidence Chain</span>
+                    <ul className="ai-evidence-list">
+                      {reasoning.evidence.map((ev, i) => (
+                        <li key={i} className="ai-evidence-item">
+                          <ShieldCheck size={12} className="ai-evidence-icon" />
+                          <span>{ev}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="ai-suggestions-title">Remediation Suggestions</span>
+                    <div className="ai-suggestions-list">
+                      {reasoning.suggested_actions.map((act, i) => (
+                        <div key={i} className="ai-remediation-item">
+                          <span>{act}</span>
+                          <ArrowRight size={10} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Panel>
+
+          {/* Semantic Feed */}
+          <Panel
+            title={
+              <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Zap size={16} className="text-warning" /> Semantic Operational Feed
+              </span>
+            }
+            subtitle={`${events.length} events detected`}
+          >
+            <div className="table-wrap">
+              <table className="ai-table text-sm">
+                <thead>
+                  <tr>
+                    <th>Source / Type</th>
+                    <th>Detail</th>
+                    <th className="text-center">Severity</th>
+                    <th className="text-right">Observed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>
+                        <EmptyState
+                          title="No events detected"
+                          description="The semantic feed will populate as devices report telemetry and status updates."
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    events.slice(0, 12).map(ev => (
+                      <tr key={ev.id}>
+                        <td>
+                          <div className="flex flex-col">
+                            <strong className="text-text">{ev.type.replace('_', ' ')}</strong>
+                            <span className="text-[10px] text-faint mono uppercase">{ev.source}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-muted">{ev.title}</span>
+                            <span className="text-xs text-faint line-clamp-1">{ev.summary}</span>
+                          </div>
+                        </td>
+                        <td className="text-center">
+                          <StatusChip value={ev.severity} />
+                        </td>
+                        <td className="text-right text-faint mono text-[11px]">
+                          {new Date(ev.created_at).toLocaleTimeString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
         </div>
-      </section>
-    </div>
+
+        <aside className="grid">
+          {/* Active Incidents */}
+          <Panel
+            title={
+              <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <AlertCircle size={14} className="text-danger" /> Active Incidents
+              </span>
+            }
+            subtitle={`${incidents.filter(i => i.status === "open").length} open incidents`}
+          >
+            <div className="grid" style={{ gap: 12 }}>
+              {incidents.filter(i => i.status === "open").map(inc => (
+                <div key={inc.id} className="incident-card">
+                  <div className="incident-card-header">
+                    <StatusChip value={inc.severity} />
+                    <time className="incident-time">
+                      <Clock size={10} />
+                      {new Date(inc.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </time>
+                  </div>
+                  <h4 className="incident-title">{inc.title}</h4>
+                  <p className="incident-summary">{inc.summary}</p>
+                  <div className="incident-devices">
+                    {inc.device_ids.map(d => (
+                      <CopyableID key={d} id={d} length={6} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {incidents.filter(i => i.status === "open").length === 0 && (
+                <div className="empty-incidents">
+                  No active incidents detected
+                </div>
+              )}
+            </div>
+          </Panel>
+
+          {/* Quick Stats */}
+          <Panel title="AI Engine Status">
+            <div className="ai-stats-list">
+              <div className="ai-stat-row">
+                <span className="ai-stat-label">Embedding Model</span>
+                <span className="ai-stat-val mono">nomic-embed</span>
+              </div>
+              <div className="ai-stat-row">
+                <span className="ai-stat-label">Reasoning Provider</span>
+                <span className="ai-stat-val mono">Groq (Llama-3.3)</span>
+              </div>
+              <div className="ai-stat-row">
+                <span className="ai-stat-label">Vector Index</span>
+                <span className="ai-stat-val mono text-success">Optimized (HNSW)</span>
+              </div>
+            </div>
+          </Panel>
+        </aside>
+      </div>
+    </>
   );
 };
 
