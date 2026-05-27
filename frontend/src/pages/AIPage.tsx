@@ -101,39 +101,55 @@ const AIPage: React.FC = () => {
               <div className="ai-reasoning-panel">
                 <div className="ai-reasoning-header">
                   <h3>Analysis Result</h3>
-                  <span className="ai-confidence-badge">
+                  <span className={`ai-confidence-badge ${reasoning.confidence > 0 ? '' : 'low-confidence'}`}>
                     {(reasoning.confidence * 100).toFixed(0)}% CONFIDENCE
                   </span>
                 </div>
                 
-                <p className="ai-reasoning-summary">
-                  {reasoning.summary}
-                </p>
+                {reasoning.summary ? (
+                  <>
+                    <p className="ai-reasoning-summary">
+                      {reasoning.summary}
+                    </p>
 
-                <div className="grid two">
-                  <div>
-                    <span className="ai-evidence-title">Evidence Chain</span>
-                    <ul className="ai-evidence-list">
-                      {reasoning.evidence?.map((ev, i) => (
-                        <li key={i} className="ai-evidence-item">
-                          <ShieldCheck size={12} className="ai-evidence-icon" />
-                          <span>{ev}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <span className="ai-suggestions-title">Remediation Suggestions</span>
-                    <div className="ai-suggestions-list">
-                      {reasoning.suggested_actions?.map((act, i) => (
-                        <div key={i} className="ai-remediation-item">
-                          <span>{act}</span>
-                          <ArrowRight size={10} />
-                        </div>
-                      ))}
+                    <div className="grid two">
+                      <div>
+                        <span className="ai-evidence-title">Evidence Chain</span>
+                        {reasoning.evidence && reasoning.evidence.length > 0 ? (
+                          <ul className="ai-evidence-list">
+                            {reasoning.evidence.map((ev, i) => (
+                              <li key={i} className="ai-evidence-item">
+                                <ShieldCheck size={12} className="ai-evidence-icon" />
+                                <span>{ev}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="muted" style={{ fontSize: "12px" }}>No evidence referenced.</span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="ai-suggestions-title">Remediation Suggestions</span>
+                        {reasoning.suggested_actions && reasoning.suggested_actions.length > 0 ? (
+                          <div className="ai-suggestions-list">
+                            {reasoning.suggested_actions.map((act, i) => (
+                              <div key={i} className="ai-remediation-item">
+                                <span>{act}</span>
+                                <ArrowRight size={10} />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="muted" style={{ fontSize: "12px" }}>No suggestions available.</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </>
+                ) : (
+                  <p className="muted" style={{ margin: 0, fontSize: "14px", fontStyle: "italic" }}>
+                    No matching information or anomalies found in current fleet context. Try refining your query.
+                  </p>
+                )}
               </div>
             )}
           </Panel>
@@ -142,19 +158,19 @@ const AIPage: React.FC = () => {
           <Panel
             title={
               <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Zap size={16} className="text-warning" /> Semantic Operational Feed
+                <Zap size={16} style={{ color: "var(--warning)" }} /> Semantic Operational Feed
               </span>
             }
             subtitle={`${events.length} events detected`}
           >
             <div className="table-wrap">
-              <table className="ai-table text-sm">
+              <table className="ai-table">
                 <thead>
                   <tr>
                     <th>Source / Type</th>
                     <th>Detail</th>
-                    <th className="text-center">Severity</th>
-                    <th className="text-right">Observed</th>
+                    <th style={{ textAlign: "center" }}>Severity</th>
+                    <th style={{ textAlign: "right" }}>Observed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -171,21 +187,21 @@ const AIPage: React.FC = () => {
                     events.slice(0, 12).map(ev => (
                       <tr key={ev.id}>
                         <td>
-                          <div className="flex flex-col">
-                            <strong className="text-text">{ev.type.replace('_', ' ')}</strong>
-                            <span className="text-[10px] text-faint mono uppercase">{ev.source}</span>
+                          <strong>{ev.type.replace('_', ' ')}</strong>
+                          <div className="mono" style={{ fontSize: "10px", color: "var(--faint)", textTransform: "uppercase", marginTop: "2px" }}>
+                            {ev.source}
                           </div>
                         </td>
                         <td>
-                          <div className="flex flex-col">
-                            <span className="font-medium text-muted">{ev.title}</span>
-                            <span className="text-xs text-faint line-clamp-1">{ev.summary}</span>
+                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{ev.title}</div>
+                          <div className="muted" style={{ fontSize: "12px", marginTop: "2px", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                            {ev.summary}
                           </div>
                         </td>
-                        <td className="text-center">
+                        <td style={{ textAlign: "center" }}>
                           <StatusChip value={ev.severity} />
                         </td>
-                        <td className="text-right text-faint mono text-[11px]">
+                        <td className="mono" style={{ textAlign: "right", color: "var(--faint)", fontSize: "11px" }}>
                           {new Date(ev.created_at).toLocaleTimeString()}
                         </td>
                       </tr>

@@ -1678,3 +1678,18 @@ textarea:focus {
 .ai-stat-val {
   color: var(--text);
 }
+
+.ai-confidence-badge.low-confidence {
+  color: var(--faint);
+  background: color-mix(in srgb, var(--faint), transparent 90%);
+  border-color: color-mix(in srgb, var(--faint), transparent 80%);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
