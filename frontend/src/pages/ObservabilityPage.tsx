@@ -14,35 +14,35 @@ export function ObservabilityPage() {
       <PageHeader
         eyebrow="Observe"
         title="Observability"
-        description="Reads the backend health endpoint and Prometheus metrics exposed by the ARGUS API."
+        description="Inspect API service metrics, health statistics, and metrics telemetry logs."
         actions={<button className="button secondary" onClick={() => { void health.refetch(); void metrics.refetch(); }}><RefreshCw size={15} />Refresh</button>}
       />
       <div className="stat-grid">
-        <StatCard label="API Health" value={health.isError ? "Down" : health.isLoading ? "Checking" : "Healthy"} tone={health.isError ? "danger" : health.isLoading ? "warning" : "success"} />
-        <StatCard label="Metric Samples" value={samples.length} detail="/metrics output" />
+        <StatCard label="API Health" value={health.isError ? "Offline" : health.isLoading ? "Checking" : "Active"} tone={health.isError ? "danger" : health.isLoading ? "warning" : "success"} />
+        <StatCard label="Metric Samples" value={samples.length} detail="Active metric samples" />
         <StatCard label="HTTP Samples" value={httpSamples.length} />
-        <StatCard label="Grafana" value=":3000" detail="Local compose port" tone="info" />
+        <StatCard label="Grafana" value="Available" detail="Monitoring console" tone="info" />
       </div>
       <div className="split">
-        <Panel title="API Status" subtitle="GET /healthz">
+        <Panel title="API Status" subtitle="Backend application service status">
           {health.isError ? <ErrorState message={(health.error as Error).message} onRetry={() => void health.refetch()} /> : (
             <div className="settings-row">
-              <div><strong>ARGUS API</strong><p className="muted">Health endpoint returns HTTP 204 when available.</p></div>
+              <div><strong>ARGUS API</strong><p className="muted">Exposes the system health state and availability status.</p></div>
               <StatusChip value={health.isLoading ? "checking" : "healthy"} />
             </div>
           )}
         </Panel>
-        <Panel title="External Consoles" subtitle="Local Docker Compose">
+        <Panel title="External Consoles" subtitle="System Monitoring Consoles">
           <div className="settings-list">
-            <a className="settings-row" href="http://localhost:3000" target="_blank" rel="noreferrer"><span><strong>Grafana</strong><p className="muted">Dashboards and datasources provisioned under deployments/compose.</p></span><ExternalLink size={16} /></a>
-            <a className="settings-row" href="http://localhost:9090" target="_blank" rel="noreferrer"><span><strong>Prometheus</strong><p className="muted">Scrapes ARGUS API metrics when compose observability is running.</p></span><ExternalLink size={16} /></a>
+            <a className="settings-row" href="http://localhost:3000" target="_blank" rel="noreferrer"><span><strong>Grafana</strong><p className="muted">System analytics dashboards and visualization panels.</p></span><ExternalLink size={16} /></a>
+            <a className="settings-row" href="http://localhost:9090" target="_blank" rel="noreferrer"><span><strong>Prometheus</strong><p className="muted">Exposes raw metrics and runtime statistics.</p></span><ExternalLink size={16} /></a>
           </div>
         </Panel>
       </div>
       <div style={{ marginTop: 18 }}>
-        <Panel title="Prometheus Samples" subtitle="GET /metrics">
+        <Panel title="Prometheus Samples" subtitle="Parsed time-series metric readings">
           {metrics.isError ? <ErrorState message={(metrics.error as Error).message} onRetry={() => void metrics.refetch()} /> : samples.length === 0 ? (
-            <EmptyState title="No metrics loaded" description="Metrics will render when the API /metrics endpoint is reachable and returns samples." />
+            <EmptyState title="No metrics loaded" description="Metrics will render when the metrics endpoint is reachable and returns samples." />
           ) : (
             <div className="table-wrap">
               <table>

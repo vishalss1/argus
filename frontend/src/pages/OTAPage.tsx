@@ -57,7 +57,7 @@ export function OTAPage() {
     <>
       <PageHeader eyebrow="OTA" title="OTA Updates" description="Manage firmware artifacts and create real deployment manifests for registered devices." />
       <div className="split">
-        <Panel title="Firmware Artifacts" subtitle="GET /ota/firmware">
+        <Panel title="Firmware Artifacts" subtitle="Registered firmware binaries for the fleet">
           {firmware.isError ? <ErrorState message={(firmware.error as Error).message} onRetry={() => void firmware.refetch()} /> : (
             <div className="table-wrap">
               <table>
@@ -72,7 +72,7 @@ export function OTAPage() {
           )}
         </Panel>
         <div className="grid">
-          <Panel title="Upload Firmware" subtitle="POST /ota/firmware">
+          <Panel title="Upload Firmware" subtitle="Register a new firmware binary version">
             <form className="form-grid" onSubmit={upload}>
               <label className="field full"><span>Version</span><input name="version" required /></label>
               <label className="field full"><span>Firmware File</span><input name="firmware" type="file" required /></label>
@@ -80,7 +80,7 @@ export function OTAPage() {
               <button className="button primary" type="submit"><Upload size={15} />Upload</button>
             </form>
           </Panel>
-          <Panel title="Create Deployment" subtitle="POST /devices/{deviceID}/ota">
+          <Panel title="Create Deployment" subtitle="Initiate a rollout and compile a new manifest">
             {(devices.data?.length ?? 0) === 0 || (firmware.data?.length ?? 0) === 0 ? <EmptyState title="Deployment unavailable" description="A deployment requires at least one device and one firmware artifact." /> : (
               <form className="form-grid" onSubmit={deploy}>
                 <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}>{devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</SelectField></div>
@@ -105,7 +105,7 @@ export function OTAPage() {
         </div>
       </div>
       <div style={{ marginTop: 18 }}>
-        <Panel title="Device Deployments" subtitle="GET /devices/{deviceID}/ota">
+        <Panel title="Device Deployments" subtitle="Track rollout logs and confirmation status">
           {!deviceID ? <EmptyState title="No device selected" description="Select a device to inspect OTA deployments." /> : (
             <div className="table-wrap">
               <table>

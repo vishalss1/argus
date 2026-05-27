@@ -105,7 +105,7 @@ export function DevicesPage() {
             </div>
           )}
         </Panel>
-        <Panel title={editDevice ? "Update Device" : "Create Device"} subtitle={editDevice ? <>PUT /devices/<CopyableID id={editDevice.id} /></> : "POST /devices"}>
+        <Panel title={editDevice ? "Update Device" : "Create Device"} subtitle={editDevice ? "Modify device attributes and configuration metadata" : "Add a new physical or virtual node to the registry"}>
           <form className="form-grid" onSubmit={onSubmit} key={editDevice?.id || "create"}>
             <label className="field"><span>Name</span><input name="name" defaultValue={editDevice?.name || ""} required /></label>
             <label className="field"><span>Type</span><input name="type" defaultValue={editDevice?.type || ""} required /></label>

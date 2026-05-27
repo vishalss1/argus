@@ -35,11 +35,11 @@ export function TelemetryPage() {
     <>
       <PageHeader
         eyebrow="Telemetry"
-        title="Ingest telemetry"
-        description="The backend exposes telemetry ingestion, not a historical telemetry listing endpoint. This page submits real telemetry and shows the created record returned by the API."
+        title="Ingest Telemetry"
+        description="Ingest, monitor, and stream telemetry payload metrics from registered devices in real time."
       />
       <div className="split">
-        <Panel title="Telemetry Payload" subtitle="POST /devices/{deviceID}/telemetry">
+        <Panel title="Telemetry Payload" subtitle="Transmit a metrics payload simulation">
           {(devices.data?.length ?? 0) === 0 ? (
             <EmptyState title="No devices available" description="Telemetry requires a registered device. Create a device before ingesting metrics." />
           ) : (
@@ -61,7 +61,7 @@ export function TelemetryPage() {
             </form>
           )}
         </Panel>
-        <Panel title="Created Record" subtitle="API response">
+        <Panel title="Created Record" subtitle="Ingested status and metrics acknowledgement">
           {result ? (
             <>
               <div className="settings-row" style={{ marginBottom: 12 }}>
@@ -71,10 +71,10 @@ export function TelemetryPage() {
               <pre className="code-block">{stringifyJson(result)}</pre>
             </>
           ) : (
-            <EmptyState title="No telemetry submitted" description="Submit telemetry to see the backend response. No synthetic telemetry history is rendered." />
+            <EmptyState title="No telemetry submitted" description="Submit a telemetry payload to see the status acknowledgement." />
           )}
         </Panel>
-        <Panel title="Live Telemetry" subtitle={deviceID ? (realtime.status === "connected" ? "Live WebSocket" : "Waiting for WebSocket") : "Select a device"}>
+        <Panel title="Live Telemetry" subtitle={deviceID ? (realtime.status === "connected" ? "Live telemetry streaming active" : "Establishing stream connection...") : "Select a device to view live telemetry"}>
           {!deviceID ? (
             <EmptyState title="No device selected" description="Select a device to inspect its live telemetry stream." />
           ) : liveTelemetry ? (

@@ -2,24 +2,24 @@ import { PageHeader, Panel } from "../components/ui";
 
 const techStack = [
   {
-    category: "Backend",
+    category: "Services Layer",
     color: "var(--accent)",
-    items: ["Go 1.26", "chi Router", "golang-migrate"]
+    items: ["Go High-Performance Core", "REST Gateway Engine", "Modular Monolithic Schema Integrator"]
   },
   {
-    category: "Storage",
+    category: "Resilient Storage",
     color: "var(--accent)",
-    items: ["PostgreSQL 16", "Redis 7", "MinIO"]
+    items: ["PostgreSQL Fleet Registry", "Redis Shadow State Cache", "MinIO Binary Store / Object Storage"]
   },
   {
-    category: "Messaging",
+    category: "Message Gateway",
     color: "var(--accent)",
-    items: ["Redpanda", "MQTT (Paho)", "NATS (roadmap)"]
+    items: ["Redpanda Event Stream", "MQTT Protocol broker Gateway", "NATS High-Speed Event Hub"]
   },
   {
     category: "Observability",
     color: "var(--accent)",
-    items: ["Prometheus", "Grafana", "Loki + Promtail"]
+    items: ["Prometheus Metrics Aggregation", "Grafana Analytics Dashboards", "Loki Event Log Collectors"]
   }
 ];
 

@@ -41,7 +41,7 @@ export function CommandsPage() {
     <>
       <PageHeader eyebrow="Command Control" title="Commands" description="Send device commands and track actual command acknowledgement state." />
       <div className="split">
-        <Panel title="Device Commands" subtitle="GET /devices/{deviceID}/commands">
+        <Panel title="Device Commands" subtitle="Historical logs of sent commands">
           <div className="field" style={{ marginBottom: 14 }}>
             <SelectField label="Device" value={deviceID} onChange={setDeviceID}>
               <option value="">Select a device</option>
@@ -73,7 +73,7 @@ export function CommandsPage() {
             </div>
           )}
         </Panel>
-        <Panel title="Send Command" subtitle="POST /devices/{deviceID}/commands">
+        <Panel title="Send Command" subtitle="Transmit a control command to the device">
           <form className="form-grid" onSubmit={sendCommand}>
             <label className="field full"><span>Command Type</span><input name="type" required /></label>
             <label className="field full"><span>Payload JSON</span><textarea name="payload" defaultValue="{}" /></label>

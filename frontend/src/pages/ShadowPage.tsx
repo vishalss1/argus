@@ -43,7 +43,7 @@ export function ShadowPage() {
     <>
       <PageHeader eyebrow="Device State" title="Device Shadow" description="Manage desired and reported device state (Device Twins)." />
       <div className="split">
-        <Panel title="Shadow State" subtitle="GET /devices/{deviceID}/shadow">
+        <Panel title="Shadow State" subtitle="Synchronized Twin state version logs">
           <div className="field" style={{ marginBottom: 14 }}>
             <SelectField label="Device" value={deviceID} onChange={setDeviceID}>
               <option value="">Select a device</option>
@@ -79,13 +79,13 @@ export function ShadowPage() {
           )}
         </Panel>
         <div className="grid">
-          <Panel title="Update Desired State" subtitle="PUT /devices/{deviceID}/shadow/desired">
+          <Panel title="Update Desired State" subtitle="Set target configurations for the device to pull">
             <form className="form-grid" onSubmit={updateDesired}>
               <label className="field full"><span>Desired State JSON</span><textarea name="state" defaultValue={shadow.data ? stringifyJson(shadow.data.desired) : "{}"} required /></label>
               <button className="button primary" type="submit" disabled={!deviceID}><Save size={15} /> Update Desired</button>
             </form>
           </Panel>
-          <Panel title="Update Reported State" subtitle="PUT /devices/{deviceID}/shadow/reported">
+          <Panel title="Update Reported State" subtitle="Simulate state feedback reported from the device firmware">
             <form className="form-grid" onSubmit={updateReported}>
               <label className="field full"><span>Reported State JSON</span><textarea name="state" defaultValue={shadow.data ? stringifyJson(shadow.data.reported) : "{}"} required /></label>
               <button className="button secondary" type="submit" disabled={!deviceID}><Save size={15} /> Update Reported</button>

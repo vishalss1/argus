@@ -1,10 +1,10 @@
 import { PageHeader, Panel } from "../components/ui";
 
 const layers = [
-  ["Transport", "Chi HTTP routes expose devices, telemetry, commands, shadows, OTA, rules, alerts, metrics, and Swagger UI."],
-  ["Domain", "Services validate fleet behavior and keep business logic independent from persistence and messaging."],
-  ["Infrastructure", "PostgreSQL repositories, Redis shadows, MinIO firmware storage, MQTT ingestion, and Redpanda-compatible publishing."],
-  ["Operations", "Prometheus metrics, Loki logs, Grafana dashboards, and local Docker Compose infrastructure."]
+  ["Ingestion & API Layer", "Secure REST and MQTT ingestion gateways to handle device connections, heartbeat registration, and real-time command dispatch."],
+  ["Core Orchestration", "A decoupled core domain validating device behavior, tracking firmware distributions, and evaluating alert rules."],
+  ["State Sync & Storage", "A highly resilient persistence layer for telemetry metrics, versioned configuration history, digital twins (device shadows), and firmware packages."],
+  ["Observability & Analytics", "Production-grade system health tracking, telemetry log aggregation, and real-time visualization dashboards."]
 ];
 
 export function ArchitecturePage() {
@@ -12,8 +12,8 @@ export function ArchitecturePage() {
     <section className="section">
       <PageHeader
         eyebrow="Architecture"
-        title="Modular monolith with operational integrations"
-        description="ARGUS keeps the core domain clean while integrating real storage, message brokers, cache, object storage, and observability adapters at the edges."
+        title="IoT fleet orchestration engine architecture"
+        description="ARGUS separates core logic from infrastructure adapters to deliver robust, scalable, and highly available fleet operations."
       />
       <div className="grid two">
         {layers.map(([title, text]) => (
@@ -25,10 +25,10 @@ export function ArchitecturePage() {
       <div style={{ marginTop: 18 }}>
         <Panel title="Core Data Flow">
           <div className="pipeline">
-            {["Device", "MQTT/HTTP", "API", "Rules", "Storage", "Dashboard"].map((node) => (
+            {["Device Node", "Ingestion Gateway", "Orchestration Engine", "Rules Engine", "State Storage", "Operator Portal"].map((node) => (
               <div className="pipeline-node" key={node}>
                 <strong>{node}</strong>
-                <span>ARGUS runtime stage</span>
+                <span>Data processing stage</span>
               </div>
             ))}
           </div>
