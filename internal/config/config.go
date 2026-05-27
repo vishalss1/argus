@@ -37,7 +37,6 @@ type Config struct {
 	GroqBaseURL         string
 	OllamaBaseURL       string
 	OllamaEmbedModel    string
-	OllamaReasonModel   string
 }
 
 func Load() *Config {
@@ -66,7 +65,6 @@ func Load() *Config {
 		GroqBaseURL:         os.Getenv("GROQ_BASE_URL"),
 		OllamaBaseURL:       os.Getenv("OLLAMA_BASE_URL"),
 		OllamaEmbedModel:    os.Getenv("OLLAMA_EMBED_MODEL"),
-		OllamaReasonModel:   os.Getenv("OLLAMA_REASON_MODEL"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -141,9 +139,6 @@ func Load() *Config {
 	}
 	if cfg.OllamaEmbedModel == "" {
 		cfg.OllamaEmbedModel = "nomic-embed-text"
-	}
-	if cfg.OllamaReasonModel == "" {
-		cfg.OllamaReasonModel = "qwen2.5:7b-instruct"
 	}
 
 	return cfg
