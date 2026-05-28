@@ -26,18 +26,22 @@ func New(
 	r.Use(middleware.Logger)
 	r.Use(middleware.Metrics)
 
+	// Generic/Utility Routes
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/docs", http.RedirectHandler("/docs/index.html", http.StatusMovedPermanently).ServeHTTP)
 	r.Get("/docs/*", httpSwagger.WrapHandler)
-	r.Get("/ws", websocketHandler.ServeHTTP)
-	r.Post("/provision", deviceHandler.ProvisionDevice)
 
-	r.Get("/alerts", ruleHandler.ListAlerts)
+	// Define all API logic in a single sub-router
+	apiRouter := chi.NewRouter()
 
-	r.Route("/ai", func(r chi.Router) {
+	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
+	apiRouter.Post("/provision", deviceHandler.ProvisionDevice)
+	apiRouter.Get("/alerts", ruleHandler.ListAlerts)
+
+	apiRouter.Route("/ai", func(r chi.Router) {
 		r.Post("/query", aiHandler.Ask)
 		r.Get("/events", aiHandler.ListEvents)
 		r.Get("/incidents", aiHandler.ListIncidents)
@@ -49,7 +53,7 @@ func New(
 		})
 	})
 
-	r.Route("/rules", func(r chi.Router) {
+	apiRouter.Route("/rules", func(r chi.Router) {
 		r.Get("/", ruleHandler.ListRules)
 		r.Post("/", ruleHandler.CreateRule)
 		r.Route("/{ruleID}", func(r chi.Router) {
@@ -65,7 +69,7 @@ func New(
 		})
 	})
 
-	r.Route("/ota/firmware", func(r chi.Router) {
+	apiRouter.Route("/ota/firmware", func(r chi.Router) {
 		r.Get("/", otaHandler.ListFirmware)
 		r.Post("/", otaHandler.UploadFirmware)
 		r.Get("/{firmwareID}", func(w http.ResponseWriter, r *http.Request) {
@@ -73,9 +77,10 @@ func New(
 		})
 	})
 
-	r.Route("/devices", func(r chi.Router) {
+	apiRouter.Route("/devices", func(r chi.Router) {
 		r.Get("/", deviceHandler.ListDevices)
 		r.Post("/", deviceHandler.CreateDevice)
+		r.Post("/heartbeat", deviceHandler.RecordGlobalHeartbeat)
 		r.Route("/{deviceID}", func(r chi.Router) {
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.GetDevice(w, r, chi.URLParam(r, "deviceID"))
@@ -125,6 +130,9 @@ func New(
 			r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
 				shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))
 			})
+			r.Put("/shadow", func(w http.ResponseWriter, r *http.Request) {
+				shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
+			})
 			r.Put("/shadow/desired", func(w http.ResponseWriter, r *http.Request) {
 				shadowHandler.UpdateDesiredShadow(w, r, chi.URLParam(r, "deviceID"))
 			})
@@ -138,6 +146,11 @@ func New(
 			})
 		})
 	})
+
+	// Mount the same API router at both root and /api
+	// This solves the Vite proxy rewrite issue while maintaining /api compatibility
+	r.Mount("/api", apiRouter)
+	r.Mount("/", apiRouter)
 
 	return r
 }

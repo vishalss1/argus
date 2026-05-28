@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, Clock, Cpu, Activity } from "lucide-react";
 import { CopyableID, EmptyState, PageHeader, Panel, SelectField } from "../components/ui";
 import { useDevices } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
@@ -13,7 +13,10 @@ export function TelemetryPage() {
   const [deviceID, setDeviceID] = useState("");
   const [result, setResult] = useState<Telemetry | null>(null);
   const [error, setError] = useState("");
-  const liveTelemetry = deviceID ? realtime.telemetryByDevice[deviceID] : null;
+  
+  // Scoped to selected device
+  const liveTelemetry = deviceID ? realtime.telemetryByDevice[deviceID] || [] : [];
+  const selectedDevice = devices.data?.find(d => d.id === deviceID);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,6 +40,12 @@ export function TelemetryPage() {
         eyebrow="Telemetry"
         title="Ingest Telemetry"
         description="Ingest, monitor, and stream telemetry payload metrics from registered devices in real time."
+        actions={
+          <div className={`live-badge ${realtime.status === "connected" ? 'online' : 'offline'}`}>
+            <span className="live-dot" />
+            {realtime.status === "connected" ? "LIVE STREAM ACTIVE" : `WS: ${realtime.status.toUpperCase()}`}
+          </div>
+        }
       />
       <div className="split">
         <Panel title="Telemetry Payload" subtitle="Transmit a metrics payload simulation">
@@ -52,41 +61,56 @@ export function TelemetryPage() {
               </div>
               <label className="field full">
                 <span>Metrics JSON</span>
-                <textarea name="metrics" defaultValue="{}" />
+                <textarea 
+                  name="metrics" 
+                  defaultValue={JSON.stringify({
+                    temp_c: 24.5,
+                    humidity_pct: 45,
+                    status: "operational"
+                  }, null, 2)} 
+                  rows={6}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}
+                />
               </label>
-              {error && <p className="muted field full">{error}</p>}
+              {error && <p className="muted field full" style={{ color: 'var(--danger)' }}>{error}</p>}
               <button className="button primary" type="submit" disabled={!deviceID}>
                 <Send size={15} /> Submit Telemetry
               </button>
             </form>
           )}
         </Panel>
-        <Panel title="Created Record" subtitle="Ingested status and metrics acknowledgement">
-          {result ? (
-            <>
-              <div className="settings-row" style={{ marginBottom: 12 }}>
-                <strong>Device ID</strong>
-                <CopyableID id={result.device_id} />
-              </div>
-              <pre className="code-block">{stringifyJson(result)}</pre>
-            </>
-          ) : (
-            <EmptyState title="No telemetry submitted" description="Submit a telemetry payload to see the status acknowledgement." />
-          )}
-        </Panel>
-        <Panel title="Live Telemetry" subtitle={deviceID ? (realtime.status === "connected" ? "Live telemetry streaming active" : "Establishing stream connection...") : "Select a device to view live telemetry"}>
+
+        <Panel 
+          title="Live Telemetry Feed" 
+          subtitle={deviceID ? `Streaming history for ${selectedDevice?.name || 'device'}` : "Select a device to monitor stream"}
+          actions={
+            deviceID && <span className="table-count">{liveTelemetry.length} messages</span>
+          }
+        >
           {!deviceID ? (
-            <EmptyState title="No device selected" description="Select a device to inspect its live telemetry stream." />
-          ) : liveTelemetry ? (
-            <>
-              <div className="settings-row" style={{ marginBottom: 12 }}>
-                <strong>Device ID</strong>
-                <CopyableID id={liveTelemetry.device_id} />
-              </div>
-              <pre className="code-block">{stringifyJson(liveTelemetry)}</pre>
-            </>
+            <EmptyState title="No device selected" description="Select a device above to inspect its live telemetry stream." />
+          ) : liveTelemetry.length > 0 ? (
+            <div className="event-stream">
+              {liveTelemetry.map((t, i) => (
+                <div key={t.id || i} className="event-entry" style={{ padding: '12px', borderBottom: '1px solid var(--line-soft)' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Activity size={14} className="text-accent" />
+                      <strong className="text-sm">Telemetry Packet</strong>
+                    </div>
+                    <time className="text-[10px] text-faint mono flex items-center gap-1">
+                      <Clock size={10} />
+                      {new Date(t.recorded_at).toLocaleString()}
+                    </time>
+                  </div>
+                  <pre className="code-block" style={{ margin: 0, fontSize: '11px', maxHeight: '150px', overflow: 'auto' }}>
+                    {stringifyJson(t.metrics)}
+                  </pre>
+                </div>
+              ))}
+            </div>
           ) : (
-            <EmptyState title="No live telemetry" description="Live telemetry for the selected device will appear when it publishes an event." />
+            <EmptyState title="Waiting for data..." description={`Live telemetry for ${selectedDevice?.name} will appear here when published.`} />
           )}
         </Panel>
       </div>

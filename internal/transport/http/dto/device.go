@@ -19,7 +19,8 @@ type UpdateDeviceRequest struct {
 }
 
 type HeartbeatRequest struct {
-	Status string `json:"status,omitempty"`
+	DeviceID string `json:"device_id,omitempty"`
+	Status   string `json:"status,omitempty"`
 }
 
 type ProvisionDeviceRequest struct {

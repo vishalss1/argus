@@ -56,7 +56,14 @@ func main() {
 			CreatedAt:       a.CreatedAt,
 		}
 		if _, err := eventRepo.Create(ctx, ev); err == nil {
-			log.Printf("anomaly detected and persisted as event: %s", ev.Title)
+			log.Printf("[AI WORKER] anomaly detected and persisted: %s (Device: %s)", ev.Title, ev.DeviceID)
+			if err := semanticEmbedding.EmbedEvent(ctx, ev); err != nil {
+				log.Printf("[AI WORKER] failed to embed anomaly event: %v", err)
+			} else {
+				log.Printf("[AI WORKER] anomaly event embedded successfully: %s", ev.ID)
+			}
+		} else {
+			log.Printf("[AI WORKER] failed to persist anomaly event: %v", err)
 		}
 	})
 
@@ -132,15 +139,18 @@ func main() {
 
 			events, err := semanticEngine.AnalyzeTelemetry(ctx, t)
 			if err != nil {
-				log.Printf("failed to analyze telemetry: %v", err)
+				log.Printf("[AI WORKER] failed to analyze telemetry: %v", err)
 			} else if len(events) > 0 {
-				log.Printf("generated %d semantic events for device %s", len(events), t.DeviceID)
+				log.Printf("[AI WORKER] generated %d semantic events for device %s", len(events), t.DeviceID)
 				for _, ev := range events {
+					log.Printf("[AI WORKER] processing event: %s (%s)", ev.Title, ev.Type)
 					if err := semanticEmbedding.EmbedEvent(ctx, ev); err != nil {
-						log.Printf("failed to embed event: %v", err)
+						log.Printf("[AI WORKER] failed to embed semantic event: %v", err)
+					} else {
+						log.Printf("[AI WORKER] semantic event embedded successfully: %s", ev.ID)
 					}
 					if err := correlationEngine.Correlate(ctx, ev); err != nil {
-						log.Printf("failed to correlate event: %v", err)
+						log.Printf("[AI WORKER] failed to correlate event: %v", err)
 					}
 				}
 			}

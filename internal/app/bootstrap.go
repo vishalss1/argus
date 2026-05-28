@@ -90,9 +90,11 @@ func Bootstrap() (*Server, error) {
 	}
 
 	websocketHub := transportws.NewHub()
+	realtime := &realtimePublisher{hub: websocketHub}
 
 	deviceRepository := postgres.NewDeviceRepository(database)
 	deviceService := devicedomain.NewService(deviceRepository)
+	deviceService.SetEventPublisher(realtime)
 	presenceService := devicedomain.NewPresenceService(deviceService)
 	deviceHandler := transporthandler.NewDeviceHandler(deviceService)
 
@@ -102,6 +104,7 @@ func Bootstrap() (*Server, error) {
 		finalTelemetryRepo = kafka.NewTelemetryRepository(telemetryRepository, kafkaProducer)
 	}
 	telemetryService := telemetrydomain.NewService(finalTelemetryRepo)
+	telemetryService.SetEventPublisher(realtime)
 	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService)
 
 	shadowRepository := redis.NewShadowRepository(redisClient)
@@ -176,6 +179,11 @@ func Bootstrap() (*Server, error) {
 		if err != nil {
 			cancel()
 			return nil, err
+		}
+
+		if err := mqttClient.Start(); err != nil {
+			log.Printf("failed to start mqtt client: %v", err)
+			// Don't fail bootstrap, but log the error
 		}
 	}
 

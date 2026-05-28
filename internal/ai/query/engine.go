@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
+	"regexp"
 	"time"
 
+	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	"github.com/vishalss1/argus/internal/domain/event"
 	"github.com/vishalss1/argus/internal/domain/incident"
-	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
@@ -93,45 +95,88 @@ type Context struct {
 }
 
 func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Context, error) {
-	// 1. Generate embedding for the query
+	retrievedContext := &Context{}
+	seenIDs := make(map[string]bool)
+
+	// 1. Keyword/ID Extraction (Direct Lookup)
+	// Match UUID-like patterns: 8-4-4-4-12
+	uuidRegex := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}`)
+	matches := uuidRegex.FindAllString(queryString, -1)
+
+	for _, id := range matches {
+		log.Printf("[QUERY ENGINE] direct ID lookup for: %s", id)
+		// Try event lookup
+		if ev, err := e.eventRepo.GetByID(ctx, id); err == nil {
+			retrievedContext.Events = append(retrievedContext.Events, *ev)
+			seenIDs[ev.ID] = true
+		}
+		// Try incident lookup
+		if inc, err := e.incidentRepo.GetByID(ctx, id); err == nil {
+			retrievedContext.Incidents = append(retrievedContext.Incidents, *inc)
+			seenIDs[inc.ID] = true
+		}
+	}
+
+	// 2. Vector Search (Semantic Retrieval)
 	queryVector, err := e.embeddingProvider.Embed(ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("generate query embedding: %w", err)
 	}
 
-	retrievedContext := &Context{}
+	log.Printf("[QUERY ENGINE] performing vector search for query: %q", queryString)
 
-	// 2. Search events
+	// 2.1 Search events
 	eventResults, err := e.vectorStore.Search(ctx, "events", queryVector, 5)
 	if err == nil {
+		log.Printf("[QUERY ENGINE] found %d semantic event matches", len(eventResults))
 		for _, res := range eventResults {
+			if seenIDs[res.ID] {
+				continue
+			}
 			ev, err := e.eventRepo.GetByID(ctx, res.ID)
 			if err == nil {
 				retrievedContext.Events = append(retrievedContext.Events, *ev)
+				seenIDs[ev.ID] = true
 			}
 		}
+	} else {
+		log.Printf("[QUERY ENGINE] event vector search failed: %v", err)
 	}
 
-	// 3. Search incidents
+	// 2.2 Search incidents
 	incidentResults, err := e.vectorStore.Search(ctx, "incidents", queryVector, 3)
 	if err == nil {
+		log.Printf("[QUERY ENGINE] found %d semantic incident matches", len(incidentResults))
 		for _, res := range incidentResults {
+			if seenIDs[res.ID] {
+				continue
+			}
 			inc, err := e.incidentRepo.GetByID(ctx, res.ID)
 			if err == nil {
 				retrievedContext.Incidents = append(retrievedContext.Incidents, *inc)
+				seenIDs[inc.ID] = true
 			}
 		}
 	}
 
-	// 4. Search operational memory
+	// 2.3 Search operational memory
 	memoryResults, err := e.vectorStore.Search(ctx, "operational_memory", queryVector, 3)
 	if err == nil {
+		log.Printf("[QUERY ENGINE] found %d semantic memory matches", len(memoryResults))
 		for _, res := range memoryResults {
+			if seenIDs[res.ID] {
+				continue
+			}
 			mem, err := e.contextRepo.GetByID(ctx, res.ID)
 			if err == nil {
 				retrievedContext.Memories = append(retrievedContext.Memories, *mem)
+				seenIDs[mem.ID] = true
 			}
 		}
+	}
+
+	if len(seenIDs) == 0 {
+		log.Printf("[QUERY ENGINE] NO MATCHES FOUND. Query Embedding (truncated): %v...", queryVector[:5])
 	}
 
 	return retrievedContext, nil

@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"log"
 	"net/http"
 
 	gorilla "github.com/gorilla/websocket"
@@ -25,9 +26,11 @@ func NewHandler(hub *Hub) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("[WS DEBUG] upgrade failed: %v", err)
 		return
 	}
 
+	log.Printf("[WS DEBUG] client connected: %s", conn.RemoteAddr())
 	h.hub.Register(conn)
 	defer h.hub.Unregister(conn)
 

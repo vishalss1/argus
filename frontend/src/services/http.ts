@@ -4,10 +4,17 @@ const envBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const envWebSocketURL = import.meta.env.VITE_WS_URL as string | undefined;
 export const API_BASE_URL = envBase?.replace(/\/$/, "") || "/api";
 
-export function websocketURL(path = "/ws") {
+export function websocketURL(path = "/api/ws") {
   if (envWebSocketURL) return envWebSocketURL;
 
-  if (!envBase || !envBase.startsWith("http")) return `ws://localhost:8080${path}`;
+  // Use the current page's host as the default for WebSocket connections.
+  // This ensures it works when accessing the server via IP on the local network.
+  const host = typeof window !== "undefined" ? window.location.host : "localhost:8080";
+  const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+
+  if (!envBase || !envBase.startsWith("http")) {
+    return `${protocol}//${host}${path}`;
+  }
 
   const apiURL = new URL(API_BASE_URL);
   apiURL.protocol = apiURL.protocol === "https:" ? "wss:" : "ws:";

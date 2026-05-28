@@ -69,6 +69,17 @@ func (s *PresenceService) RecordHeartbeat(deviceID string, timestamp time.Time) 
 	s.cache[deviceID] = state
 }
 
+func (s *PresenceService) GetDeviceByIDOrHardwareID(ctx context.Context, idOrHardwareID string) (*Device, error) {
+	// Try UUID first
+	device, err := s.deviceService.GetByID(ctx, idOrHardwareID)
+	if err == nil {
+		return device, nil
+	}
+
+	// Try Hardware ID
+	return s.deviceService.repo.GetByHardwareID(ctx, idOrHardwareID)
+}
+
 func (s *PresenceService) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]Device, error) {
 	devices, err := s.deviceService.MarkStaleOffline(ctx, timeout)
 	if err != nil {

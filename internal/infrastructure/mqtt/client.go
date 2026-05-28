@@ -125,38 +125,61 @@ func (c *Client) subscribe(client paho.Client) {
 }
 
 func (c *Client) handleTelemetryMessage(message paho.Message) {
-	deviceID, err := deviceIDFromTopic(c.telemetryTopic, message.Topic())
+	log.Printf("[MQTT DEBUG] incoming telemetry | topic: %s | payload: %s", message.Topic(), string(message.Payload()))
+	rawID, err := deviceIDFromTopic(c.telemetryTopic, message.Topic())
 	if err != nil {
-		log.Printf("mqtt telemetry ignored: %v", err)
+		log.Printf("[MQTT DEBUG] topic match failed: %v", err)
 		return
 	}
 
+	// 1. Resolve UUID (topic might contain Hardware ID)
+	var deviceID string
+	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	if err != nil {
+		log.Printf("[MQTT DEBUG] device resolution failed for %q: %v. Ensure device is provisioned.", rawID, err)
+		return
+	}
+	deviceID = device.ID
+	log.Printf("[MQTT DEBUG] resolved device: %s (%s)", device.Name, deviceID)
+
+	// 2. Decode Payload
 	var payload telemetryMessage
 	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
-		log.Printf("mqtt telemetry decode failed for device %s: %v", deviceID, err)
+		log.Printf("[MQTT DEBUG] JSON decode failed: %v", err)
 		return
 	}
 
+	// 3. Ingest
 	_, err = c.telemetryService.Ingest(context.Background(), deviceID, telemetry.CreateInput{
 		RecordedAt: payload.RecordedAt,
 		Metrics:    payload.Metrics,
 	})
 	if err != nil {
-		log.Printf("mqtt telemetry ingest failed for device %s: %v", deviceID, err)
+		log.Printf("[MQTT DEBUG] ingestion failed: %v", err)
 		return
 	}
+	log.Printf("[MQTT DEBUG] telemetry successfully ingested and broadcasted")
 }
 
 func (c *Client) handleStateMessage(message paho.Message) {
-	deviceID, err := deviceIDFromTopic(c.stateTopic, message.Topic())
+	rawID, err := deviceIDFromTopic(c.stateTopic, message.Topic())
 	if err != nil {
-		log.Printf("mqtt presence ignored: %v", err)
+		log.Printf("[MQTT] presence ignored: %v", err)
 		return
 	}
 
+	// 1. Resolve UUID
+	deviceEntity, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	if err != nil {
+		log.Printf("[MQTT] failed to resolve device %s for state: %v", rawID, err)
+		return
+	}
+	deviceID := deviceEntity.ID
+
+	// 2. Decode Payload
 	var payload stateMessage
 	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
-		log.Printf("mqtt presence decode failed for device %s: %v", deviceID, err)
+		log.Printf("[MQTT] presence decode failed for device %s: %v", deviceID, err)
 		return
 	}
 
@@ -164,7 +187,7 @@ func (c *Client) handleStateMessage(message paho.Message) {
 	if strings.TrimSpace(payload.Timestamp) != "" {
 		parsed, err := time.Parse(time.RFC3339, payload.Timestamp)
 		if err != nil {
-			log.Printf("mqtt presence invalid timestamp for device %s: %v", deviceID, err)
+			log.Printf("[MQTT] presence invalid timestamp for device %s: %v", deviceID, err)
 			return
 		}
 		timestamp = parsed.UTC()
@@ -176,9 +199,10 @@ func (c *Client) handleStateMessage(message paho.Message) {
 		Metadata:  payload.Metadata,
 	}, message.Retained())
 	if err != nil {
-		log.Printf("mqtt presence update failed for device %s: %v", deviceID, err)
+		log.Printf("[MQTT] presence update failed for device %s: %v", deviceID, err)
 		return
 	}
+	log.Printf("[MQTT] successfully updated state for device: %s (%s)", deviceID, payload.Status)
 }
 
 func topicMatches(pattern string, topic string) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 
 	"github.com/pgvector/pgvector-go"
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
@@ -30,6 +31,7 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 	}
 
 	ai.VectorQueriesTotal.WithLabelValues(table).Inc()
+	log.Printf("[VECTOR STORE] searching %s with limit %d", table, limit)
 
 	query := fmt.Sprintf(`
 		SELECT id, embedding <=> $1 as distance
@@ -41,6 +43,7 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 
 	rows, err := s.db.QueryContext(ctx, query, pgvector.NewVector(queryVector), limit)
 	if err != nil {
+		log.Printf("[VECTOR STORE] search failed on %s: %v", table, err)
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
 	defer rows.Close()
@@ -56,6 +59,7 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 		results = append(results, res)
 	}
 
+	log.Printf("[VECTOR STORE] found %d matches in %s", len(results), table)
 	return results, nil
 }
 
@@ -71,5 +75,10 @@ func (s *VectorStore) UpdateEmbedding(ctx context.Context, table string, id stri
 
 	query := fmt.Sprintf("UPDATE %s SET embedding = $1 WHERE id = $2", table)
 	_, err := s.db.ExecContext(ctx, query, pgvector.NewVector(embedding), id)
+	if err == nil {
+		log.Printf("[VECTOR STORE] updated embedding for %s:%s", table, id)
+	} else {
+		log.Printf("[VECTOR STORE] failed to update embedding for %s:%s: %v", table, id, err)
+	}
 	return err
 }

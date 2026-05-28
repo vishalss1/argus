@@ -59,7 +59,7 @@ function nestedObject(value: JsonValue | undefined, key: string): JsonValue | un
 }
 
 function signalMetricValue(source: JsonValue | undefined): number | undefined {
-  const directKeys = ["rssi", "wifi_rssi", "signal", "signal_strength", "signalStrength"];
+  const directKeys = ["rssi", "wifi_rssi", "signal", "signal_strength", "signalStrength", "rssi_dbm"];
   for (const key of directKeys) {
     const value = toNumber(objectValue(source, key));
     if (value !== undefined) return value;
@@ -236,7 +236,8 @@ export function DashboardPage() {
                       </tr>
                     )}
                     {paged.map((device) => {
-                      const telemetry = telemetryByDevice[device.id];
+                      const telemetryList = telemetryByDevice[device.id];
+                      const telemetry = telemetryList && telemetryList.length > 0 ? telemetryList[0] : undefined;
                       const signal = extractSignalReading(device, telemetry);
                       return (
                         <tr key={device.id}>

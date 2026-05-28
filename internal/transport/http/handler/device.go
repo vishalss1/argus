@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 
 	"github.com/vishalss1/argus/internal/domain/device"
@@ -157,6 +156,30 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id 
 	writeJSON(w, http.StatusOK, entity)
 }
 
+// RecordGlobalHeartbeat godoc
+// @Summary Record global device heartbeat
+// @Tags devices
+// @Accept json
+// @Produce json
+// @Param request body dto.HeartbeatRequest true "Heartbeat payload"
+// @Success 200 {object} device.Device
+// @Failure 400 {object} dto.ErrorResponse
+// @Router /devices/heartbeat [post]
+func (h *DeviceHandler) RecordGlobalHeartbeat(w http.ResponseWriter, r *http.Request) {
+	var req dto.HeartbeatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if req.DeviceID == "" {
+		writeError(w, http.StatusBadRequest, "device_id is required in body for global heartbeat")
+		return
+	}
+
+	h.recordHeartbeat(w, r, req.DeviceID, req.Status)
+}
+
 // RecordHeartbeat godoc
 // @Summary Record device heartbeat
 // @Tags devices
@@ -171,15 +194,14 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id 
 func (h *DeviceHandler) RecordHeartbeat(w http.ResponseWriter, r *http.Request, id string) {
 	var req dto.HeartbeatRequest
 	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			if !errors.Is(err, io.EOF) {
-				writeError(w, http.StatusBadRequest, "invalid JSON body")
-				return
-			}
-		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 
-	entity, err := h.service.RecordHeartbeat(r.Context(), id, device.HeartbeatInput{Status: req.Status})
+	h.recordHeartbeat(w, r, id, req.Status)
+}
+
+func (h *DeviceHandler) recordHeartbeat(w http.ResponseWriter, r *http.Request, id string, status string) {
+	entity, err := h.service.RecordHeartbeat(r.Context(), id, device.HeartbeatInput{Status: status})
 	if errors.Is(err, device.ErrDeviceNotFound) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return

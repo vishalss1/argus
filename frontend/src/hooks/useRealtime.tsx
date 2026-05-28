@@ -17,7 +17,7 @@ interface RealtimeMessage {
 
 interface RealtimeContextValue {
   status: RealtimeStatus;
-  telemetryByDevice: Record<string, Telemetry>;
+  telemetryByDevice: Record<string, Telemetry[]>;
 }
 
 const RealtimeContext = createContext<RealtimeContextValue>({
@@ -28,7 +28,7 @@ const RealtimeContext = createContext<RealtimeContextValue>({
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<RealtimeStatus>("connecting");
-  const [telemetryByDevice, setTelemetryByDevice] = useState<Record<string, Telemetry>>({});
+  const [telemetryByDevice, setTelemetryByDevice] = useState<Record<string, Telemetry[]>>({});
   const retryRef = useRef(0);
 
   useEffect(() => {
@@ -42,15 +42,19 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       setStatus("disconnected");
       const delay = Math.min(10_000, 500 * 2 ** retryRef.current);
       retryRef.current += 1;
+      console.log(`[WS DEBUG] reconnecting in ${delay}ms...`);
       reconnectTimer = window.setTimeout(connect, delay);
     }
 
     function connect() {
       if (closed) return;
+      const url = websocketURL();
+      console.log("[WS DEBUG] connecting to:", url);
       setStatus("connecting");
-      socket = new WebSocket(websocketURL());
+      socket = new WebSocket(url);
 
       socket.onopen = () => {
+        console.log("[WS DEBUG] connection established");
         retryRef.current = 0;
         setStatus("connected");
       };
@@ -58,6 +62,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as RealtimeMessage;
+          console.log("[WS DEBUG] received message type:", message.type);
+          
           if (message.type === "device_update") {
             const device = withEffectiveDeviceStatus(message.payload as Device);
             queryClient.setQueryData<Device[]>(queryKeys.devices, (current = []) => {
@@ -66,6 +72,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
               return current.map((item) => (item.id === device.id ? device : item));
             });
           }
+          
           if (message.type === "device_presence" && message.deviceId && message.status) {
             queryClient.setQueryData<Device[]>(queryKeys.devices, (current = []) =>
               current.map((device) =>
@@ -80,23 +87,32 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
               )
             );
           }
+          
           if (message.type === "telemetry") {
             const telemetry = message.payload as Telemetry;
-            setTelemetryByDevice((current) => ({
-              ...current,
-              [telemetry.device_id]: telemetry
-            }));
+            console.log("[WS DEBUG] telemetry update for device:", telemetry.device_id);
+            setTelemetryByDevice((current) => {
+              const prev = current[telemetry.device_id] || [];
+              return {
+                ...current,
+                [telemetry.device_id]: [telemetry, ...prev].slice(0, 50)
+              };
+            });
           }
-        } catch {
-          // Ignore malformed realtime frames.
+        } catch (err) {
+          console.error("[WS DEBUG] parse error:", err);
         }
       };
 
-      socket.onerror = () => {
+      socket.onerror = (err) => {
+        console.error("[WS DEBUG] socket error:", err);
         socket?.close();
       };
 
-      socket.onclose = scheduleReconnect;
+      socket.onclose = (event) => {
+        console.warn("[WS DEBUG] socket closed:", event.code, event.reason);
+        scheduleReconnect();
+      };
     }
 
     initialTimer = window.setTimeout(connect, 0);
