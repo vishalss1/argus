@@ -61,14 +61,15 @@ You must ONLY use the provided context. If the answer is not in the context, say
 Output MUST be a valid JSON object with the following keys:
 - "summary": A clear, concise answer to the user's query (string).
 - "confidence": A float between 0 and 1 representing your certainty.
-- "evidence": A list of specific event IDs, timestamps, or metric values used to form the answer (array of strings).
+- "evidence": A list of human-readable evidence points used (array of strings). 
+  Format each evidence point as: "Title — Summary details" (e.g., "Critical Thermal Anomaly — 95.30°C detected").
 - "suggested_actions": A list of recommended operational steps (array of strings).
 
 Example Response:
 {
-  "summary": "The device is overheating.",
+  "summary": "The device is overheating due to a critical thermal spike.",
   "confidence": 0.95,
-  "evidence": ["Event 123: Temp reached 95C"],
+  "evidence": ["Critical Thermal Anomaly — 95.30°C detected at 14:05"],
   "suggested_actions": ["Reboot device", "Check cooling fan"]
 }
 
@@ -85,17 +86,17 @@ func (e *Engine) formatContext(c *Context) string {
 
 	buf.WriteString("--- RELEVANT EVENTS ---\n")
 	for _, ev := range c.Events {
-		buf.WriteString(fmt.Sprintf("- [%s] %s: %s (%s)\n", ev.CreatedAt.Format(time.RFC3339), ev.Type, ev.Title, ev.Summary))
+		buf.WriteString(fmt.Sprintf("- Title: %s | Summary: %s (Time: %s)\n", ev.Title, ev.Summary, ev.CreatedAt.Format(time.RFC3339)))
 	}
 
 	buf.WriteString("\n--- RELEVANT INCIDENTS ---\n")
 	for _, inc := range c.Incidents {
-		buf.WriteString(fmt.Sprintf("- %s: %s (Status: %s, Severity: %s)\n", inc.Title, inc.Summary, inc.Status, inc.Severity))
+		buf.WriteString(fmt.Sprintf("- Title: %s | Summary: %s (Status: %s, Severity: %s)\n", inc.Title, inc.Summary, inc.Status, inc.Severity))
 	}
 
 	buf.WriteString("\n--- OPERATIONAL MEMORY ---\n")
 	for _, mem := range c.Memories {
-		buf.WriteString(fmt.Sprintf("- %s: %s\n", mem.Type, mem.Summary))
+		buf.WriteString(fmt.Sprintf("- Type: %s | Summary: %s\n", mem.Type, mem.Summary))
 	}
 
 	return buf.String()
