@@ -51,6 +51,14 @@ func (s *VectorStore) verifyExtension() {
 
 	s.enabled = true
 	log.Printf("[VECTOR STORE] pgvector enabled in %s (version %s). 768 dimensions (nomic-embed-text) confirmed.", dbName, version)
+
+	// Run Diagnostics
+	for _, table := range tables {
+		var total, vectorized int
+		s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&total)
+		s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE embedding IS NOT NULL", table)).Scan(&vectorized)
+		log.Printf("[VECTOR STORE DIAGNOSTIC] %s: %d total, %d vectorized, %d missing", table, total, vectorized, total-vectorized)
+	}
 }
 
 func (s *VectorStore) Search(ctx context.Context, table string, queryVector []float32, limit int) ([]vectorstore.SearchResult, error) {
@@ -80,7 +88,6 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 
 	rows, err := s.db.QueryContext(ctx, query, pgvector.NewVector(queryVector), limit)
 	if err != nil {
-		log.Printf("[VECTOR STORE] search failed on %s: %v", table, err)
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
 	defer rows.Close()
@@ -94,10 +101,8 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 		}
 		res.Score = 1.0 - distance
 		results = append(results, res)
-		log.Printf("[VECTOR STORE] match in %s: ID=%s, Score=%.4f", table, res.ID, res.Score)
 	}
 
-	log.Printf("[VECTOR STORE] search in %s complete: %d matches found", table, len(results))
 	return results, nil
 }
 
@@ -117,10 +122,5 @@ func (s *VectorStore) UpdateEmbedding(ctx context.Context, table string, id stri
 
 	query := fmt.Sprintf("UPDATE %s SET embedding = $1 WHERE id = $2", table)
 	_, err := s.db.ExecContext(ctx, query, pgvector.NewVector(embedding), id)
-	if err == nil {
-		log.Printf("[VECTOR STORE] updated embedding for %s:%s", table, id)
-	} else {
-		log.Printf("[VECTOR STORE] failed to update embedding for %s:%s: %v", table, id, err)
-	}
 	return err
 }
