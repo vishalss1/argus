@@ -78,10 +78,10 @@ func Load() *Config {
 		cfg.MQTTClientID = "argus-api"
 	}
 	if cfg.MQTTStateTopic == "" {
-		cfg.MQTTStateTopic = "devices/+/state"
+		cfg.MQTTStateTopic = "argus/devices/+/state"
 	}
 	if cfg.MQTTTelemetryTopic == "" {
-		cfg.MQTTTelemetryTopic = "devices/+/telemetry"
+		cfg.MQTTTelemetryTopic = "argus/devices/+/telemetry"
 	}
 	if cfg.KafkaTelemetryTopic == "" {
 		cfg.KafkaTelemetryTopic = "argus.telemetry"

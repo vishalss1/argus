@@ -1,14 +1,3 @@
--- Try to create the extension, but don't fail if it's missing.
--- We use a DO block to catch the error.
-DO $$
-BEGIN
-    CREATE EXTENSION IF NOT EXISTS vector;
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'pgvector extension not available, skipping vector column creation.';
-END;
-$$;
-
--- Only add the columns if the extension exists
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN

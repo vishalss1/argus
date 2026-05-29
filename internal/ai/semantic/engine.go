@@ -30,8 +30,13 @@ func (e *Engine) AnalyzeTelemetry(ctx context.Context, t telemetry.Telemetry) ([
 
 	var events []event.Event
 
-	// Thermal Anomaly Rule
-	if temp, ok := metrics["temperature"].(float64); ok {
+	// Thermal Anomaly Rule (supports 'temperature' or 'temp_c')
+	temp, hasTemp := metrics["temperature"].(float64)
+	if !hasTemp {
+		temp, hasTemp = metrics["temp_c"].(float64)
+	}
+
+	if hasTemp {
 		if temp > 89 {
 			events = append(events, event.Event{
 				ID:              uuid.New().String(),
@@ -61,8 +66,18 @@ func (e *Engine) AnalyzeTelemetry(ctx context.Context, t telemetry.Telemetry) ([
 		}
 	}
 
-	// Memory Pressure Rule
-	if ram, ok := metrics["ram_usage"].(float64); ok {
+	// Memory Pressure Rule (supports 'ram_usage' or 'free_heap' calculation)
+	ram, hasRam := metrics["ram_usage"].(float64)
+	if !hasRam {
+		// If no percentage is provided, look for free_heap (common in ESP32)
+		// We'll treat low heap as pressure
+		if heap, ok := metrics["free_heap"].(float64); ok && heap < 50000 {
+			ram = 95.0 // Simulate high usage for the rule
+			hasRam = true
+		}
+	}
+
+	if hasRam {
 		if ram > 94 {
 			events = append(events, event.Event{
 				ID:              uuid.New().String(),
@@ -70,7 +85,7 @@ func (e *Engine) AnalyzeTelemetry(ctx context.Context, t telemetry.Telemetry) ([
 				Type:            "resource_pressure",
 				Severity:        event.SeverityCritical,
 				Title:           "Critical Memory Pressure",
-				Summary:         fmt.Sprintf("Extremely high RAM usage: %.2f%%", ram),
+				Summary:         fmt.Sprintf("Extremely high memory usage detected (RAM: %.2f%% or Low Heap)", ram),
 				Source:          "semantic_engine",
 				ConfidenceScore: 1.0,
 				Metadata:        t.Metrics,

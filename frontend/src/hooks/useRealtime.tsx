@@ -42,19 +42,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       setStatus("disconnected");
       const delay = Math.min(10_000, 500 * 2 ** retryRef.current);
       retryRef.current += 1;
-      console.log(`[WS DEBUG] reconnecting in ${delay}ms...`);
       reconnectTimer = window.setTimeout(connect, delay);
     }
 
     function connect() {
       if (closed) return;
       const url = websocketURL();
-      console.log("[WS DEBUG] connecting to:", url);
       setStatus("connecting");
       socket = new WebSocket(url);
 
       socket.onopen = () => {
-        console.log("[WS DEBUG] connection established");
         retryRef.current = 0;
         setStatus("connected");
       };
@@ -62,7 +59,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as RealtimeMessage;
-          console.log("[WS DEBUG] received message type:", message.type);
           
           if (message.type === "device_update") {
             const device = withEffectiveDeviceStatus(message.payload as Device);
@@ -90,7 +86,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           
           if (message.type === "telemetry") {
             const telemetry = message.payload as Telemetry;
-            console.log("[WS DEBUG] telemetry update for device:", telemetry.device_id);
             setTelemetryByDevice((current) => {
               const prev = current[telemetry.device_id] || [];
               return {
@@ -99,18 +94,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
               };
             });
           }
-        } catch (err) {
-          console.error("[WS DEBUG] parse error:", err);
+        } catch {
+          // Ignore malformed frames
         }
       };
 
-      socket.onerror = (err) => {
-        console.error("[WS DEBUG] socket error:", err);
+      socket.onerror = () => {
         socket?.close();
       };
 
-      socket.onclose = (event) => {
-        console.warn("[WS DEBUG] socket closed:", event.code, event.reason);
+      socket.onclose = () => {
         scheduleReconnect();
       };
     }

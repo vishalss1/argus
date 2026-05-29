@@ -37,7 +37,12 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 	}
 
 	// 1. Thermal Anomaly Detection (Z-Score for Spikes)
-	if temp, ok := metrics["temperature"].(float64); ok {
+	temp, hasTemp := metrics["temperature"].(float64)
+	if !hasTemp {
+		temp, hasTemp = metrics["temp_c"].(float64)
+	}
+
+	if hasTemp {
 		e.mu.Lock()
 		z, ok := e.thermalZScores[t.DeviceID]
 		if !ok {
@@ -88,8 +93,16 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 	}
 
 	// 3. Resource Pressure Detection (Z-Score)
-	if _, ok := metrics["ram_usage"].(float64); ok {
+	ram, hasRam := metrics["ram_usage"].(float64)
+	if !hasRam {
+		if heap, ok := metrics["free_heap"].(float64); ok && heap < 50000 {
+			ram = 95.0
+			hasRam = true
+		}
+	}
+	if hasRam {
 		// Generic spike detection for RAM could be added here similar to thermal
+		_ = ram // prevent unused variable error if logic is expanded later
 	}
 
 	return nil

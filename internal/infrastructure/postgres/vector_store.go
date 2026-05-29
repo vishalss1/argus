@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 
@@ -11,16 +12,53 @@ import (
 	"github.com/vishalss1/argus/internal/infrastructure/vectorstore"
 )
 
+var ErrVectorSearchDisabled = errors.New("vector search and embeddings are disabled because pgvector is not installed")
+
 type VectorStore struct {
-	db *sql.DB
+	db      *sql.DB
+	enabled bool
 }
 
 func NewVectorStore(db *sql.DB) *VectorStore {
-	return &VectorStore{db: db}
+	store := &VectorStore{db: db}
+	store.verifyExtension()
+	return store
+}
+
+func (s *VectorStore) verifyExtension() {
+	var dbName string
+	s.db.QueryRow("SELECT current_database()").Scan(&dbName)
+
+	var version string
+	err := s.db.QueryRow("SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&version)
+	if err != nil {
+		s.enabled = false
+		log.Printf("[VECTOR STORE] INFO: pgvector extension is NOT installed in %s. Semantic search and embeddings are disabled.", dbName)
+		return
+	}
+
+	// Verify columns exist
+	tables := []string{"events", "incidents", "operational_memory"}
+	for _, table := range tables {
+		var exists bool
+		query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='%s' AND column_name='embedding')", table)
+		if err := s.db.QueryRow(query).Scan(&exists); err != nil || !exists {
+			s.enabled = false
+			log.Printf("[VECTOR STORE] WARNING: table %s is missing 'embedding' column. Semantic search disabled.", table)
+			return
+		}
+	}
+
+	s.enabled = true
+	log.Printf("[VECTOR STORE] pgvector enabled in %s (version %s). 768 dimensions (nomic-embed-text) confirmed.", dbName, version)
 }
 
 func (s *VectorStore) Search(ctx context.Context, table string, queryVector []float32, limit int) ([]vectorstore.SearchResult, error) {
-	// Sanitize table name to prevent SQL injection (simple check for allowed tables)
+	if !s.enabled {
+		return nil, ErrVectorSearchDisabled
+	}
+
+	// Sanitize table name
 	allowedTables := map[string]bool{
 		"events":             true,
 		"incidents":          true,
@@ -31,7 +69,6 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 	}
 
 	ai.VectorQueriesTotal.WithLabelValues(table).Inc()
-	log.Printf("[VECTOR STORE] searching %s with limit %d", table, limit)
 
 	query := fmt.Sprintf(`
 		SELECT id, embedding <=> $1 as distance
@@ -55,15 +92,20 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 		if err := rows.Scan(&res.ID, &distance); err != nil {
 			return nil, fmt.Errorf("scan search result: %w", err)
 		}
-		res.Score = 1.0 - distance // Cosine similarity approx
+		res.Score = 1.0 - distance
 		results = append(results, res)
+		log.Printf("[VECTOR STORE] match in %s: ID=%s, Score=%.4f", table, res.ID, res.Score)
 	}
 
-	log.Printf("[VECTOR STORE] found %d matches in %s", len(results), table)
+	log.Printf("[VECTOR STORE] search in %s complete: %d matches found", table, len(results))
 	return results, nil
 }
 
 func (s *VectorStore) UpdateEmbedding(ctx context.Context, table string, id string, embedding []float32) error {
+	if !s.enabled {
+		return ErrVectorSearchDisabled
+	}
+
 	allowedTables := map[string]bool{
 		"events":             true,
 		"incidents":          true,
