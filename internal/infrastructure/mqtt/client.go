@@ -99,6 +99,21 @@ func (c *Client) Close() {
 	c.client.Disconnect(250)
 }
 
+func (c *Client) Publish(topic string, qos byte, retained bool, payload interface{}) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal mqtt payload: %w", err)
+	}
+
+	log.Printf("[MQTT] publishing to %s: %s", topic, string(data))
+	token := c.client.Publish(topic, qos, retained, data)
+	if token.Wait() && token.Error() != nil {
+		return fmt.Errorf("mqtt publish: %w", token.Error())
+	}
+
+	return nil
+}
+
 func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
 	switch {
 	case topicMatches(c.stateTopic, message.Topic()):

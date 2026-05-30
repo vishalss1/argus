@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -183,12 +185,15 @@ func Bootstrap() (*Server, error) {
 
 		if err := mqttClient.Start(); err != nil {
 			log.Printf("failed to start mqtt client: %v", err)
-			// Don't fail bootstrap, but log the error
 		}
 	}
 
 	websocketHandler := transportws.NewHandler(websocketHub)
 	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler, aiHandler, websocketHandler)
+
+	if kafkaProducer != nil && mqttClient != nil {
+		go startCommandDispatcher(appCtx, cfg, mqttClient)
+	}
 
 	server := &Server{
 		db:            database,
@@ -213,7 +218,6 @@ func Bootstrap() (*Server, error) {
 		monitorPresence(appCtx, presenceService, cfg.HeartbeatTimeout, cfg.HeartbeatInterval)
 	}()
 
-	// Use actionEngine if needed elsewhere or just keep it initialized
 	_ = actionEngine
 
 	return server, nil
@@ -241,6 +245,60 @@ func (s *Server) Close() error {
 		s.db.Close()
 	}
 	return s.httpServer.Close()
+}
+
+func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient *mqtt.Client) {
+	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers: cfg.KafkaBrokers,
+		Topic:   cfg.KafkaCommandTopic,
+		GroupID: "argus-command-dispatcher",
+	})
+	defer consumer.Close()
+
+	log.Printf("[DISPATCHER] starting command bridge: Kafka(%s) -> MQTT", cfg.KafkaCommandTopic)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			msg, err := consumer.FetchMessage(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Printf("[DISPATCHER] fetch error: %v", err)
+				continue
+			}
+
+			var cmd commanddomain.Command
+			if err := json.Unmarshal(msg.Value, &cmd); err != nil {
+				log.Printf("[DISPATCHER] decode error: %v", err)
+				consumer.CommitMessages(ctx, msg)
+				continue
+			}
+
+			// Format MQTT topic: argus/devices/{id}/commands
+			topic := fmt.Sprintf("argus/devices/%s/commands", cmd.DeviceID)
+			
+			log.Printf("[DISPATCHER] routing command %s (%s) to %s", cmd.ID, cmd.Type, topic)
+			
+			err = mqttClient.Publish(topic, 1, false, map[string]interface{}{
+				"id":      cmd.ID,
+				"type":    cmd.Type,
+				"payload": cmd.Payload,
+				"sent_at": cmd.SentAt,
+			})
+			
+			if err != nil {
+				log.Printf("[DISPATCHER] publish error: %v", err)
+			} else {
+				log.Printf("[DISPATCHER] command successfully dispatched to MQTT")
+			}
+
+			consumer.CommitMessages(ctx, msg)
+		}
+	}
 }
 
 func monitorPresence(ctx context.Context, s *devicedomain.PresenceService, timeout time.Duration, interval time.Duration) {
