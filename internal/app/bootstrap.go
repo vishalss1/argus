@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vishalss1/argus/internal/config"
 	"github.com/vishalss1/argus/internal/ai/actions"
 	"github.com/vishalss1/argus/internal/ai/memory"
 	"github.com/vishalss1/argus/internal/ai/query"
+	"github.com/vishalss1/argus/internal/config"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
@@ -143,6 +143,7 @@ func Bootstrap() (*Server, error) {
 
 	otaRepository := postgres.NewOTARepository(database)
 	otaService := otadomain.NewService(otaRepository, minioClient)
+	otaService.SetEventPublisher(realtime)
 	otaService.OnResult = func(ctx context.Context, dep otadomain.Deployment) {
 		if err := memoryManager.SummarizeDeployment(ctx, dep); err != nil {
 			log.Printf("failed to summarize deployment: %v", err)
@@ -208,7 +209,7 @@ func Bootstrap() (*Server, error) {
 		cancel:       cancel,
 	}
 
-	server.wg.Add(2)
+	server.wg.Add(3)
 	go func() {
 		defer server.wg.Done()
 		websocketHub.Run(appCtx)
@@ -219,9 +220,37 @@ func Bootstrap() (*Server, error) {
 		monitorPresence(appCtx, presenceService, cfg.HeartbeatTimeout, cfg.HeartbeatInterval)
 	}()
 
+	go func() {
+		defer server.wg.Done()
+		monitorOTATimeouts(appCtx, otaService)
+	}()
+
 	_ = actionEngine
 
 	return server, nil
+}
+
+func monitorOTATimeouts(ctx context.Context, service *otadomain.Service) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			deployments, err := service.MarkTimedOut(ctx)
+			if err != nil {
+				if !errors.Is(ctx.Err(), context.Canceled) {
+					log.Printf("ota timeout monitor failed: %v", err)
+				}
+				continue
+			}
+			if len(deployments) > 0 {
+				log.Printf("ota timeout monitor marked %d deployment(s) timed out", len(deployments))
+			}
+		}
+	}
 }
 
 func (s *Server) Start() error {
@@ -281,14 +310,14 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 
 			// Format MQTT topic: argus/devices/{id}/commands
 			topic := fmt.Sprintf("argus/devices/%s/commands", cmd.DeviceID)
-			
+
 			err = mqttClient.Publish(topic, 1, false, map[string]interface{}{
 				"id":      cmd.ID,
 				"type":    cmd.Type,
 				"payload": cmd.Payload,
 				"sent_at": cmd.SentAt,
 			})
-			
+
 			if err != nil {
 				log.Printf("[DISPATCHER] publish error: %v", err)
 			}

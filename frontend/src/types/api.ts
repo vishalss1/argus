@@ -42,6 +42,7 @@ export interface CreateTelemetryRequest {
 }
 
 export type CommandStatus = "pending" | "acked" | "nacked" | string;
+export type OTAStatus = "pending" | "available" | "downloading" | "flashing" | "rebooting" | "acked" | "nacked" | "timeout" | string;
 
 export interface Command {
   id: string;
@@ -71,11 +72,41 @@ export interface Deployment {
   id: string;
   device_id: string;
   artifact_id: string;
-  status: CommandStatus;
+  status: OTAStatus;
+  progress: number;
   result_message?: string;
+  failure_reason?: string;
+  device_name?: string;
+  version?: string;
+  filename?: string;
   created_at: string;
+  available_at?: string;
+  downloading_at?: string;
+  flashing_at?: string;
+  rebooting_at?: string;
   acknowledged_at?: string;
+  completed_at?: string;
+  failed_at?: string;
+  timed_out_at?: string;
   updated_at: string;
+}
+
+export interface DeploymentEvent {
+  id: number;
+  deployment_id: string;
+  device_id: string;
+  status: OTAStatus;
+  progress?: number;
+  message?: string;
+  created_at: string;
+}
+
+export interface OTAFleetStats {
+  total_deployments: number;
+  successful_deployments: number;
+  failed_deployments: number;
+  success_rate: number;
+  devices_pending_update: number;
 }
 
 export interface Manifest {

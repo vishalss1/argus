@@ -5,6 +5,7 @@ import (
 
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
+	otadomain "github.com/vishalss1/argus/internal/domain/ota"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
 	transportws "github.com/vishalss1/argus/internal/transport/websocket"
 )
@@ -27,4 +28,8 @@ func (p *realtimePublisher) PublishTelemetry(ctx context.Context, entity telemet
 
 func (p *realtimePublisher) PublishCommandUpdate(ctx context.Context, entity commanddomain.Command) {
 	p.hub.Broadcast("command_update", entity)
+}
+
+func (p *realtimePublisher) PublishOTAEvent(ctx context.Context, eventType string, deployment otadomain.Deployment) {
+	p.hub.Broadcast(eventType, deployment)
 }

@@ -7,6 +7,8 @@ PLAN2.md
 report.md
 argus_must_haves.md
 argus_esp32.cpp
+firmware_v1.cpp
+firmware_v2.cpp
 
 node_modules
 dist

@@ -77,6 +77,14 @@ func New(
 		})
 	})
 
+	apiRouter.Route("/ota/deployments", func(r chi.Router) {
+		r.Get("/", otaHandler.ListAllDeployments)
+		r.Get("/stats", otaHandler.Stats)
+		r.Get("/{deploymentID}/events", func(w http.ResponseWriter, r *http.Request) {
+			otaHandler.ListDeploymentEvents(w, r, chi.URLParam(r, "deploymentID"))
+		})
+	})
+
 	apiRouter.Route("/devices", func(r chi.Router) {
 		r.Get("/", deviceHandler.ListDevices)
 		r.Post("/", deviceHandler.CreateDevice)

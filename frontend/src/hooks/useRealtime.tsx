@@ -2,13 +2,15 @@ import { createContext, type ReactNode, useContext, useEffect, useRef, useState 
 import { useQueryClient } from "@tanstack/react-query";
 import { withEffectiveDeviceStatus } from "../lib/format";
 import { websocketURL } from "../services/http";
-import type { Device, Telemetry } from "../types/api";
+import type { Deployment, Device, Telemetry } from "../types/api";
 import { queryKeys } from "./useArgusData";
 
 type RealtimeStatus = "connecting" | "connected" | "disconnected";
 
+type OTARealtimeType = "ota_created" | "ota_progress" | "ota_status_changed" | "ota_completed" | "ota_failed";
+
 interface RealtimeMessage {
-  type: "device_update" | "telemetry" | "device_presence" | "command_update";
+  type: "device_update" | "telemetry" | "device_presence" | "command_update" | OTARealtimeType;
   payload: unknown;
   deviceId?: string;
   status?: string;
@@ -97,6 +99,22 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
           if (message.type === "command_update") {
             queryClient.invalidateQueries({ queryKey: ["commands"] });
+          }
+
+          if (["ota_created", "ota_progress", "ota_status_changed", "ota_completed", "ota_failed"].includes(message.type)) {
+            const deployment = message.payload as Deployment;
+            queryClient.setQueryData<Deployment[]>(queryKeys.allDeployments, (current = []) => {
+              const exists = current.some((item) => item.id === deployment.id);
+              if (!exists) return [deployment, ...current];
+              return current.map((item) => (item.id === deployment.id ? deployment : item));
+            });
+            queryClient.setQueryData<Deployment[]>(queryKeys.deployments(deployment.device_id), (current = []) => {
+              const exists = current.some((item) => item.id === deployment.id);
+              if (!exists) return [deployment, ...current];
+              return current.map((item) => (item.id === deployment.id ? deployment : item));
+            });
+            queryClient.invalidateQueries({ queryKey: queryKeys.otaStats });
+            queryClient.invalidateQueries({ queryKey: ["deployment-events", deployment.id] });
           }
         } catch {
           // Ignore malformed frames

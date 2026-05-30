@@ -11,11 +11,17 @@ type Repository interface {
 	ListArtifacts(ctx context.Context) ([]FirmwareArtifact, error)
 	GetArtifact(ctx context.Context, id string) (*FirmwareArtifact, error)
 	CreateDeployment(ctx context.Context, deployment Deployment) (*Deployment, error)
+	ListDeployments(ctx context.Context) ([]Deployment, error)
 	ListDeploymentsByDevice(ctx context.Context, deviceID string) ([]Deployment, error)
 	GetDeployment(ctx context.Context, deviceID string, id string) (*Deployment, error)
 	GetOldestPendingDeployment(ctx context.Context, deviceID string) (*Deployment, error)
+	MarkDeploymentAvailable(ctx context.Context, deviceID string, id string) (*Deployment, error)
+	UpdateDeploymentProgress(ctx context.Context, deviceID string, input ProgressInput) (*Deployment, error)
 	AckDeployment(ctx context.Context, deviceID string, id string, message string) (*Deployment, error)
 	NackDeployment(ctx context.Context, deviceID string, id string, reason string) (*Deployment, error)
+	MarkTimedOut(ctx context.Context, policy TimeoutPolicy) ([]Deployment, error)
+	ListDeploymentEvents(ctx context.Context, deploymentID string) ([]DeploymentEvent, error)
+	Stats(ctx context.Context) (*FleetStats, error)
 }
 
 type ObjectStore interface {

@@ -7,10 +7,13 @@ export const queryKeys = {
   alerts: ["alerts"] as const,
   rules: ["rules"] as const,
   firmware: ["firmware"] as const,
+  allDeployments: ["deployments"] as const,
+  otaStats: ["ota", "stats"] as const,
   health: ["health"] as const,
   metrics: ["metrics"] as const,
   commands: (deviceID: string) => ["commands", deviceID] as const,
   deployments: (deviceID: string) => ["deployments", deviceID] as const,
+  deploymentEvents: (deploymentID: string) => ["deployment-events", deploymentID] as const,
   shadow: (deviceID: string) => ["shadow", deviceID] as const
 };
 
@@ -37,6 +40,14 @@ export function useRules() {
 
 export function useFirmware() {
   return useQuery({ queryKey: queryKeys.firmware, queryFn: api.firmware.list });
+}
+
+export function useAllDeployments() {
+  return useQuery({ queryKey: queryKeys.allDeployments, queryFn: api.deployments.listAll });
+}
+
+export function useOTAStats() {
+  return useQuery({ queryKey: queryKeys.otaStats, queryFn: api.deployments.stats });
 }
 
 export function useHealth() {
@@ -72,6 +83,14 @@ export function useDeployments(deviceID?: string) {
   });
 }
 
+export function useDeploymentEvents(deploymentID?: string) {
+  return useQuery({
+    queryKey: queryKeys.deploymentEvents(deploymentID ?? ""),
+    queryFn: () => api.deployments.events(deploymentID!),
+    enabled: Boolean(deploymentID)
+  });
+}
+
 export function useShadow(deviceID?: string) {
   return useQuery({
     queryKey: queryKeys.shadow(deviceID ?? ""),
@@ -88,7 +107,9 @@ export function useInvalidateFleet() {
       client.invalidateQueries({ queryKey: queryKeys.devices }),
       client.invalidateQueries({ queryKey: queryKeys.alerts }),
       client.invalidateQueries({ queryKey: queryKeys.rules }),
-      client.invalidateQueries({ queryKey: queryKeys.firmware })
+      client.invalidateQueries({ queryKey: queryKeys.firmware }),
+      client.invalidateQueries({ queryKey: queryKeys.allDeployments }),
+      client.invalidateQueries({ queryKey: queryKeys.otaStats })
     ]);
 }
 

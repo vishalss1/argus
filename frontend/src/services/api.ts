@@ -4,6 +4,7 @@ import type {
   CreateDeviceRequest,
   CreateTelemetryRequest,
   Deployment,
+  DeploymentEvent,
   Device,
   FirmwareArtifact,
   JsonValue,
@@ -14,6 +15,7 @@ import type {
   SemanticEvent,
   Incident,
   OperationalMemory,
+  OTAFleetStats,
   ReasoningResponse
 } from "../types/api";
 import { request } from "./http";
@@ -72,6 +74,8 @@ export const api = {
   },
 
   deployments: {
+    listAll: () => request<Deployment[]>("/ota/deployments/"),
+    stats: () => request<OTAFleetStats>("/ota/deployments/stats"),
     list: (deviceID: string) => request<Deployment[]>(`/devices/${deviceID}/ota`),
     create: (deviceID: string, artifactID: string) =>
       request<Manifest>(`/devices/${deviceID}/ota`, {
@@ -89,7 +93,8 @@ export const api = {
       request<Deployment>(`/devices/${deviceID}/ota/${deploymentID}/nack`, {
         method: "POST",
         body: JSON.stringify(message ? { message } : {})
-      })
+      }),
+    events: (deploymentID: string) => request<DeploymentEvent[]>(`/ota/deployments/${deploymentID}/events`)
   },
 
   rules: {

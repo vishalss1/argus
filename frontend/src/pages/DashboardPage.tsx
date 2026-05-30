@@ -16,7 +16,7 @@ import {
   StatCard,
   StatusChip
 } from "../components/ui";
-import { useAlerts, useDevices, useFirmware, useHealth } from "../hooks/useArgusData";
+import { useAlerts, useAllDeployments, useDevices, useFirmware, useHealth, useOTAStats } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
 import { countByStatus, formatDate } from "../lib/format";
 import type { JsonValue } from "../types/api";
@@ -112,6 +112,8 @@ export function DashboardPage() {
   const alerts = useAlerts();
   const firmware = useFirmware();
   const health = useHealth();
+  const otaStats = useOTAStats();
+  const deployments = useAllDeployments();
   const deviceList = devices.data ?? [];
   const statusCounts = countByStatus(deviceList);
   const [filter, setFilter] = useState("All");
@@ -130,6 +132,8 @@ export function DashboardPage() {
     void alerts.refetch();
     void firmware.refetch();
     void health.refetch();
+    void otaStats.refetch();
+    void deployments.refetch();
   };
 
   const eventEntries = useMemo(() => {
@@ -156,7 +160,7 @@ export function DashboardPage() {
   const warningCount = statusCounts.warning ?? 0;
   const criticalCount = statusCounts.critical ?? 0;
   const offlineCount = statusCounts.offline ?? 0;
-  const otaCount = firmware.data?.length ?? 0;
+  const otaCount = (deployments.data ?? []).filter((deployment) => ["pending", "available", "downloading", "flashing", "rebooting"].includes(deployment.status)).length;
 
   return (
     <>
@@ -196,7 +200,7 @@ export function DashboardPage() {
         <StatCard
           label="Active OTA Jobs"
           value={otaCount}
-          detail="Active OTA Jobs"
+          detail={`${(otaStats.data?.success_rate ?? 0).toFixed(1)}% OTA success`}
         />
       </div>
       <div className="split">
@@ -311,6 +315,34 @@ export function DashboardPage() {
                 </div>
                 <ProgressBar value={offlineCount} max={Math.max(totalDevices, 1)} color="var(--line)" />
                 <span className="muted" style={{ fontSize: 11 }}>{totalDevices > 0 ? ((offlineCount / totalDevices) * 100).toFixed(1) : 0}%</span>
+              </div>
+            </div>
+          </Panel>
+          <Panel title="OTA Rollout Health">
+            <div className="health-list">
+              <div className="health-row">
+                <div className="health-meta">
+                  <span>Successful Deployments</span>
+                  <strong style={{ color: "var(--success)" }}>{(otaStats.data?.successful_deployments ?? 0).toLocaleString()}</strong>
+                </div>
+                <ProgressBar value={otaStats.data?.successful_deployments ?? 0} max={Math.max(otaStats.data?.total_deployments ?? 0, 1)} color="var(--success)" />
+                <span className="muted" style={{ fontSize: 11 }}>{(otaStats.data?.success_rate ?? 0).toFixed(1)}%</span>
+              </div>
+              <div className="health-row">
+                <div className="health-meta">
+                  <span>Failed Deployments</span>
+                  <strong style={{ color: "var(--danger)" }}>{(otaStats.data?.failed_deployments ?? 0).toLocaleString()}</strong>
+                </div>
+                <ProgressBar value={otaStats.data?.failed_deployments ?? 0} max={Math.max(otaStats.data?.total_deployments ?? 0, 1)} color="var(--danger)" />
+                <span className="muted" style={{ fontSize: 11 }}>{otaStats.data?.total_deployments ? (((otaStats.data.failed_deployments / otaStats.data.total_deployments) * 100).toFixed(1)) : "0.0"}%</span>
+              </div>
+              <div className="health-row">
+                <div className="health-meta">
+                  <span>Devices Pending Update</span>
+                  <strong>{(otaStats.data?.devices_pending_update ?? 0).toLocaleString()}</strong>
+                </div>
+                <ProgressBar value={otaStats.data?.devices_pending_update ?? 0} max={Math.max(totalDevices, 1)} color="var(--warning)" />
+                <span className="muted" style={{ fontSize: 11 }}>Active fleet</span>
               </div>
             </div>
           </Panel>

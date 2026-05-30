@@ -77,6 +77,26 @@ func (h *OTAHandler) ListFirmware(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, artifacts)
 }
 
+func (h *OTAHandler) ListAllDeployments(w http.ResponseWriter, r *http.Request) {
+	deployments, err := h.service.ListDeployments(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list ota deployments")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, deployments)
+}
+
+func (h *OTAHandler) Stats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.service.Stats(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load ota stats")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // GetFirmware godoc
 // @Summary Get firmware artifact
 // @Tags ota
@@ -178,6 +198,16 @@ func (h *OTAHandler) GetManifest(w http.ResponseWriter, r *http.Request, deviceI
 	}
 
 	writeJSON(w, http.StatusOK, manifest)
+}
+
+func (h *OTAHandler) ListDeploymentEvents(w http.ResponseWriter, r *http.Request, deploymentID string) {
+	events, err := h.service.ListDeploymentEvents(r.Context(), deploymentID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, events)
 }
 
 // GetPendingDeployment godoc

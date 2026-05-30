@@ -31,6 +31,7 @@ type Client struct {
 	telemetryTopic   string
 	stateTopic       string
 	resultTopic      string
+	otaStatusTopic   string
 }
 
 type telemetryMessage struct {
@@ -51,6 +52,13 @@ type resultMessage struct {
 	Message      string `json:"message"`
 }
 
+type otaStatusMessage struct {
+	DeploymentID string `json:"deployment_id"`
+	Status       string `json:"status"`
+	Progress     *int   `json:"progress,omitempty"`
+	Message      string `json:"message,omitempty"`
+}
+
 func New(config Config, telemetryService *telemetry.Service, presenceService *device.PresenceService, commandService *command.Service, otaService *ota.Service) (*Client, error) {
 	if config.BrokerURL == "" {
 		return nil, fmt.Errorf("mqtt broker url is required")
@@ -65,6 +73,7 @@ func New(config Config, telemetryService *telemetry.Service, presenceService *de
 		config.StateTopic = "argus/devices/+/state"
 	}
 	resultTopic := "argus/devices/+/results"
+	otaStatusTopic := "argus/devices/+/ota/status"
 
 	mqttClient := &Client{
 		telemetryService: telemetryService,
@@ -74,6 +83,7 @@ func New(config Config, telemetryService *telemetry.Service, presenceService *de
 		telemetryTopic:   config.TelemetryTopic,
 		stateTopic:       config.StateTopic,
 		resultTopic:      resultTopic,
+		otaStatusTopic:   otaStatusTopic,
 	}
 
 	options := paho.NewClientOptions().
@@ -138,6 +148,8 @@ func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
 		c.handleTelemetryMessage(message)
 	case topicMatches(c.resultTopic, message.Topic()):
 		c.handleResultMessage(message)
+	case topicMatches(c.otaStatusTopic, message.Topic()):
+		c.handleOTAStatusMessage(message)
 	default:
 		log.Printf("mqtt ignored unexpected topic: %s", message.Topic())
 	}
@@ -161,6 +173,12 @@ func (c *Client) subscribe(client paho.Client) {
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.resultTopic)
+
+	if token := client.Subscribe(c.otaStatusTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+		log.Printf("mqtt subscribe ota status topic failed: %v", token.Error())
+		return
+	}
+	log.Printf("mqtt subscribed to %s", c.otaStatusTopic)
 }
 
 func (c *Client) handleTelemetryMessage(message paho.Message) {
@@ -280,6 +298,37 @@ func (c *Client) handleResultMessage(message paho.Message) {
 		}
 		log.Printf("[MQTT] recorded deployment %s as %s for device %s", payload.DeploymentID, status, device.ID)
 	}
+}
+
+func (c *Client) handleOTAStatusMessage(message paho.Message) {
+	rawID, err := deviceIDFromTopic(c.otaStatusTopic, message.Topic())
+	if err != nil {
+		return
+	}
+
+	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	if err != nil {
+		log.Printf("[MQTT] failed to resolve device for ota status: %v", err)
+		return
+	}
+
+	var payload otaStatusMessage
+	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
+		log.Printf("[MQTT] ota status decode failed: %v", err)
+		return
+	}
+
+	deployment, err := c.otaService.RecordProgress(context.Background(), device.ID, ota.ProgressInput{
+		DeploymentID: payload.DeploymentID,
+		Status:       payload.Status,
+		Progress:     payload.Progress,
+		Message:      payload.Message,
+	})
+	if err != nil {
+		log.Printf("[MQTT] ota status update failed: %v", err)
+		return
+	}
+	log.Printf("[MQTT] recorded ota deployment %s as %s for device %s", deployment.ID, deployment.Status, device.ID)
 }
 
 func topicMatches(pattern string, topic string) bool {

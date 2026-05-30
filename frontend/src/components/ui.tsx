@@ -84,8 +84,8 @@ export function StatusChip({ value }: { value?: string }) {
   const normalized = value || "unknown";
   let tone: Tone = "neutral";
   if (["online", "acked", "enabled", "healthy"].includes(normalized.toLowerCase())) tone = "success";
-  if (["warning", "pending"].includes(normalized.toLowerCase())) tone = "warning";
-  if (["critical", "nacked", "disabled", "error"].includes(normalized.toLowerCase())) tone = "danger";
+  if (["warning", "pending", "available", "downloading", "flashing", "rebooting"].includes(normalized.toLowerCase())) tone = "warning";
+  if (["critical", "nacked", "disabled", "error", "timeout"].includes(normalized.toLowerCase())) tone = "danger";
   if (["ota"].includes(normalized.toLowerCase())) tone = "info";
   return <span className={`status-chip tone-${tone}`}>{normalized}</span>;
 }
