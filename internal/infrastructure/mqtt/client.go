@@ -9,7 +9,9 @@ import (
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
+	"github.com/vishalss1/argus/internal/domain/command"
 	"github.com/vishalss1/argus/internal/domain/device"
+	"github.com/vishalss1/argus/internal/domain/ota"
 	"github.com/vishalss1/argus/internal/domain/telemetry"
 )
 
@@ -24,8 +26,11 @@ type Client struct {
 	client           paho.Client
 	telemetryService *telemetry.Service
 	presenceService  *device.PresenceService
+	commandService   *command.Service
+	otaService       *ota.Service
 	telemetryTopic   string
 	stateTopic       string
+	resultTopic      string
 }
 
 type telemetryMessage struct {
@@ -39,7 +44,14 @@ type stateMessage struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
-func New(config Config, telemetryService *telemetry.Service, presenceService *device.PresenceService) (*Client, error) {
+type resultMessage struct {
+	CommandID    string `json:"command_id,omitempty"`
+	DeploymentID string `json:"deployment_id,omitempty"`
+	Status       string `json:"status"` // ack or nack
+	Message      string `json:"message"`
+}
+
+func New(config Config, telemetryService *telemetry.Service, presenceService *device.PresenceService, commandService *command.Service, otaService *ota.Service) (*Client, error) {
 	if config.BrokerURL == "" {
 		return nil, fmt.Errorf("mqtt broker url is required")
 	}
@@ -47,17 +59,21 @@ func New(config Config, telemetryService *telemetry.Service, presenceService *de
 		config.ClientID = "argus-api"
 	}
 	if config.TelemetryTopic == "" {
-		config.TelemetryTopic = "devices/+/telemetry"
+		config.TelemetryTopic = "argus/devices/+/telemetry"
 	}
 	if config.StateTopic == "" {
-		config.StateTopic = "devices/+/state"
+		config.StateTopic = "argus/devices/+/state"
 	}
+	resultTopic := "argus/devices/+/results"
 
 	mqttClient := &Client{
 		telemetryService: telemetryService,
 		presenceService:  presenceService,
+		commandService:   commandService,
+		otaService:       otaService,
 		telemetryTopic:   config.TelemetryTopic,
 		stateTopic:       config.StateTopic,
+		resultTopic:      resultTopic,
 	}
 
 	options := paho.NewClientOptions().
@@ -120,6 +136,8 @@ func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
 		c.handleStateMessage(message)
 	case topicMatches(c.telemetryTopic, message.Topic()):
 		c.handleTelemetryMessage(message)
+	case topicMatches(c.resultTopic, message.Topic()):
+		c.handleResultMessage(message)
 	default:
 		log.Printf("mqtt ignored unexpected topic: %s", message.Topic())
 	}
@@ -137,6 +155,12 @@ func (c *Client) subscribe(client paho.Client) {
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.telemetryTopic)
+
+	if token := client.Subscribe(c.resultTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+		log.Printf("mqtt subscribe result topic failed: %v", token.Error())
+		return
+	}
+	log.Printf("mqtt subscribed to %s", c.resultTopic)
 }
 
 func (c *Client) handleTelemetryMessage(message paho.Message) {
@@ -213,6 +237,48 @@ func (c *Client) handleStateMessage(message paho.Message) {
 	if err != nil {
 		log.Printf("[MQTT] presence update failed for device %s: %v", deviceID, err)
 		return
+	}
+}
+
+func (c *Client) handleResultMessage(message paho.Message) {
+	rawID, err := deviceIDFromTopic(c.resultTopic, message.Topic())
+	if err != nil {
+		return
+	}
+
+	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	if err != nil {
+		log.Printf("[MQTT] failed to resolve device for result: %v", err)
+		return
+	}
+
+	var payload resultMessage
+	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
+		log.Printf("[MQTT] result decode failed: %v", err)
+		return
+	}
+
+	ctx := context.Background()
+	status := strings.ToLower(payload.Status)
+
+	if payload.CommandID != "" {
+		input := command.ResultInput{Message: payload.Message}
+		if status == "ack" {
+			c.commandService.Ack(ctx, device.ID, payload.CommandID, input)
+		} else {
+			c.commandService.Nack(ctx, device.ID, payload.CommandID, input)
+		}
+		log.Printf("[MQTT] recorded command %s as %s for device %s", payload.CommandID, status, device.ID)
+	}
+
+	if payload.DeploymentID != "" {
+		input := ota.ResultInput{Message: payload.Message}
+		if status == "ack" {
+			c.otaService.Ack(ctx, device.ID, payload.DeploymentID, input)
+		} else {
+			c.otaService.Nack(ctx, device.ID, payload.DeploymentID, input)
+		}
+		log.Printf("[MQTT] recorded deployment %s as %s for device %s", payload.DeploymentID, status, device.ID)
 	}
 }
 

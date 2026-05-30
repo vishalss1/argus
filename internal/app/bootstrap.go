@@ -177,7 +177,7 @@ func Bootstrap() (*Server, error) {
 			ClientID:       cfg.MQTTClientID,
 			TelemetryTopic: cfg.MQTTTelemetryTopic,
 			StateTopic:     cfg.MQTTStateTopic,
-		}, telemetryService, presenceService)
+		}, telemetryService, presenceService, commandService, otaService)
 		if err != nil {
 			cancel()
 			return nil, err

@@ -6,6 +6,7 @@ PLAN2.md
 *.exe
 report.md
 argus_must_haves.md
+argus_esp32.cpp
 
 node_modules
 dist
