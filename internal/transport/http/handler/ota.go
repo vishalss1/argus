@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/vishalss1/argus/internal/domain/device"
@@ -137,6 +138,7 @@ func (h *OTAHandler) DeployFirmware(w http.ResponseWriter, r *http.Request, devi
 		return
 	}
 
+	log.Printf("[OTA] deployment create handler request device=%s artifact=%s", deviceID, req.ArtifactID)
 	manifest, err := h.service.Deploy(r.Context(), deviceID, ota.DeployInput{ArtifactID: req.ArtifactID})
 	if errors.Is(err, device.ErrDeviceNotFound) {
 		writeError(w, http.StatusNotFound, "device not found")
@@ -151,6 +153,7 @@ func (h *OTAHandler) DeployFirmware(w http.ResponseWriter, r *http.Request, devi
 		return
 	}
 
+	log.Printf("[OTA] deployment create handler manifest device=%s deployment=%s version=%s", manifest.DeviceID, manifest.DeploymentID, manifest.Version)
 	writeJSON(w, http.StatusCreated, manifest)
 }
 
@@ -220,16 +223,20 @@ func (h *OTAHandler) ListDeploymentEvents(w http.ResponseWriter, r *http.Request
 // @Failure 400 {object} dto.ErrorResponse
 // @Router /devices/{deviceID}/ota/pending [get]
 func (h *OTAHandler) GetPendingDeployment(w http.ResponseWriter, r *http.Request, deviceID string) {
+	log.Printf("[OTA] pending handler request device=%s", deviceID)
 	manifest, err := h.service.GetPendingManifest(r.Context(), deviceID)
 	if errors.Is(err, ota.ErrDeploymentNotFound) {
+		log.Printf("[OTA] pending handler no deployment device=%s", deviceID)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err != nil {
+		log.Printf("[OTA] pending handler failed device=%s error=%v", deviceID, err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	log.Printf("[OTA] pending handler manifest delivery device=%s deployment=%s version=%s", deviceID, manifest.DeploymentID, manifest.Version)
 	writeJSON(w, http.StatusOK, manifest)
 }
 

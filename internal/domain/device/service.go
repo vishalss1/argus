@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type Service struct {
 	repo               Repository
@@ -53,9 +56,15 @@ func (s *Service) SetProvisioningConfig(config ProvisioningConfig) {
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error) {
-	id, err := newDeviceID()
-	if err != nil {
-		return nil, err
+	id := strings.ToLower(strings.TrimSpace(input.ID))
+	if id == "" {
+		generatedID, err := newDeviceID()
+		if err != nil {
+			return nil, err
+		}
+		id = generatedID
+	} else if !uuidPattern.MatchString(id) {
+		return nil, errors.New("device id must be a valid uuid")
 	}
 
 	device := Device{

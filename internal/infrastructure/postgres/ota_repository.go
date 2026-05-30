@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/vishalss1/argus/internal/domain/device"
@@ -86,6 +87,25 @@ func (r *OTARepository) GetArtifact(ctx context.Context, id string) (*ota.Firmwa
 	}
 
 	return artifact, nil
+}
+
+func (r *OTARepository) ResolveDeviceID(ctx context.Context, idOrHardwareID string) (string, error) {
+	const query = `
+		SELECT id
+		FROM devices
+		WHERE id::text = $1 OR metadata->>'hardware_id' = $1
+		ORDER BY CASE WHEN id::text = $1 THEN 0 ELSE 1 END, created_at ASC
+		LIMIT 1`
+
+	var id string
+	err := r.db.QueryRowContext(ctx, query, idOrHardwareID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", device.ErrDeviceNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve ota device id: %w", err)
+	}
+	return id, nil
 }
 
 func (r *OTARepository) CreateDeployment(ctx context.Context, deployment ota.Deployment) (*ota.Deployment, error) {
@@ -186,24 +206,75 @@ func (r *OTARepository) GetDeployment(ctx context.Context, deviceID string, id s
 }
 
 func (r *OTARepository) GetOldestPendingDeployment(ctx context.Context, deviceID string) (*ota.Deployment, error) {
+	log.Printf("[OTA] repository pending lookup device=%s statuses=%s,%s,%s,%s,%s", deviceID, ota.StatusPending, ota.StatusAvailable, ota.StatusDownloading, ota.StatusFlashing, ota.StatusRebooting)
 	query := `
 		SELECT ` + deploymentColumns("od") + `
 		FROM ota_deployments od
 		JOIN firmware_artifacts fa ON fa.id = od.artifact_id
 		JOIN devices d ON d.id = od.device_id
-		WHERE od.device_id = $1::uuid AND od.status IN ($2, $3)
+		WHERE od.device_id = $1::uuid AND od.status IN ($2, $3, $4, $5, $6)
 		ORDER BY od.created_at ASC
 		LIMIT 1`
 
-	deployment, err := scanDeployment(r.db.QueryRowContext(ctx, query, deviceID, ota.StatusPending, ota.StatusAvailable))
+	deployment, err := scanDeployment(r.db.QueryRowContext(ctx, query, deviceID, ota.StatusPending, ota.StatusAvailable, ota.StatusDownloading, ota.StatusFlashing, ota.StatusRebooting))
 	if errors.Is(err, sql.ErrNoRows) {
+		r.logPendingLookupDiagnostics(ctx, deviceID)
 		return nil, ota.ErrDeploymentNotFound
 	}
 	if err != nil {
+		log.Printf("[OTA] repository pending lookup failed device=%s error=%v", deviceID, err)
 		return nil, fmt.Errorf("get oldest pending ota deployment: %w", err)
 	}
 
+	log.Printf("[OTA] repository pending lookup selected deployment=%s status=%s target_device=%s", deployment.ID, deployment.Status, deployment.DeviceID)
 	return deployment, nil
+}
+
+func (r *OTARepository) logPendingLookupDiagnostics(ctx context.Context, requestedDeviceID string) {
+	const query = `
+		SELECT od.id, od.device_id, od.status, od.artifact_id, d.id IS NOT NULL, fa.id IS NOT NULL
+		FROM ota_deployments od
+		LEFT JOIN devices d ON d.id = od.device_id
+		LEFT JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+		WHERE od.status IN ($1, $2, $3, $4, $5)
+		ORDER BY od.created_at DESC
+		LIMIT 20`
+
+	rows, err := r.db.QueryContext(ctx, query, ota.StatusPending, ota.StatusAvailable, ota.StatusDownloading, ota.StatusFlashing, ota.StatusRebooting)
+	if err != nil {
+		log.Printf("[OTA] pending lookup diagnostics failed requested_device=%s error=%v", requestedDeviceID, err)
+		return
+	}
+	defer rows.Close()
+
+	found := false
+	for rows.Next() {
+		found = true
+		var deploymentID, targetDeviceID, status, artifactID string
+		var deviceExists, artifactExists bool
+		if err := rows.Scan(&deploymentID, &targetDeviceID, &status, &artifactID, &deviceExists, &artifactExists); err != nil {
+			log.Printf("[OTA] pending lookup diagnostics scan failed requested_device=%s error=%v", requestedDeviceID, err)
+			return
+		}
+		reason := "eligible for another device"
+		if targetDeviceID == requestedDeviceID {
+			if !deviceExists {
+				reason = "target device row missing"
+			} else if !artifactExists {
+				reason = "firmware artifact row missing"
+			} else {
+				reason = "unexpectedly not selected"
+			}
+		}
+		log.Printf("[OTA] deployment rejected: requested_device=%s deployment=%s status=%s target_device=%s artifact=%s reason=%s", requestedDeviceID, deploymentID, status, targetDeviceID, artifactID, reason)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[OTA] pending lookup diagnostics rows failed requested_device=%s error=%v", requestedDeviceID, err)
+		return
+	}
+	if !found {
+		log.Printf("[OTA] no non-terminal ota deployments exist while looking up device=%s", requestedDeviceID)
+	}
 }
 
 func (r *OTARepository) MarkDeploymentAvailable(ctx context.Context, deviceID string, id string) (*ota.Deployment, error) {

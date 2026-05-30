@@ -39,3 +39,5 @@ CREATE TABLE IF NOT EXISTS ota_deployment_events (
 CREATE INDEX IF NOT EXISTS idx_ota_deployment_events_deployment_created_at ON ota_deployment_events(deployment_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_ota_deployment_events_device_created_at ON ota_deployment_events(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ota_deployments_updated_at ON ota_deployments(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ota_deployments_device_active ON ota_deployments(device_id, created_at ASC)
+    WHERE status IN ('pending', 'available', 'downloading', 'flashing', 'rebooting');

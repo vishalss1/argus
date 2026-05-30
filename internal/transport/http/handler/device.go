@@ -34,6 +34,7 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entity, err := h.service.Create(r.Context(), device.CreateInput{
+		ID:              req.ID,
 		Name:            req.Name,
 		Type:            req.Type,
 		FirmwareVersion: req.FirmwareVersion,

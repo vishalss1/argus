@@ -11,32 +11,33 @@ import (
 )
 
 type Config struct {
-	DatabaseURL         string
-	Port                string
-	MQTTBrokerURL       string
-	MQTTClientID        string
-	MQTTStateTopic      string
-	MQTTTelemetryTopic  string
-	KafkaBrokers        []string
-	KafkaTelemetryTopic string
-	KafkaCommandTopic   string
+	DatabaseURL          string
+	Port                 string
+	MQTTBrokerURL        string
+	MQTTClientID         string
+	MQTTStateTopic       string
+	MQTTTelemetryTopic   string
+	KafkaBrokers         []string
+	KafkaTelemetryTopic  string
+	KafkaCommandTopic    string
 	KafkaAIWorkerGroupID string
-	RedisAddr           string
-	RedisPassword       string
-	RedisDB             int
-	MinIOEndpoint       string
-	MinIOAccessKey      string
-	MinIOSecretKey      string
-	MinIOBucket         string
-	MinIOUseSSL         bool
-	HeartbeatTimeout    time.Duration
-	HeartbeatInterval   time.Duration
-	ProvisioningBroker  string
-	GroqAPIKey          string
-	GroqModel           string
-	GroqBaseURL         string
-	OllamaBaseURL       string
-	OllamaEmbedModel    string
+	RedisAddr            string
+	RedisPassword        string
+	RedisDB              int
+	MinIOEndpoint        string
+	MinIOPublicURL       string
+	MinIOAccessKey       string
+	MinIOSecretKey       string
+	MinIOBucket          string
+	MinIOUseSSL          bool
+	HeartbeatTimeout     time.Duration
+	HeartbeatInterval    time.Duration
+	ProvisioningBroker   string
+	GroqAPIKey           string
+	GroqModel            string
+	GroqBaseURL          string
+	OllamaBaseURL        string
+	OllamaEmbedModel     string
 }
 
 func Load() *Config {
@@ -57,6 +58,7 @@ func Load() *Config {
 		RedisAddr:           os.Getenv("REDIS_ADDR"),
 		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
 		MinIOEndpoint:       os.Getenv("MINIO_ENDPOINT"),
+		MinIOPublicURL:      os.Getenv("MINIO_PUBLIC_URL"),
 		MinIOAccessKey:      os.Getenv("MINIO_ACCESS_KEY"),
 		MinIOSecretKey:      os.Getenv("MINIO_SECRET_KEY"),
 		MinIOBucket:         os.Getenv("MINIO_BUCKET"),

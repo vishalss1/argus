@@ -68,6 +68,7 @@ func Bootstrap() (*Server, error) {
 
 	minioClient, err := minio.New(appCtx, minio.Config{
 		Endpoint:        cfg.MinIOEndpoint,
+		PublicURL:       cfg.MinIOPublicURL,
 		AccessKeyID:     cfg.MinIOAccessKey,
 		SecretAccessKey: cfg.MinIOSecretKey,
 		Bucket:          cfg.MinIOBucket,

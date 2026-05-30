@@ -27,6 +27,7 @@ export function DevicesPage() {
     setFormError("");
     const form = new FormData(event.currentTarget);
     const payload = {
+      id: editDevice ? undefined : String(form.get("id") || "").trim() || undefined,
       name: String(form.get("name") || ""),
       type: String(form.get("type") || ""),
       firmware_version: String(form.get("firmware_version") || ""),
@@ -107,6 +108,7 @@ export function DevicesPage() {
         </Panel>
         <Panel title={editDevice ? "Update Device" : "Create Device"} subtitle={editDevice ? "Modify device attributes and configuration metadata" : "Add a new physical or virtual node to the registry"}>
           <form className="form-grid" onSubmit={onSubmit} key={editDevice?.id || "create"}>
+            {!editDevice && <label className="field full"><span>Device UUID</span><input name="id" placeholder="372fa1f0-2d4f-44ff-8e6c-ced30602e7d5" /></label>}
             <label className="field"><span>Name</span><input name="name" defaultValue={editDevice?.name || ""} required /></label>
             <label className="field"><span>Type</span><input name="type" defaultValue={editDevice?.type || ""} required /></label>
             <label className="field"><span>Firmware Version</span><input name="firmware_version" defaultValue={editDevice?.firmware_version || ""} /></label>

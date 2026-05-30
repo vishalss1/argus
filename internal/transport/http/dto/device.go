@@ -3,6 +3,7 @@ package dto
 import "encoding/json"
 
 type CreateDeviceRequest struct {
+	ID              string          `json:"id,omitempty"`
 	Name            string          `json:"name" validate:"required"`
 	Type            string          `json:"type" validate:"required"`
 	FirmwareVersion string          `json:"firmware_version"`
