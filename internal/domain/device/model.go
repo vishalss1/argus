@@ -18,6 +18,7 @@ type Device struct {
 }
 
 type CreateInput struct {
+	ID              string
 	Name            string
 	Type            string
 	FirmwareVersion string

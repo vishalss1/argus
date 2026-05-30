@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS ota_deployment_events;
+DROP INDEX IF EXISTS idx_ota_deployments_device_active;
 
 ALTER TABLE ota_deployments
     DROP CONSTRAINT IF EXISTS ota_deployments_status_check;

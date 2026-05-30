@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon } from "lucide-react";
 import {
   CopyableID,
@@ -69,10 +69,6 @@ export function OTAPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortKey, setSortKey] = useState<"created_at" | "status" | "progress" | "duration">("created_at");
 
-  useEffect(() => {
-    if (!deviceID && devices.data?.[0]) setDeviceID(devices.data[0].id);
-  }, [deviceID, devices.data]);
-
   const deploymentRows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return [...(allDeployments.data ?? [])]
@@ -102,7 +98,7 @@ export function OTAPage() {
       });
   }, [allDeployments.data, query, sortKey, statusFilter]);
 
-  const selectedDeviceDeployments = deployments.data ?? [];
+  const selectedDeviceDeployments = deviceID ? deployments.data ?? [] : [];
   const latestDeviceDeployment = selectedDeviceDeployments[0];
 
   async function upload(event: FormEvent<HTMLFormElement>) {
@@ -123,6 +119,10 @@ export function OTAPage() {
     const form = new FormData(event.currentTarget);
     setError("");
     try {
+      if (!deviceID) {
+        setError("Select a device before creating an OTA deployment.");
+        return;
+      }
       const created = await api.deployments.create(deviceID, String(form.get("artifact_id")));
       setManifest(created);
       await Promise.all([deployments.refetch(), allDeployments.refetch(), stats.refetch()]);
@@ -199,9 +199,10 @@ export function OTAPage() {
           <Panel title="Create Deployment" subtitle="Create a pull-based deployment for one device">
             {(devices.data?.length ?? 0) === 0 || (firmware.data?.length ?? 0) === 0 ? <EmptyState title="Deployment unavailable" description="A deployment requires at least one device and one firmware artifact." /> : (
               <form className="form-grid" onSubmit={deploy}>
-                <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}>{devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name} · {device.firmware_version || "unset"}</option>)}</SelectField></div>
+                <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name} · {compactID(device.id)} · {device.firmware_version || "unset"}</option>)}</SelectField></div>
                 <label className="field full"><span>Firmware Artifact</span><select name="artifact_id">{firmware.data?.map((artifact) => <option key={artifact.id} value={artifact.id}>{artifact.version} · {artifact.filename}</option>)}</select></label>
-                <button className="button primary" type="submit">Create Deployment</button>
+                {deviceID && <div className="field full"><span>Selected Device ID</span><CopyableID id={deviceID} /></div>}
+                <button className="button primary" type="submit" disabled={!deviceID}>Create Deployment</button>
               </form>
             )}
           </Panel>
@@ -244,7 +245,7 @@ export function OTAPage() {
 
       <div className="split" style={{ marginTop: 18 }}>
         <Panel title="Device OTA History" subtitle={deviceID ? "Latest deployments for the selected device" : "Select a device"}>
-          <div className="field" style={{ marginBottom: 14 }}><SelectField label="Device" value={deviceID} onChange={setDeviceID}>{devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</SelectField></div>
+          <div className="field" style={{ marginBottom: 14 }}><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name} · {compactID(device.id)}</option>)}</SelectField></div>
           {latestDeviceDeployment && (
             <div className="settings-row" style={{ marginBottom: 12 }}>
               <span><strong>Latest Firmware Target</strong><p className="muted">{latestDeviceDeployment.version || "Unknown"} · {latestDeviceDeployment.status}</p></span>

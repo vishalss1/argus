@@ -21,6 +21,7 @@ export interface Device {
 }
 
 export interface CreateDeviceRequest {
+  id?: string;
   name: string;
   type: string;
   firmware_version: string;

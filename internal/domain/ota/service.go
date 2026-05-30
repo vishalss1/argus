@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vishalss1/argus/internal/domain/device"
 )
 
 const manifestURLTTL = 15 * time.Minute
@@ -96,13 +99,25 @@ func (s *Service) GetFirmware(ctx context.Context, id string) (*FirmwareArtifact
 }
 
 func (s *Service) Deploy(ctx context.Context, deviceID string, input DeployInput) (*Manifest, error) {
-	deviceID = strings.TrimSpace(deviceID)
-	if deviceID == "" {
+	requestedDeviceID := strings.TrimSpace(deviceID)
+	log.Printf("[OTA] deployment create request device=%s artifact=%s", requestedDeviceID, strings.TrimSpace(input.ArtifactID))
+	if requestedDeviceID == "" {
 		return nil, errors.New("device id is required")
 	}
 	artifactID := strings.TrimSpace(input.ArtifactID)
 	if artifactID == "" {
 		return nil, errors.New("firmware artifact id is required")
+	}
+
+	resolvedDeviceID, err := s.repo.ResolveDeviceID(ctx, requestedDeviceID)
+	if err != nil {
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			log.Printf("[OTA] deployment create rejected device=%s reason=device not registered", requestedDeviceID)
+		}
+		return nil, err
+	}
+	if resolvedDeviceID != requestedDeviceID {
+		log.Printf("[OTA] deployment resolved requested_device=%s target_device=%s", requestedDeviceID, resolvedDeviceID)
 	}
 
 	artifact, err := s.repo.GetArtifact(ctx, artifactID)
@@ -117,13 +132,14 @@ func (s *Service) Deploy(ctx context.Context, deviceID string, input DeployInput
 
 	deployment, err := s.repo.CreateDeployment(ctx, Deployment{
 		ID:         id,
-		DeviceID:   deviceID,
+		DeviceID:   resolvedDeviceID,
 		ArtifactID: artifact.ID,
 		Status:     StatusPending,
 	})
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("[OTA] deployment persisted deployment=%s device=%s artifact=%s status=%s", deployment.ID, deployment.DeviceID, deployment.ArtifactID, deployment.Status)
 	s.publish(ctx, "ota_created", *deployment)
 
 	return s.manifest(ctx, deployment, artifact)
@@ -166,25 +182,41 @@ func (s *Service) GetManifest(ctx context.Context, deviceID string, id string) (
 }
 
 func (s *Service) GetPendingManifest(ctx context.Context, deviceID string) (*Manifest, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	log.Printf("[OTA] lookup device=%s", deviceID)
 	deployment, err := s.repo.GetOldestPendingDeployment(ctx, deviceID)
 	if err != nil {
+		if errors.Is(err, ErrDeploymentNotFound) {
+			s.logDeviceDeployments(ctx, deviceID)
+		} else {
+			log.Printf("[OTA] lookup failed device=%s error=%v", deviceID, err)
+		}
 		return nil, err
 	}
+	log.Printf("[OTA] found deployment=%s", deployment.ID)
+	log.Printf("[OTA] deployment status=%s", deployment.Status)
+	log.Printf("[OTA] target device=%s", deployment.DeviceID)
 
 	artifact, err := s.repo.GetArtifact(ctx, deployment.ArtifactID)
 	if err != nil {
+		log.Printf("[OTA] manifest rejected deployment=%s artifact=%s error=%v", deployment.ID, deployment.ArtifactID, err)
 		return nil, err
 	}
 
 	manifest, err := s.manifest(ctx, deployment, artifact)
 	if err != nil {
+		log.Printf("[OTA] manifest generation failed deployment=%s artifact=%s error=%v", deployment.ID, artifact.ID, err)
 		return nil, err
 	}
 	if deployment.Status == StatusPending {
 		if updated, updateErr := s.repo.MarkDeploymentAvailable(ctx, deviceID, deployment.ID); updateErr == nil {
 			s.publish(ctx, "ota_status_changed", *updated)
+			log.Printf("[OTA] deployment status changed deployment=%s pending->available", deployment.ID)
+		} else {
+			log.Printf("[OTA] failed to mark available deployment=%s error=%v", deployment.ID, updateErr)
 		}
 	}
+	log.Printf("[OTA] manifest generated deployment=%s firmware=%s version=%s expires_at=%s", manifest.DeploymentID, manifest.FirmwareID, manifest.Version, manifest.ExpiresAt.Format(time.RFC3339))
 	return manifest, nil
 }
 
@@ -304,6 +336,21 @@ func isProgressStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (s *Service) logDeviceDeployments(ctx context.Context, deviceID string) {
+	deployments, err := s.repo.ListDeploymentsByDevice(ctx, deviceID)
+	if err != nil {
+		log.Printf("[OTA] no pending deployment diagnostics failed device=%s error=%v", deviceID, err)
+		return
+	}
+	if len(deployments) == 0 {
+		log.Printf("[OTA] no deployments found for requested device=%s", deviceID)
+		return
+	}
+	for _, deployment := range deployments {
+		log.Printf("[OTA] deployment rejected: device=%s deployment=%s status=%s target_device=%s", deviceID, deployment.ID, deployment.Status, deployment.DeviceID)
 	}
 }
 

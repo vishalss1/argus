@@ -148,6 +148,7 @@ REDIS_ADDR=localhost:6379
 REDIS_PASSWORD=
 REDIS_DB=0
 MINIO_ENDPOINT=localhost:9000
+MINIO_PUBLIC_URL=http://192.168.29.222:9000
 MINIO_ACCESS_KEY=argus
 MINIO_SECRET_KEY=arguspassword
 MINIO_BUCKET=argus-firmware
@@ -155,6 +156,8 @@ MINIO_USE_SSL=false
 HEARTBEAT_INTERVAL_SECONDS=30
 HEARTBEAT_TIMEOUT_SECONDS=45
 ```
+
+`MINIO_ENDPOINT` is the address the backend uses to reach MinIO. `MINIO_PUBLIC_URL` is the LAN or public URL embedded in OTA manifests for devices. Do not leave `MINIO_PUBLIC_URL` as `localhost` for physical ESP32 devices.
 
 ## MQTT Device Presence
 
