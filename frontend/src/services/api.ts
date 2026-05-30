@@ -59,16 +59,6 @@ export const api = {
       request<Command>(`/devices/${deviceID}/commands`, {
         method: "POST",
         body: JSON.stringify(payload)
-      }),
-    ack: (deviceID: string, commandID: string, message?: string) =>
-      request<Command>(`/devices/${deviceID}/commands/${commandID}/ack`, {
-        method: "POST",
-        body: JSON.stringify(message ? { message } : {})
-      }),
-    nack: (deviceID: string, commandID: string, message?: string) =>
-      request<Command>(`/devices/${deviceID}/commands/${commandID}/nack`, {
-        method: "POST",
-        body: JSON.stringify(message ? { message } : {})
       })
   },
 

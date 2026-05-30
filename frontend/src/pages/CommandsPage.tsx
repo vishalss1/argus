@@ -32,12 +32,6 @@ export function CommandsPage() {
     }
   }
 
-  async function record(id: string, action: "ack" | "nack") {
-    if (action === "ack") await api.commands.ack(deviceID, id);
-    else await api.commands.nack(deviceID, id);
-    await commands.refetch();
-  }
-
   return (
     <>
       <PageHeader eyebrow="Command Control" title="Commands" description="Send device commands and track actual command acknowledgement state." />
@@ -56,17 +50,16 @@ export function CommandsPage() {
           ) : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Command</th><th>Type</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Command</th><th>Type</th><th>Status</th><th>Created</th></tr></thead>
                 <tbody>
                   {commands.isLoading && <LoadingRows rows={5} />}
-                  {!commands.isLoading && (commands.data?.length ?? 0) === 0 && <tr><td colSpan={5}><EmptyState title="No commands" description="No commands have been sent to this device." /></td></tr>}
+                  {!commands.isLoading && (commands.data?.length ?? 0) === 0 && <tr><td colSpan={4}><EmptyState title="No commands" description="No commands have been sent to this device." /></td></tr>}
                   {commands.data?.map((command) => (
                     <tr key={command.id}>
                       <td><span className="mono">{compactID(command.id)}</span><pre className="code-block">{stringifyJson(command.payload)}</pre></td>
                       <td>{command.type}</td>
                       <td><StatusChip value={command.status} /></td>
                       <td>{formatDate(command.created_at)}</td>
-                      <td><div className="page-actions"><button className="button compact secondary" onClick={() => void record(command.id, "ack")}>ACK</button><button className="button compact danger" onClick={() => void record(command.id, "nack")}>NACK</button></div></td>
                     </tr>
                   ))}
                 </tbody>

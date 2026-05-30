@@ -103,12 +103,6 @@ func New(
 			r.Get("/commands/{commandID}", func(w http.ResponseWriter, r *http.Request) {
 				commandHandler.GetCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
 			})
-			r.Post("/commands/{commandID}/ack", func(w http.ResponseWriter, r *http.Request) {
-				commandHandler.AckCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
-			})
-			r.Post("/commands/{commandID}/nack", func(w http.ResponseWriter, r *http.Request) {
-				commandHandler.NackCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
-			})
 			r.Get("/ota", func(w http.ResponseWriter, r *http.Request) {
 				otaHandler.ListDeployments(w, r, chi.URLParam(r, "deviceID"))
 			})
@@ -120,12 +114,6 @@ func New(
 			})
 			r.Get("/ota/{deploymentID}/manifest", func(w http.ResponseWriter, r *http.Request) {
 				otaHandler.GetManifest(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
-			})
-			r.Post("/ota/{deploymentID}/ack", func(w http.ResponseWriter, r *http.Request) {
-				otaHandler.AckDeployment(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
-			})
-			r.Post("/ota/{deploymentID}/nack", func(w http.ResponseWriter, r *http.Request) {
-				otaHandler.NackDeployment(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
 			})
 			r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
 				shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))

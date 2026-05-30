@@ -1,10 +1,8 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 
 	"github.com/vishalss1/argus/internal/domain/command"
@@ -85,68 +83,6 @@ func (h *CommandHandler) ListCommands(w http.ResponseWriter, r *http.Request, de
 // @Router /devices/{deviceID}/commands/{commandID} [get]
 func (h *CommandHandler) GetCommand(w http.ResponseWriter, r *http.Request, deviceID string, commandID string) {
 	entity, err := h.service.Get(r.Context(), deviceID, commandID)
-	if errors.Is(err, command.ErrCommandNotFound) {
-		writeError(w, http.StatusNotFound, "command not found")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, entity)
-}
-
-// AckCommand godoc
-// @Summary ACK device command
-// @Tags commands
-// @Accept json
-// @Produce json
-// @Param deviceID path string true "Device ID"
-// @Param commandID path string true "Command ID"
-// @Param request body dto.CommandResultRequest false "ACK payload"
-// @Success 200 {object} command.Command
-// @Failure 400 {object} dto.ErrorResponse
-// @Failure 404 {object} dto.ErrorResponse
-// @Router /devices/{deviceID}/commands/{commandID}/ack [post]
-func (h *CommandHandler) AckCommand(w http.ResponseWriter, r *http.Request, deviceID string, commandID string) {
-	h.recordResult(w, r, deviceID, commandID, h.service.Ack)
-}
-
-// NackCommand godoc
-// @Summary NACK device command
-// @Tags commands
-// @Accept json
-// @Produce json
-// @Param deviceID path string true "Device ID"
-// @Param commandID path string true "Command ID"
-// @Param request body dto.CommandResultRequest false "NACK payload"
-// @Success 200 {object} command.Command
-// @Failure 400 {object} dto.ErrorResponse
-// @Failure 404 {object} dto.ErrorResponse
-// @Router /devices/{deviceID}/commands/{commandID}/nack [post]
-func (h *CommandHandler) NackCommand(w http.ResponseWriter, r *http.Request, deviceID string, commandID string) {
-	h.recordResult(w, r, deviceID, commandID, h.service.Nack)
-}
-
-func (h *CommandHandler) recordResult(
-	w http.ResponseWriter,
-	r *http.Request,
-	deviceID string,
-	commandID string,
-	record func(context.Context, string, string, command.ResultInput) (*command.Command, error),
-) {
-	var req dto.CommandResultRequest
-	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			if !errors.Is(err, io.EOF) {
-				writeError(w, http.StatusBadRequest, "invalid JSON body")
-				return
-			}
-		}
-	}
-
-	entity, err := record(r.Context(), deviceID, commandID, command.ResultInput{Message: req.Message})
 	if errors.Is(err, command.ErrCommandNotFound) {
 		writeError(w, http.StatusNotFound, "command not found")
 		return
