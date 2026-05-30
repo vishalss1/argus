@@ -78,8 +78,6 @@ func (p *Producer) PublishCommand(ctx context.Context, event commanddomain.Comma
 		return fmt.Errorf("marshal command event: %w", err)
 	}
 
-	log.Printf("[KAFKA] publishing command to topic %s: %s", p.commandWriter.Topic, string(payload))
-
 	err = p.commandWriter.WriteMessages(ctx, segmentio.Message{
 		Key:   []byte(event.DeviceID),
 		Value: payload,
@@ -90,7 +88,6 @@ func (p *Producer) PublishCommand(ctx context.Context, event commanddomain.Comma
 		return fmt.Errorf("write command event: %w", err)
 	}
 
-	log.Printf("[KAFKA] successfully published command")
 	return nil
 }
 

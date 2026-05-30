@@ -140,10 +140,9 @@ func (c *Client) subscribe(client paho.Client) {
 }
 
 func (c *Client) handleTelemetryMessage(message paho.Message) {
-	log.Printf("[MQTT DEBUG] incoming telemetry | topic: %s | payload: %s", message.Topic(), string(message.Payload()))
 	rawID, err := deviceIDFromTopic(c.telemetryTopic, message.Topic())
 	if err != nil {
-		log.Printf("[MQTT DEBUG] topic match failed: %v", err)
+		log.Printf("[MQTT] topic match failed: %v", err)
 		return
 	}
 
@@ -151,16 +150,15 @@ func (c *Client) handleTelemetryMessage(message paho.Message) {
 	var deviceID string
 	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
 	if err != nil {
-		log.Printf("[MQTT DEBUG] device resolution failed for %q: %v. Ensure device is provisioned.", rawID, err)
+		log.Printf("[MQTT] device resolution failed for %q: %v. Ensure device is provisioned.", rawID, err)
 		return
 	}
 	deviceID = device.ID
-	log.Printf("[MQTT DEBUG] resolved device: %s (%s)", device.Name, deviceID)
 
 	// 2. Decode Payload
 	var payload telemetryMessage
 	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
-		log.Printf("[MQTT DEBUG] JSON decode failed: %v", err)
+		log.Printf("[MQTT] telemetry JSON decode failed for device %s: %v", deviceID, err)
 		return
 	}
 
@@ -170,10 +168,9 @@ func (c *Client) handleTelemetryMessage(message paho.Message) {
 		Metrics:    payload.Metrics,
 	})
 	if err != nil {
-		log.Printf("[MQTT DEBUG] ingestion failed: %v", err)
+		log.Printf("[MQTT] telemetry ingestion failed for device %s: %v", deviceID, err)
 		return
 	}
-	log.Printf("[MQTT DEBUG] telemetry successfully ingested and broadcasted")
 }
 
 func (c *Client) handleStateMessage(message paho.Message) {
@@ -217,7 +214,6 @@ func (c *Client) handleStateMessage(message paho.Message) {
 		log.Printf("[MQTT] presence update failed for device %s: %v", deviceID, err)
 		return
 	}
-	log.Printf("[MQTT] successfully updated state for device: %s (%s)", deviceID, payload.Status)
 }
 
 func topicMatches(pattern string, topic string) bool {

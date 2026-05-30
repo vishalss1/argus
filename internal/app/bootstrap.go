@@ -281,8 +281,6 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 			// Format MQTT topic: argus/devices/{id}/commands
 			topic := fmt.Sprintf("argus/devices/%s/commands", cmd.DeviceID)
 			
-			log.Printf("[DISPATCHER] routing command %s (%s) to %s", cmd.ID, cmd.Type, topic)
-			
 			err = mqttClient.Publish(topic, 1, false, map[string]interface{}{
 				"id":      cmd.ID,
 				"type":    cmd.Type,
@@ -292,8 +290,6 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 			
 			if err != nil {
 				log.Printf("[DISPATCHER] publish error: %v", err)
-			} else {
-				log.Printf("[DISPATCHER] command successfully dispatched to MQTT")
 			}
 
 			consumer.CommitMessages(ctx, msg)

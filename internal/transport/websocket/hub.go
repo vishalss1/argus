@@ -39,13 +39,10 @@ func (h *Hub) Run(ctx context.Context) {
 			h.Close()
 			return
 		case conn := <-h.register:
-			log.Printf("[WS HUB] client registered: %s (Total: %d)", conn.RemoteAddr(), len(h.clients)+1)
 			h.clients[conn] = struct{}{}
 		case conn := <-h.unregister:
-			log.Printf("[WS HUB] client unregistered (Total: %d)", len(h.clients)-1)
 			h.remove(conn)
 		case payload := <-h.broadcast:
-			log.Printf("[WS HUB] broadcasting message to %d clients: %s", len(h.clients), string(payload))
 			for conn := range h.clients {
 				if err := conn.WriteMessage(gorilla.TextMessage, payload); err != nil {
 					log.Printf("websocket write failed: %v", err)

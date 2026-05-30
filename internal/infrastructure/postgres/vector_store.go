@@ -51,14 +51,6 @@ func (s *VectorStore) verifyExtension() {
 
 	s.enabled = true
 	log.Printf("[VECTOR STORE] pgvector enabled in %s (version %s). 768 dimensions (nomic-embed-text) confirmed.", dbName, version)
-
-	// Run Diagnostics
-	for _, table := range tables {
-		var total, vectorized int
-		s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&total)
-		s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE embedding IS NOT NULL", table)).Scan(&vectorized)
-		log.Printf("[VECTOR STORE DIAGNOSTIC] %s: %d total, %d vectorized, %d missing", table, total, vectorized, total-vectorized)
-	}
 }
 
 func (s *VectorStore) Search(ctx context.Context, table string, queryVector []float32, limit int) ([]vectorstore.SearchResult, error) {

@@ -30,7 +30,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[WS DEBUG] client connected: %s", conn.RemoteAddr())
 	h.hub.Register(conn)
 	defer h.hub.Unregister(conn)
 
