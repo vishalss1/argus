@@ -17,14 +17,15 @@ export function CommandsPage() {
 
   async function sendCommand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setError("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       await api.commands.send(deviceID, {
         type: String(form.get("type") || ""),
         payload: safeJsonParse(String(form.get("payload") || "{}"))
       });
-      event.currentTarget.reset();
+      formElement.reset();
       await commands.refetch();
     } catch (err) {
       setError((err as Error).message);

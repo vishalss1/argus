@@ -134,6 +134,7 @@ func Bootstrap() (*Server, error) {
 	}
 	commandService := commanddomain.NewService(finalCommandRepo)
 	commandService.OnResult = func(ctx context.Context, cmd commanddomain.Command) {
+		realtime.PublishCommandUpdate(ctx, cmd)
 		if err := memoryManager.SummarizeCommand(ctx, cmd); err != nil {
 			log.Printf("failed to summarize command: %v", err)
 		}

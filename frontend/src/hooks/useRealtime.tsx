@@ -8,7 +8,7 @@ import { queryKeys } from "./useArgusData";
 type RealtimeStatus = "connecting" | "connected" | "disconnected";
 
 interface RealtimeMessage {
-  type: "device_update" | "telemetry" | "device_presence";
+  type: "device_update" | "telemetry" | "device_presence" | "command_update";
   payload: unknown;
   deviceId?: string;
   status?: string;
@@ -93,6 +93,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
                 [telemetry.device_id]: [telemetry, ...prev].slice(0, 50)
               };
             });
+          }
+
+          if (message.type === "command_update") {
+            queryClient.invalidateQueries({ queryKey: ["commands"] });
           }
         } catch {
           // Ignore malformed frames
