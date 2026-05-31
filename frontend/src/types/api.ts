@@ -66,6 +66,9 @@ export interface FirmwareArtifact {
   content_type: string;
   size_bytes: number;
   checksum_sha256: string;
+  signature_alg?: string;
+  signature?: string;
+  signing_key_id?: string;
   created_at: string;
 }
 
@@ -119,6 +122,9 @@ export interface Manifest {
   content_type: string;
   size_bytes: number;
   checksum_sha256: string;
+  signature_alg?: string;
+  signature?: string;
+  signing_key_id?: string;
   download_url: string;
   expires_at: string;
 }

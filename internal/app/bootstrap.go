@@ -42,6 +42,8 @@ type Server struct {
 	mqttClient    *mqtt.Client
 	httpServer    *http.Server
 	websocketHub  *transportws.Hub
+	tlsCertFile   string
+	tlsKeyFile    string
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 }
@@ -144,6 +146,16 @@ func Bootstrap() (*Server, error) {
 
 	otaRepository := postgres.NewOTARepository(database)
 	otaService := otadomain.NewService(otaRepository, minioClient)
+	firmwareSigner, err := otadomain.NewFirmwareSigner(otadomain.SigningConfig{
+		RequireSignatures: cfg.OTARequireSignatures,
+		KeyID:             cfg.OTASigningKeyID,
+		PrivateKeyB64:     cfg.OTASigningPrivateKey,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	otaService.SetFirmwareSigner(firmwareSigner)
 	otaService.SetEventPublisher(realtime)
 	otaService.OnResult = func(ctx context.Context, dep otadomain.Deployment) {
 		if err := memoryManager.SummarizeDeployment(ctx, dep); err != nil {
@@ -207,6 +219,8 @@ func Bootstrap() (*Server, error) {
 			Handler: router,
 		},
 		websocketHub: websocketHub,
+		tlsCertFile:  cfg.HTTPSTLSCertFile,
+		tlsKeyFile:   cfg.HTTPSTLSKeyFile,
 		cancel:       cancel,
 	}
 
@@ -256,6 +270,15 @@ func monitorOTATimeouts(ctx context.Context, service *otadomain.Service) {
 
 func (s *Server) Start() error {
 	log.Printf("starting server on %s", s.httpServer.Addr)
+	if s.tlsCertFile != "" || s.tlsKeyFile != "" {
+		if s.tlsCertFile == "" || s.tlsKeyFile == "" {
+			return errors.New("both HTTPS_TLS_CERT_FILE and HTTPS_TLS_KEY_FILE must be set to enable native TLS")
+		}
+		if err := s.httpServer.ListenAndServeTLS(s.tlsCertFile, s.tlsKeyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	}
 	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

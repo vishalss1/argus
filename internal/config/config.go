@@ -30,6 +30,11 @@ type Config struct {
 	MinIOSecretKey       string
 	MinIOBucket          string
 	MinIOUseSSL          bool
+	OTARequireSignatures bool
+	OTASigningKeyID      string
+	OTASigningPrivateKey string
+	HTTPSTLSCertFile     string
+	HTTPSTLSKeyFile      string
 	HeartbeatTimeout     time.Duration
 	HeartbeatInterval    time.Duration
 	ProvisioningBroker   string
@@ -46,27 +51,31 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		DatabaseURL:         os.Getenv("DATABASE_URL"),
-		Port:                os.Getenv("PORT"),
-		MQTTBrokerURL:       os.Getenv("MQTT_BROKER_URL"),
-		MQTTClientID:        os.Getenv("MQTT_CLIENT_ID"),
-		MQTTStateTopic:      os.Getenv("MQTT_STATE_TOPIC"),
-		MQTTTelemetryTopic:  os.Getenv("MQTT_TELEMETRY_TOPIC"),
-		KafkaBrokers:        splitCSV(os.Getenv("KAFKA_BROKERS")),
-		KafkaTelemetryTopic: os.Getenv("KAFKA_TELEMETRY_TOPIC"),
-		KafkaCommandTopic:   os.Getenv("KAFKA_COMMAND_TOPIC"),
-		RedisAddr:           os.Getenv("REDIS_ADDR"),
-		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
-		MinIOEndpoint:       os.Getenv("MINIO_ENDPOINT"),
-		MinIOPublicURL:      os.Getenv("MINIO_PUBLIC_URL"),
-		MinIOAccessKey:      os.Getenv("MINIO_ACCESS_KEY"),
-		MinIOSecretKey:      os.Getenv("MINIO_SECRET_KEY"),
-		MinIOBucket:         os.Getenv("MINIO_BUCKET"),
-		GroqAPIKey:          os.Getenv("GROQ_API_KEY"),
-		GroqModel:           os.Getenv("GROQ_MODEL"),
-		GroqBaseURL:         os.Getenv("GROQ_BASE_URL"),
-		OllamaBaseURL:       os.Getenv("OLLAMA_BASE_URL"),
-		OllamaEmbedModel:    os.Getenv("OLLAMA_EMBED_MODEL"),
+		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		Port:                 os.Getenv("PORT"),
+		MQTTBrokerURL:        os.Getenv("MQTT_BROKER_URL"),
+		MQTTClientID:         os.Getenv("MQTT_CLIENT_ID"),
+		MQTTStateTopic:       os.Getenv("MQTT_STATE_TOPIC"),
+		MQTTTelemetryTopic:   os.Getenv("MQTT_TELEMETRY_TOPIC"),
+		KafkaBrokers:         splitCSV(os.Getenv("KAFKA_BROKERS")),
+		KafkaTelemetryTopic:  os.Getenv("KAFKA_TELEMETRY_TOPIC"),
+		KafkaCommandTopic:    os.Getenv("KAFKA_COMMAND_TOPIC"),
+		RedisAddr:            os.Getenv("REDIS_ADDR"),
+		RedisPassword:        os.Getenv("REDIS_PASSWORD"),
+		MinIOEndpoint:        os.Getenv("MINIO_ENDPOINT"),
+		MinIOPublicURL:       os.Getenv("MINIO_PUBLIC_URL"),
+		MinIOAccessKey:       os.Getenv("MINIO_ACCESS_KEY"),
+		MinIOSecretKey:       os.Getenv("MINIO_SECRET_KEY"),
+		MinIOBucket:          os.Getenv("MINIO_BUCKET"),
+		OTASigningKeyID:      os.Getenv("OTA_SIGNING_KEY_ID"),
+		OTASigningPrivateKey: os.Getenv("OTA_SIGNING_PRIVATE_KEY_B64"),
+		HTTPSTLSCertFile:     os.Getenv("HTTPS_TLS_CERT_FILE"),
+		HTTPSTLSKeyFile:      os.Getenv("HTTPS_TLS_KEY_FILE"),
+		GroqAPIKey:           os.Getenv("GROQ_API_KEY"),
+		GroqModel:            os.Getenv("GROQ_MODEL"),
+		GroqBaseURL:          os.Getenv("GROQ_BASE_URL"),
+		OllamaBaseURL:        os.Getenv("OLLAMA_BASE_URL"),
+		OllamaEmbedModel:     os.Getenv("OLLAMA_EMBED_MODEL"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -118,6 +127,7 @@ func Load() *Config {
 		cfg.MinIOBucket = "argus-firmware"
 	}
 	cfg.MinIOUseSSL = parseBool(os.Getenv("MINIO_USE_SSL"))
+	cfg.OTARequireSignatures = parseBool(os.Getenv("OTA_REQUIRE_SIGNATURES"))
 	cfg.HeartbeatTimeout = parseDurationSeconds("HEARTBEAT_TIMEOUT_SECONDS", 45)
 	if strings.TrimSpace(os.Getenv("HEARTBEAT_INTERVAL_SECONDS")) != "" {
 		cfg.HeartbeatInterval = parseDurationSeconds("HEARTBEAT_INTERVAL_SECONDS", 30)

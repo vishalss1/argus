@@ -153,11 +153,51 @@ MINIO_ACCESS_KEY=argus
 MINIO_SECRET_KEY=arguspassword
 MINIO_BUCKET=argus-firmware
 MINIO_USE_SSL=false
+OTA_REQUIRE_SIGNATURES=false
+OTA_SIGNING_KEY_ID=
+OTA_SIGNING_PRIVATE_KEY_B64=
+HTTPS_TLS_CERT_FILE=
+HTTPS_TLS_KEY_FILE=
 HEARTBEAT_INTERVAL_SECONDS=30
 HEARTBEAT_TIMEOUT_SECONDS=45
 ```
 
 `MINIO_ENDPOINT` is the address the backend uses to reach MinIO. `MINIO_PUBLIC_URL` is the LAN or public URL embedded in OTA manifests for devices. Do not leave `MINIO_PUBLIC_URL` as `localhost` for physical ESP32 devices.
+
+For production OTA, use HTTPS for both the ARGUS API and MinIO artifact URLs:
+
+```env
+MINIO_ENDPOINT=minio.example.com:9000
+MINIO_PUBLIC_URL=https://minio.example.com:9000
+MINIO_USE_SSL=true
+HTTPS_TLS_CERT_FILE=/etc/argus/tls/fullchain.pem
+HTTPS_TLS_KEY_FILE=/etc/argus/tls/privkey.pem
+OTA_REQUIRE_SIGNATURES=true
+OTA_SIGNING_KEY_ID=argus-prod-v1
+OTA_SIGNING_PRIVATE_KEY_B64=<base64-ed25519-private-key>
+```
+
+Generate an Ed25519 OTA keypair with:
+
+```bash
+go run ./cmd/ota-keygen -key-id argus-prod-v1
+```
+
+Store `OTA_SIGNING_PRIVATE_KEY_B64` only in a secret manager or protected server environment. Embed the generated public key in the ESP32 firmware as `ARGUS_ED25519_PUBLIC_KEY_B64`.
+
+ARGUS also works behind a reverse proxy such as Caddy or Nginx. In that mode, terminate TLS at the proxy, proxy to the Go server over localhost HTTP, and set `MINIO_PUBLIC_URL` to the externally reachable HTTPS URL. Native Go TLS is enabled only when both `HTTPS_TLS_CERT_FILE` and `HTTPS_TLS_KEY_FILE` are set.
+
+OTA authenticity model:
+
+1. Device fetches the manifest over HTTPS.
+2. TLS CA validation is mandatory for HTTPS.
+3. Optional certificate fingerprint pinning can reject unexpected leaf certificates.
+4. Device downloads firmware over HTTPS.
+5. Device verifies `checksum_sha256`.
+6. Device verifies the Ed25519 signature over the lowercase SHA-256 hex string.
+7. Only then does the device call `Update.end(true)`.
+
+This implementation signs firmware artifacts, not the manifest. A modified manifest or download URL cannot make the ESP32 install arbitrary firmware because the downloaded bytes must hash to a value signed by the ARGUS Ed25519 private key. Manifest signing can be added later to protect metadata such as rollout policy and display fields, but firmware signing is the critical control that blocks arbitrary code installation from compromised MinIO, MITM, or manifest tampering.
 
 ## MQTT Device Presence
 

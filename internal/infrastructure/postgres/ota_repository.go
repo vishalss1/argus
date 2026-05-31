@@ -22,9 +22,9 @@ func NewOTARepository(db *sql.DB) *OTARepository {
 
 func (r *OTARepository) CreateArtifact(ctx context.Context, artifact ota.FirmwareArtifact) (*ota.FirmwareArtifact, error) {
 	const query = `
-		INSERT INTO firmware_artifacts (id, version, filename, object_key, content_type, size_bytes, checksum_sha256)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
-		RETURNING id, version, filename, object_key, content_type, size_bytes, checksum_sha256, created_at`
+		INSERT INTO firmware_artifacts (id, version, filename, object_key, content_type, size_bytes, checksum_sha256, signature_alg, signature, signing_key_id)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''))
+		RETURNING id, version, filename, object_key, content_type, size_bytes, checksum_sha256, COALESCE(signature_alg, ''), COALESCE(signature, ''), COALESCE(signing_key_id, ''), created_at`
 
 	created, err := scanFirmwareArtifact(r.db.QueryRowContext(
 		ctx,
@@ -36,6 +36,9 @@ func (r *OTARepository) CreateArtifact(ctx context.Context, artifact ota.Firmwar
 		artifact.ContentType,
 		artifact.SizeBytes,
 		artifact.ChecksumSHA256,
+		artifact.SignatureAlg,
+		artifact.Signature,
+		artifact.SigningKeyID,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create firmware artifact: %w", err)
@@ -46,7 +49,7 @@ func (r *OTARepository) CreateArtifact(ctx context.Context, artifact ota.Firmwar
 
 func (r *OTARepository) ListArtifacts(ctx context.Context) ([]ota.FirmwareArtifact, error) {
 	const query = `
-		SELECT id, version, filename, object_key, content_type, size_bytes, checksum_sha256, created_at
+		SELECT id, version, filename, object_key, content_type, size_bytes, checksum_sha256, COALESCE(signature_alg, ''), COALESCE(signature, ''), COALESCE(signing_key_id, ''), created_at
 		FROM firmware_artifacts
 		ORDER BY created_at DESC`
 
@@ -74,7 +77,7 @@ func (r *OTARepository) ListArtifacts(ctx context.Context) ([]ota.FirmwareArtifa
 
 func (r *OTARepository) GetArtifact(ctx context.Context, id string) (*ota.FirmwareArtifact, error) {
 	const query = `
-		SELECT id, version, filename, object_key, content_type, size_bytes, checksum_sha256, created_at
+		SELECT id, version, filename, object_key, content_type, size_bytes, checksum_sha256, COALESCE(signature_alg, ''), COALESCE(signature, ''), COALESCE(signing_key_id, ''), created_at
 		FROM firmware_artifacts
 		WHERE id = $1::uuid`
 
@@ -459,6 +462,9 @@ func scanFirmwareArtifact(scanner firmwareArtifactScanner) (*ota.FirmwareArtifac
 		&artifact.ContentType,
 		&artifact.SizeBytes,
 		&artifact.ChecksumSHA256,
+		&artifact.SignatureAlg,
+		&artifact.Signature,
+		&artifact.SigningKeyID,
 		&artifact.CreatedAt,
 	)
 	if err != nil {

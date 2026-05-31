@@ -2,6 +2,8 @@ CLAUDE.md
 PLAN.md
 PLAN2.md
 .env
+certs/*
+cmd/ota-keygen/*
 .antigravitycli
 *.exe
 report.md

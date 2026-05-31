@@ -21,6 +21,9 @@ type FirmwareArtifact struct {
 	ContentType    string    `json:"content_type" db:"content_type"`
 	SizeBytes      int64     `json:"size_bytes" db:"size_bytes"`
 	ChecksumSHA256 string    `json:"checksum_sha256" db:"checksum_sha256"`
+	SignatureAlg   string    `json:"signature_alg,omitempty" db:"signature_alg"`
+	Signature      string    `json:"signature,omitempty" db:"signature"`
+	SigningKeyID   string    `json:"signing_key_id,omitempty" db:"signing_key_id"`
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
@@ -86,6 +89,9 @@ type Manifest struct {
 	ContentType    string    `json:"content_type"`
 	SizeBytes      int64     `json:"size_bytes"`
 	ChecksumSHA256 string    `json:"checksum_sha256"`
+	SignatureAlg   string    `json:"signature_alg,omitempty"`
+	Signature      string    `json:"signature,omitempty"`
+	SigningKeyID   string    `json:"signing_key_id,omitempty"`
 	DownloadURL    string    `json:"download_url"`
 	ExpiresAt      time.Time `json:"expires_at"`
 }
