@@ -2,10 +2,12 @@ package minio
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
 	"mime"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -70,9 +72,14 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 
 	presignClient := client
 	if publicEndpoint != cfg.Endpoint || publicSecure != cfg.UseSSL {
+		// Use a custom transport to skip verification for the local self-signed proxy
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
 		presignClient, err = miniogo.New(publicEndpoint, &miniogo.Options{
-			Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
-			Secure: publicSecure,
+			Creds:     credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+			Secure:    publicSecure,
+			Transport: transport,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create public minio presign client: %w", err)

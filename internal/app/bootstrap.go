@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -217,6 +218,11 @@ func Bootstrap() (*Server, error) {
 		httpServer: &http.Server{
 			Addr:    ":" + cfg.Port,
 			Handler: router,
+			TLSConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				// Disable Post-Quantum Key Exchange (ML-KEM) for better IoT compatibility
+				CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
+			},
 		},
 		websocketHub: websocketHub,
 		tlsCertFile:  cfg.HTTPSTLSCertFile,
@@ -269,16 +275,25 @@ func monitorOTATimeouts(ctx context.Context, service *otadomain.Service) {
 }
 
 func (s *Server) Start() error {
-	log.Printf("starting server on %s", s.httpServer.Addr)
-	if s.tlsCertFile != "" || s.tlsKeyFile != "" {
-		if s.tlsCertFile == "" || s.tlsKeyFile == "" {
-			return errors.New("both HTTPS_TLS_CERT_FILE and HTTPS_TLS_KEY_FILE must be set to enable native TLS")
-		}
+	tlsEnabled := s.tlsCertFile != "" && s.tlsKeyFile != ""
+
+	log.Printf("[SERVER] starting server")
+	log.Printf("[SERVER] listening address: %s", s.httpServer.Addr)
+	log.Printf("[SERVER] TLS enabled: %v", tlsEnabled)
+
+	if tlsEnabled {
+		log.Printf("[SERVER] TLS cert file: %s", s.tlsCertFile)
+		log.Printf("[SERVER] TLS key file: %s", s.tlsKeyFile)
 		if err := s.httpServer.ListenAndServeTLS(s.tlsCertFile, s.tlsKeyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		return nil
 	}
+
+	if s.tlsCertFile != "" || s.tlsKeyFile != "" {
+		return errors.New("both HTTPS_TLS_CERT_FILE and HTTPS_TLS_KEY_FILE must be set to enable native TLS")
+	}
+
 	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
