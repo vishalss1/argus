@@ -7,7 +7,9 @@ export const API_BASE_URL = envBase?.replace(/\/$/, "") || "/api";
 export function websocketURL(path = "/api/ws") {
   if (envWebSocketURL) return envWebSocketURL;
   if (import.meta.env.DEV && API_BASE_URL === "/api") {
-    return "ws://127.0.0.1:8080/ws";
+    // Use the Vite proxy for WebSockets in dev mode
+    const host = window.location.host; // e.g. localhost:5173
+    return `ws://${host}/api/ws`;
   }
 
   // Use the current page's host as the default for WebSocket connections.

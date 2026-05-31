@@ -58,10 +58,21 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-argus}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-arguspassword}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
+      - "9002:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - argus_minio_data:/data
+
+  caddy:
+    image: caddy:2.9.1-alpine
+    container_name: argus-caddy
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../certs:/certs:ro
+    depends_on:
+      - minio
 
   prometheus:
     image: prom/prometheus:v3.0.1

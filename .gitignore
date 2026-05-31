@@ -3,6 +3,7 @@ PLAN.md
 PLAN2.md
 .env
 certs/*
+cmd/gen-certs/*
 cmd/ota-keygen/*
 .antigravitycli
 *.exe
