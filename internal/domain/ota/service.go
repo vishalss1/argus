@@ -23,6 +23,7 @@ const defaultActiveTimeout = 30 * time.Minute
 type Service struct {
 	repo      Repository
 	store     ObjectStore
+	signer    *FirmwareSigner
 	publisher EventPublisher
 	OnResult  func(ctx context.Context, deployment Deployment)
 }
@@ -36,6 +37,10 @@ func NewService(repo Repository, store ObjectStore) *Service {
 		repo:  repo,
 		store: store,
 	}
+}
+
+func (s *Service) SetFirmwareSigner(signer *FirmwareSigner) {
+	s.signer = signer
 }
 
 func (s *Service) SetEventPublisher(publisher EventPublisher) {
@@ -73,6 +78,11 @@ func (s *Service) UploadFirmware(ctx context.Context, input UploadInput, reader 
 	if err := s.store.PutFirmware(ctx, objectKey, io.TeeReader(reader, hasher), input.SizeBytes, contentType); err != nil {
 		return nil, err
 	}
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+	signatureAlg, signature, signingKeyID, err := s.signFirmwareChecksum(checksum)
+	if err != nil {
+		return nil, err
+	}
 
 	return s.repo.CreateArtifact(ctx, FirmwareArtifact{
 		ID:             id,
@@ -81,7 +91,10 @@ func (s *Service) UploadFirmware(ctx context.Context, input UploadInput, reader 
 		ObjectKey:      objectKey,
 		ContentType:    contentType,
 		SizeBytes:      input.SizeBytes,
-		ChecksumSHA256: hex.EncodeToString(hasher.Sum(nil)),
+		ChecksumSHA256: checksum,
+		SignatureAlg:   signatureAlg,
+		Signature:      signature,
+		SigningKeyID:   signingKeyID,
 	})
 }
 
@@ -355,6 +368,12 @@ func (s *Service) logDeviceDeployments(ctx context.Context, deviceID string) {
 }
 
 func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact *FirmwareArtifact) (*Manifest, error) {
+	if s.signer != nil && s.signer.RequireSignatures() {
+		if artifact.SignatureAlg != SignatureAlgEd25519 || artifact.Signature == "" || artifact.SigningKeyID == "" {
+			return nil, errors.New("firmware artifact is unsigned but OTA_REQUIRE_SIGNATURES=true")
+		}
+	}
+
 	expiresAt := time.Now().UTC().Add(manifestURLTTL)
 	url, err := s.store.FirmwareURL(ctx, artifact.ObjectKey, artifact.Filename, manifestURLTTL)
 	if err != nil {
@@ -370,9 +389,19 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 		ContentType:    artifact.ContentType,
 		SizeBytes:      artifact.SizeBytes,
 		ChecksumSHA256: artifact.ChecksumSHA256,
+		SignatureAlg:   artifact.SignatureAlg,
+		Signature:      artifact.Signature,
+		SigningKeyID:   artifact.SigningKeyID,
 		DownloadURL:    url,
 		ExpiresAt:      expiresAt,
 	}, nil
+}
+
+func (s *Service) signFirmwareChecksum(checksum string) (string, string, string, error) {
+	if s.signer == nil {
+		return "", "", "", nil
+	}
+	return s.signer.SignChecksum(checksum)
 }
 
 func cleanFilename(filename string) string {

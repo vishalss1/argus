@@ -6,6 +6,9 @@ export const API_BASE_URL = envBase?.replace(/\/$/, "") || "/api";
 
 export function websocketURL(path = "/api/ws") {
   if (envWebSocketURL) return envWebSocketURL;
+  if (import.meta.env.DEV && API_BASE_URL === "/api") {
+    return "ws://127.0.0.1:8080/ws";
+  }
 
   // Use the current page's host as the default for WebSocket connections.
   // This ensures it works when accessing the server via IP on the local network.
