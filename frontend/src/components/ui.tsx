@@ -109,13 +109,21 @@ export function CopyableID({ id, length = 8 }: { id: string; length?: number }) 
       <button className="copy-id mono" type="button" onClick={copyID} aria-label={`Copy device ID ${id}`}>
         {shortID}
       </button>
-      <span className="copy-id-tooltip" role="tooltip">
-        <span className="mono">{id}</span>
-        <button className="copy-id-icon" type="button" onClick={copyID} aria-label="Copy full device ID">
-          {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
-        </button>
+      <span 
+        className="copy-id-tooltip" 
+        role="tooltip"
+        style={copied ? { display: "inline-flex" } : undefined}
+      >
+        {copied ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--success)" }}>
+            <Check size={12} aria-hidden /> Copied!
+          </span>
+        ) : (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--text)" }}>
+            <Copy size={12} aria-hidden /> Copy
+          </span>
+        )}
       </span>
-      {copied && <span className="copy-toast">Copied!</span>}
     </span>
   );
 }

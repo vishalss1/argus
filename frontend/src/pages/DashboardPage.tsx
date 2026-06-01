@@ -24,13 +24,6 @@ import type { JsonValue } from "../types/api";
 const FILTERS = ["All", "Online", "Warning", "Critical", "Offline"];
 const ROWS_PER_PAGE = 12;
 
-function deviceRegion(metadata: any) {
-  if (metadata && typeof metadata === "object" && typeof metadata.region === "string") {
-    return metadata.region;
-  }
-  return "Unknown";
-}
-
 interface SignalReading {
   level: number;
   label: string;
@@ -219,7 +212,6 @@ export function DashboardPage() {
                     <tr>
                       <th>Device ID</th>
                       <th>Name</th>
-                      <th>Region</th>
                       <th>Status</th>
                       <th>Firmware</th>
                       <th>Last Seen</th>
@@ -230,7 +222,7 @@ export function DashboardPage() {
                     {devices.isLoading && <LoadingRows rows={6} />}
                     {!devices.isLoading && paged.length === 0 && (
                       <tr>
-                        <td colSpan={7}>
+                        <td colSpan={6}>
                           <EmptyState
                             title="No devices registered"
                             description="Create devices from the Devices page to populate the fleet dashboard."
@@ -247,7 +239,6 @@ export function DashboardPage() {
                         <tr key={device.id}>
                           <td><CopyableID id={device.id} length={8} /></td>
                           <td><strong>{device.name}</strong></td>
-                          <td className="muted">{deviceRegion(device.metadata)}</td>
                           <td><StatusChip value={device.status} /></td>
                           <td>{device.firmware_version || "Unset"}</td>
                           <td className="muted">{formatDate(device.last_seen)}</td>
