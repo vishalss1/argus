@@ -16,7 +16,8 @@ export function AlertsPage() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       name: String(form.get("name") || ""),
       metric: String(form.get("metric") || ""),
@@ -32,7 +33,7 @@ export function AlertsPage() {
       } else {
         await api.rules.create(payload);
       }
-      event.currentTarget.reset();
+      formElement.reset();
       await rules.refetch();
     } catch (err) {
       setError((err as Error).message);

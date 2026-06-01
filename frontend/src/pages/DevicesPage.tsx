@@ -25,7 +25,8 @@ export function DevicesPage() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       id: editDevice ? undefined : String(form.get("id") || "").trim() || undefined,
       name: String(form.get("name") || ""),
@@ -40,7 +41,7 @@ export function DevicesPage() {
         setEditDevice(null);
       } else {
         await create.mutateAsync(payload);
-        event.currentTarget.reset();
+        formElement.reset();
       }
     } catch (error) {
       setFormError((error as Error).message);

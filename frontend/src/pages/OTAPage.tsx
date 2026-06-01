@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useRef } from "react";
 import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon } from "lucide-react";
 import {
   CopyableID,
@@ -65,6 +65,12 @@ export function OTAPage() {
   const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(null);
   const timeline = useDeploymentEvents(selectedDeployment?.id);
   const [error, setError] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [uploadSuccess, setUploadSuccess] = useState("");
+  const [deployError, setDeployError] = useState("");
+  const [deploySuccess, setDeploySuccess] = useState("");
+  const uploadTimeoutRef = useRef<number | null>(null);
+  const deployTimeoutRef = useRef<number | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortKey, setSortKey] = useState<"created_at" | "status" | "progress" | "duration">("created_at");
@@ -103,35 +109,53 @@ export function OTAPage() {
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    const form = new FormData(event.currentTarget);
+    setUploadError("");
+    setUploadSuccess("");
+    if (uploadTimeoutRef.current) {
+      window.clearTimeout(uploadTimeoutRef.current);
+    }
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       await api.firmware.upload(form);
-      event.currentTarget.reset();
+      formElement.reset();
       await firmware.refetch();
+      setUploadSuccess("Firmware uploaded and registered successfully.");
+      uploadTimeoutRef.current = window.setTimeout(() => {
+        setUploadSuccess("");
+      }, 4500);
     } catch (err) {
-      setError((err as Error).message);
+      setUploadError((err as Error).message);
     }
   }
 
   async function deploy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    setError("");
+    setDeployError("");
+    setDeploySuccess("");
+    if (deployTimeoutRef.current) {
+      window.clearTimeout(deployTimeoutRef.current);
+    }
     try {
       if (!deviceID) {
-        setError("Select a device before creating an OTA deployment.");
+        setDeployError("Select a device before creating an OTA deployment.");
         return;
       }
       const created = await api.deployments.create(deviceID, String(form.get("artifact_id")));
       setManifest(created);
       await Promise.all([deployments.refetch(), allDeployments.refetch(), stats.refetch()]);
+      setDeploySuccess("OTA deployment created successfully.");
+      deployTimeoutRef.current = window.setTimeout(() => {
+        setDeploySuccess("");
+      }, 4500);
     } catch (err) {
-      setError((err as Error).message);
+      setDeployError((err as Error).message);
     }
   }
 
   async function viewManifest(deployment: Deployment) {
+    setError("");
     try {
       setSelectedDeployment(deployment);
       const res = await api.deployments.manifest(deployment.device_id, deployment.id);
@@ -192,7 +216,8 @@ export function OTAPage() {
             <form className="form-grid" onSubmit={upload}>
               <label className="field full"><span>Version</span><input name="version" placeholder="v1.4.0" required /></label>
               <label className="field full"><span>Firmware File</span><input name="firmware" type="file" required /></label>
-              {error && <p className="muted field full">{error}</p>}
+              {uploadError && <div className="form-message error field full">{uploadError}</div>}
+              {uploadSuccess && <div className="form-message success field full">{uploadSuccess}</div>}
               <button className="button primary" type="submit"><Upload size={15} />Upload</button>
             </form>
           </Panel>
@@ -202,6 +227,8 @@ export function OTAPage() {
                 <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name} · {compactID(device.id)} · {device.firmware_version || "unset"}</option>)}</SelectField></div>
                 <label className="field full"><span>Firmware Artifact</span><select name="artifact_id">{firmware.data?.map((artifact) => <option key={artifact.id} value={artifact.id}>{artifact.version} · {artifact.filename}</option>)}</select></label>
                 {deviceID && <div className="field full"><span>Selected Device ID</span><CopyableID id={deviceID} /></div>}
+                {deployError && <div className="form-message error field full">{deployError}</div>}
+                {deploySuccess && <div className="form-message success field full">{deploySuccess}</div>}
                 <button className="button primary" type="submit" disabled={!deviceID}>Create Deployment</button>
               </form>
             )}
@@ -274,8 +301,9 @@ export function OTAPage() {
         <Panel
           title="Deployment Timeline"
           subtitle={selectedDeployment ? compactID(selectedDeployment.id) : "Select Details from the deployment table"}
-          actions={selectedDeployment && <button className="button compact secondary" onClick={() => { setSelectedDeployment(null); setManifest(null); }}><XIcon size={14} /></button>}
+          actions={selectedDeployment && <button className="button compact secondary" onClick={() => { setSelectedDeployment(null); setManifest(null); setError(""); }}><XIcon size={14} /></button>}
         >
+          {error && <div className="form-message error field full" style={{ marginBottom: 14 }}>{error}</div>}
           {!selectedDeployment ? <EmptyState title="No deployment selected" description="Open a deployment to inspect lifecycle timestamps and diagnostics." /> : (
             <>
               <div className="ota-timeline">
