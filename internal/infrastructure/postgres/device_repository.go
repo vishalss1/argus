@@ -28,6 +28,13 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 	const query = `
 		INSERT INTO devices (id, name, type, firmware_version, status, metadata)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			type = EXCLUDED.type,
+			firmware_version = EXCLUDED.firmware_version,
+			status = EXCLUDED.status,
+			metadata = EXCLUDED.metadata,
+			updated_at = NOW()
 		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
 
 	created, err := scanDevice(r.db.QueryRowContext(
