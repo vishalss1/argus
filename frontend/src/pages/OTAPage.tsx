@@ -330,18 +330,6 @@ export function OTAPage() {
         </Panel>
       </div>
 
-      <div style={{ marginTop: 18 }}>
-        <Panel title="Expected UI Flow" subtitle="Operator deployment lifecycle">
-          <div className="ota-flow">
-            {["Deployment Created", "Manifest Available", "Downloading", "Flashing", "Rebooting", "ACK Received", "Completed"].map((step, index) => (
-              <div className="ota-flow-step" key={step}>
-                <span>{index + 1}</span>
-                <strong>{step}</strong>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
     </>
   );
 }
