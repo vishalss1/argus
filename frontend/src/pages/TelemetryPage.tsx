@@ -175,18 +175,26 @@ function TelemetryChart({ data, metricKey, title, unit, color, timeframe }: Char
 }
 
 function formatUptime(seconds: number): string {
+  if (seconds === 0) return "0s";
   if (!seconds || !Number.isFinite(seconds)) return "Unknown";
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  const remainingHours = hours % 24;
-  const remainingMinutes = minutes % 60;
-  if (days > 0) {
-    return `${days}d ${remainingHours}h`;
+
+  const roundedSecs = Math.round(seconds);
+  const secs = roundedSecs % 60;
+  const mins = Math.floor((roundedSecs % 3600) / 60);
+  const hrs = Math.floor(roundedSecs / 3600);
+
+  if (hrs > 0) {
+    return `${hrs}h ${mins}m ${secs}s`;
   }
-  return `${hours}h ${remainingMinutes}m`;
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
+function isUptimeKey(key: string): boolean {
+  const lowKey = key.toLowerCase();
+  return lowKey === "uptime" || lowKey === "uptime_s" || lowKey.includes("uptime") || lowKey.endsWith("uptime_s") || lowKey.endsWith("_uptime");
 }
 
 function BatteryIcon({ level }: { level: number }) {
@@ -217,6 +225,25 @@ function RSSISignal({ rssi }: { rssi: number }) {
       ))}
     </div>
   );
+}
+
+function getMetricUnit(key: string): string {
+  const lowKey = key.toLowerCase();
+  if (lowKey.includes("temp") || lowKey.endsWith("_c")) return "°C";
+  if (lowKey.includes("humidity") || lowKey.includes("pct") || lowKey.endsWith("load") || lowKey.includes("battery") || lowKey.includes("usage")) return "%";
+  if (lowKey.includes("rssi") || lowKey.includes("dbm")) return "dBm";
+  if (lowKey.includes("heap") || lowKey.includes("mem") || lowKey.includes("bytes") || lowKey.includes("block")) {
+    return lowKey.includes("ram") || lowKey.includes("usage") ? "%" : "bytes";
+  }
+  if (lowKey.includes("uptime") || lowKey.endsWith("_s")) return "s";
+  if (lowKey.includes("voltage") || lowKey.endsWith("_v")) return "V";
+  return "";
+}
+
+function formatMetricLabel(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
 }
 
 export function TelemetryPage() {
@@ -263,7 +290,7 @@ export function TelemetryPage() {
     Object.values(realtime.telemetryByDevice).forEach(packets => {
       if (packets.length > 0) {
         const last = packets[0];
-        const val = Number((last.metrics as any)?.rssi);
+        const val = Number((last.metrics as any)?.rssi_dbm ?? (last.metrics as any)?.rssi);
         if (Number.isFinite(val)) {
           sum += val;
           count++;
@@ -291,16 +318,54 @@ export function TelemetryPage() {
   const latestTelemetry = liveTelemetry[0];
   const latestMetrics = (latestTelemetry?.metrics as any) || {};
 
-  // Extract metric values
+  // Discover metrics in the payload dynamically
+  const metricKeys = useMemo(() => {
+    return Object.keys(latestMetrics).filter(key => {
+      const val = latestMetrics[key];
+      return typeof val === "number" || typeof val === "string";
+    });
+  }, [latestMetrics]);
+
+  const numericMetricKeys = useMemo(() => {
+    return Object.keys(latestMetrics).filter(key => {
+      if (isUptimeKey(key)) return false;
+      const val = latestMetrics[key];
+      return typeof val === "number";
+    });
+  }, [latestMetrics]);
+
+  // Extract core standard vitals dynamically from custom payload keys
   const currentTemp = latestMetrics.temp_c ?? latestMetrics.temperature ?? null;
   const currentHumidity = latestMetrics.humidity_pct ?? latestMetrics.humidity ?? null;
-  const currentRSSI = latestMetrics.rssi ?? null;
+  const currentRSSI = latestMetrics.rssi_dbm ?? latestMetrics.rssi ?? null;
   const currentBattery = latestMetrics.battery_level ?? latestMetrics.battery ?? null;
   const currentCPU = latestMetrics.cpu_load ?? null;
+  const currentRAM = latestMetrics.ram_usage ?? null;
   const currentHeap = latestMetrics.free_heap ?? null;
   const currentBlock = latestMetrics.largest_free_block ?? null;
-  const currentUptime = latestMetrics.uptime_s ?? null;
+  const uptimeKey = Object.keys(latestMetrics).find(isUptimeKey);
+  const rawUptime = uptimeKey ? latestMetrics[uptimeKey] : null;
+  const currentUptime = rawUptime !== null && rawUptime !== undefined && !Number.isNaN(Number(rawUptime)) ? Number(rawUptime) : null;
+  const currentFirmware = latestMetrics.firmware_version ?? selectedDevice?.firmware_version ?? "Unknown";
   const currentStatus = latestMetrics.status ?? selectedDevice?.status ?? "offline";
+
+  // Filter out the vitals that are displayed in core details to show as extra context
+  const VITALS_KEYS = new Set([
+    "temp_c", "temperature",
+    "humidity_pct", "humidity",
+    "rssi", "rssi_dbm",
+    "battery_level", "battery",
+    "cpu_load",
+    "free_heap", "ram_usage",
+    "uptime_s", "uptime",
+    "firmware_version"
+  ]);
+  const extraMetricKeys = useMemo(() => {
+    return Object.keys(latestMetrics).filter(key => {
+      if (isUptimeKey(key)) return false;
+      return !VITALS_KEYS.has(key);
+    });
+  }, [latestMetrics]);
 
   // Synthesize events timeline
   const timelineEvents = useMemo(() => {
@@ -526,104 +591,112 @@ export function TelemetryPage() {
             
             {/* Live metric cards */}
             <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 10px" }}>Latest Vitals</h3>
-            <div className="metrics-cards-grid">
-              <div className={`metric-card-obs ${currentTemp !== null && currentTemp > 50 ? "danger" : "neutral"}`}>
-                <div className="metric-card-obs-header">
-                  <span>Temperature</span>
-                  <Thermometer size={14} />
-                </div>
-                <div className="metric-card-obs-body">
-                  <span className="metric-card-obs-value">{currentTemp !== null ? currentTemp.toFixed(1) : "--"}</span>
-                  <span className="metric-card-obs-unit">°C</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>Vitals sensor</div>
+            {metricKeys.length === 0 ? (
+              <div style={{ marginBottom: 18 }}>
+                <EmptyState title="Waiting for telemetry..." description="No vitals telemetry has been ingested for this device. Use the Simulator to submit packet logs." />
               </div>
+            ) : (
+              <div className="metrics-cards-grid">
+                {metricKeys.map(key => {
+                  const val = latestMetrics[key];
+                  const label = formatMetricLabel(key);
+                  const isUptime = isUptimeKey(key);
+                  const isNumeric = typeof val === "number";
 
-              <div className="metric-card-obs neutral">
-                <div className="metric-card-obs-header">
-                  <span>Humidity</span>
-                  <Droplets size={14} />
-                </div>
-                <div className="metric-card-obs-body">
-                  <span className="metric-card-obs-value">{currentHumidity !== null ? currentHumidity.toFixed(1) : "--"}</span>
-                  <span className="metric-card-obs-unit">%</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>Rel. humidity</div>
-              </div>
+                  let displayVal = "";
+                  let unit = "";
 
-              <div className={`metric-card-obs ${currentRSSI !== null && currentRSSI < -80 ? "warning" : "success"}`}>
-                <div className="metric-card-obs-header">
-                  <span>RSSI</span>
-                  <Wifi size={14} />
-                </div>
-                <div className="metric-card-obs-body">
-                  <span className="metric-card-obs-value">{currentRSSI !== null ? currentRSSI : "--"}</span>
-                  <span className="metric-card-obs-unit">dBm</span>
-                </div>
-                <div className="metric-card-obs-trend">
-                  <RSSISignal rssi={currentRSSI ?? -100} /> Signal Status
-                </div>
-              </div>
+                  if (isUptime) {
+                    const numVal = typeof val === "number" ? val : Number(val);
+                    displayVal = !Number.isNaN(numVal) ? formatUptime(numVal) : String(val);
+                    unit = "";
+                  } else {
+                    displayVal = isNumeric ? val.toFixed(1) : String(val);
+                    unit = getMetricUnit(key);
+                  }
 
-              <div className={`metric-card-obs ${currentBattery !== null && currentBattery < 20 ? "danger" : "neutral"}`}>
-                <div className="metric-card-obs-header">
-                  <span>Battery</span>
-                  {currentBattery !== null ? <BatteryIcon level={currentBattery} /> : <Battery size={14} />}
-                </div>
-                <div className="metric-card-obs-body">
-                  <span className="metric-card-obs-value">{currentBattery !== null ? currentBattery.toFixed(0) : "--"}</span>
-                  <span className="metric-card-obs-unit">%</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>Cell capacity</div>
-              </div>
+                  // Choose a visual color indicator
+                  let tone = "neutral";
+                  if (key.toLowerCase().includes("temp") && isNumeric && val > 50) tone = "danger";
+                  else if ((key.toLowerCase().includes("rssi") || key.toLowerCase().includes("dbm")) && isNumeric) {
+                    tone = val < -80 ? "warning" : "success";
+                  } else if ((key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) && isNumeric) {
+                    tone = val < 20 ? "danger" : "neutral";
+                  } else if (key.toLowerCase().includes("cpu") && isNumeric) {
+                    tone = val > 85 ? "danger" : "neutral";
+                  }
 
-              <div className={`metric-card-obs ${currentCPU !== null && currentCPU > 85 ? "danger" : "neutral"}`}>
-                <div className="metric-card-obs-header">
-                  <span>CPU Load</span>
-                  <Activity size={14} />
-                </div>
-                <div className="metric-card-obs-body">
-                  <span className="metric-card-obs-value">{currentCPU !== null ? currentCPU.toFixed(0) : "--"}</span>
-                  <span className="metric-card-obs-unit">%</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>Processor usage</div>
+                  return (
+                    <div key={key} className={`metric-card-obs ${tone}`}>
+                      <div className="metric-card-obs-header">
+                        <span>{label}</span>
+                        {key.toLowerCase().includes("temp") && <Thermometer size={14} />}
+                        {key.toLowerCase().includes("humidity") && <Droplets size={14} />}
+                        {(key.toLowerCase().includes("rssi") || key.toLowerCase().includes("dbm")) && <Wifi size={14} />}
+                        {(key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) && <BatteryIcon level={Number(val)} />}
+                        {key.toLowerCase().includes("cpu") && <Activity size={14} />}
+                        {key.toLowerCase().includes("heap") && <Server size={14} />}
+                        {!["temp", "humidity", "rssi", "dbm", "battery", "bat", "cpu", "heap"].some(k => key.toLowerCase().includes(k)) && <Database size={14} />}
+                      </div>
+                      <div className="metric-card-obs-body">
+                        <span className="metric-card-obs-value">{displayVal}</span>
+                        {unit && <span className="metric-card-obs-unit">{unit}</span>}
+                      </div>
+                      {(key.toLowerCase().includes("rssi") || key.toLowerCase().includes("dbm")) && isNumeric && (
+                        <div className="metric-card-obs-trend">
+                          <RSSISignal rssi={Number(val)} /> Signal Status
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-
-              <div className={`metric-card-obs ${currentHeap !== null && currentHeap < 40000 ? "warning" : "neutral"}`}>
-                <div className="metric-card-obs-header">
-                  <span>Free Heap</span>
-                  <Server size={14} />
-                </div>
-                <div className="metric-card-obs-body">
-                  <span className="metric-card-obs-value">{currentHeap !== null ? (currentHeap / 1024).toFixed(0) : "--"}</span>
-                  <span className="metric-card-obs-unit">KB</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>System memory</div>
-              </div>
-            </div>
+            )}
 
             {/* Time-series charts */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "18px 0 10px" }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Metrics Visualization</h3>
-              <div className="chart-time-filters">
-                {(["15m", "1h", "24h", "7d"] as const).map(tf => (
-                  <button
-                    key={tf}
-                    className={timeframe === tf ? "active" : ""}
-                    onClick={() => setTimeframe(tf)}
-                  >
-                    {tf.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div className="charts-grid-obs">
-              <TelemetryChart data={liveTelemetry} metricKey="temp_c" title="Temperature Chart" unit="°C" color="#f0525f" timeframe={timeframe} />
-              <TelemetryChart data={liveTelemetry} metricKey="rssi" title="RSSI Wireless Signal Strength" unit="dBm" color="#4f8cff" timeframe={timeframe} />
-              <TelemetryChart data={liveTelemetry} metricKey="free_heap" title="Free Heap Memory" unit="bytes" color="#22c878" timeframe={timeframe} />
-              <TelemetryChart data={liveTelemetry} metricKey="cpu_load" title="CPU Core Load" unit="%" color="#e3a62f" timeframe={timeframe} />
-            </div>
+            {numericMetricKeys.length > 0 && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "18px 0 10px" }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Metrics Visualization</h3>
+                  <div className="chart-time-filters">
+                    {(["15m", "1h", "24h", "7d"] as const).map(tf => (
+                      <button
+                        key={tf}
+                        className={timeframe === tf ? "active" : ""}
+                        onClick={() => setTimeframe(tf)}
+                      >
+                        {tf.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="charts-grid-obs">
+                  {numericMetricKeys.map(key => {
+                    const unit = getMetricUnit(key);
+                    const label = formatMetricLabel(key);
+                    
+                    let color = "#4f8cff";
+                    if (key.toLowerCase().includes("temp")) color = "#f0525f";
+                    else if (key.toLowerCase().includes("heap") || key.toLowerCase().includes("mem")) color = "#22c878";
+                    else if (key.toLowerCase().includes("cpu")) color = "#e3a62f";
+                    else if (key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) color = "#a855f7";
+
+                    return (
+                      <TelemetryChart
+                        key={key}
+                        data={liveTelemetry}
+                        metricKey={key}
+                        title={label}
+                        unit={unit}
+                        color={color}
+                        timeframe={timeframe}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             {/* Event Timeline */}
             <Panel title="Event Timeline" subtitle="Unified operations log from telemetry alarms, OTA deployments, command executions, and presence transitions.">
@@ -675,76 +748,122 @@ export function TelemetryPage() {
                 </div>
                 <div className="detail-card-row">
                   <strong>Firmware Version</strong>
-                  <span>{selectedDevice?.firmware_version || "Unknown"}</span>
+                  <span>{currentFirmware}</span>
                 </div>
-                <div className="detail-card-row">
-                  <strong>Uptime</strong>
-                  <span>{currentUptime !== null ? formatUptime(currentUptime) : "--"}</span>
-                </div>
+                {currentUptime !== null && (
+                  <div className="detail-card-row">
+                    <strong>Uptime</strong>
+                    <span>{formatUptime(currentUptime)}</span>
+                  </div>
+                )}
                 <div className="detail-card-row">
                   <strong>MQTT status</strong>
                   <StatusChip value={realtime.status === "connected" ? "connected" : "disconnected"} />
                 </div>
-                <div className="detail-card-row">
-                  <strong>Network RSSI</strong>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span className="mono">{currentRSSI !== null ? `${currentRSSI} dBm` : "--"}</span>
-                    {currentRSSI !== null && <RSSISignal rssi={currentRSSI} />}
+                {currentRSSI !== null && (
+                  <div className="detail-card-row">
+                    <strong>Network RSSI</strong>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="mono">{currentRSSI} dBm</span>
+                      <RSSISignal rssi={currentRSSI} />
+                    </div>
                   </div>
-                </div>
-                <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-                  <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                    <span>Battery Level</span>
-                    <span>{currentBattery !== null ? `${currentBattery.toFixed(0)}%` : "--"}</span>
-                  </strong>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
-                    {currentBattery !== null && <BatteryIcon level={currentBattery} />}
-                    <div style={{ flex: 1, height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden" }}>
+                )}
+                {currentBattery !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>Battery Level</span>
+                      <span>{currentBattery.toFixed(1)}%</span>
+                    </strong>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                      <BatteryIcon level={currentBattery} />
+                      <div style={{ flex: 1, height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden" }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${currentBattery}%`,
+                            background: currentBattery < 20 ? "var(--danger)" : currentBattery < 50 ? "var(--warning)" : "var(--success)"
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {currentCPU !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>CPU Core Load</span>
+                      <span>{currentCPU.toFixed(1)}%</span>
+                    </strong>
+                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
                       <div
                         style={{
                           height: "100%",
-                          width: currentBattery !== null ? `${currentBattery}%` : "0%",
-                          background: currentBattery !== null && currentBattery < 20 ? "var(--danger)" : currentBattery < 50 ? "var(--warning)" : "var(--success)"
+                          width: `${currentCPU}%`,
+                          background: currentCPU > 85 ? "var(--danger)" : currentCPU > 60 ? "var(--warning)" : "var(--success)"
                         }}
                       />
                     </div>
                   </div>
-                </div>
-                <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-                  <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                    <span>CPU Core Load</span>
-                    <span>{currentCPU !== null ? `${currentCPU.toFixed(0)}%` : "--"}</span>
-                  </strong>
-                  <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
-                    <div
-                      style={{
-                        height: "100%",
-                        width: currentCPU !== null ? `${currentCPU}%` : "0%",
-                        background: currentCPU !== null && currentCPU > 85 ? "var(--danger)" : currentCPU > 60 ? "var(--warning)" : "var(--success)"
-                      }}
-                    />
+                )}
+                {currentRAM !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>RAM Memory Usage</span>
+                      <span>{currentRAM.toFixed(1)}%</span>
+                    </strong>
+                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${currentRAM}%`,
+                          background: currentRAM > 85 ? "var(--danger)" : currentRAM > 60 ? "var(--warning)" : "var(--success)"
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-                  <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                    <span>Heap Free Memory</span>
-                    <span>{currentHeap !== null ? `${(currentHeap / 1024).toFixed(1)} KB` : "--"}</span>
-                  </strong>
-                  {/* Assume standard ESP32 max usable heap ~280KB for progress display */}
-                  <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
-                    <div
-                      style={{
-                        height: "100%",
-                        width: currentHeap !== null ? `${Math.min(100, (currentHeap / 280000) * 100)}%` : "0%",
-                        background: currentHeap !== null && currentHeap < 40000 ? "var(--danger)" : "var(--accent)"
-                      }}
-                    />
+                )}
+                {currentHeap !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>Heap Free Memory</span>
+                      <span>{(currentHeap / 1024).toFixed(1)} KB</span>
+                    </strong>
+                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(100, (currentHeap / 280000) * 100)}%`,
+                          background: currentHeap < 40000 ? "var(--danger)" : "var(--accent)"
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="detail-card-row">
-                  <strong>Largest Free Block</strong>
-                  <span>{currentBlock !== null ? `${(currentBlock / 1024).toFixed(1)} KB` : "--"}</span>
-                </div>
+                )}
+                {currentBlock !== null && (
+                  <div className="detail-card-row">
+                    <strong>Largest Free Block</strong>
+                    <span>{(currentBlock / 1024).toFixed(1)} KB</span>
+                  </div>
+                )}
+
+                {/* Render extra dynamically discovered telemetry attributes */}
+                {extraMetricKeys.length > 0 && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+                    <h4 style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: 0.5 }}>Extra Attributes</h4>
+                    <div className="detail-card-list">
+                      {extraMetricKeys.map(key => {
+                        const val = latestMetrics[key];
+                        return (
+                          <div className="detail-card-row" key={key}>
+                            <strong>{formatMetricLabel(key)}</strong>
+                            <span>{typeof val === "number" ? val.toFixed(1) : String(val)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </Panel>
           </div>
@@ -762,15 +881,14 @@ export function TelemetryPage() {
                   name="metrics"
                   defaultValue={JSON.stringify(
                     {
-                      temp_c: currentTemp ?? 24.5,
-                      humidity_pct: currentHumidity ?? 45,
-                      rssi: currentRSSI ?? -62,
-                      battery_level: currentBattery ?? 85,
-                      cpu_load: currentCPU ?? 15,
-                      free_heap: currentHeap ?? 242000,
-                      largest_free_block: currentBlock ?? 115000,
-                      uptime_s: currentUptime ? currentUptime + 30 : 9630,
-                      status: "online"
+                      temp_c: currentTemp ?? 26.4,
+                      cpu_load: currentCPU ?? 7.2,
+                      rssi_dbm: currentRSSI ?? -74,
+                      uptime_s: currentUptime ? currentUptime + 30 : 1524,
+                      free_heap: currentHeap ?? 218212,
+                      ram_usage: currentRAM ?? 36.9,
+                      battery_level: currentBattery ?? 82.0,
+                      firmware_version: currentFirmware ?? "v1.4.9"
                     },
                     null,
                     2
