@@ -200,7 +200,7 @@ export function OTAPage() {
                   {!firmware.isLoading && (firmware.data?.length ?? 0) === 0 && <tr><td colSpan={4}><EmptyState title="No firmware artifacts" description="Upload firmware to create deployment manifests." /></td></tr>}
                   {firmware.data?.map((artifact) => (
                     <tr key={artifact.id}>
-                      <td><strong>{artifact.version}</strong><div className="mono muted">{compactID(artifact.id)}</div></td>
+                      <td><strong>{artifact.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={artifact.id} /></div></td>
                       <td>{artifact.filename}</td>
                       <td>{formatBytes(artifact.size_bytes)}</td>
                       <td>{formatDate(artifact.created_at)}</td>
@@ -255,7 +255,7 @@ export function OTAPage() {
                 {deploymentRows.map((deployment) => (
                   <tr key={deployment.id}>
                     <td><strong>{findDeploymentDeviceName(deployment)}</strong><div><CopyableID id={deployment.device_id} /></div></td>
-                    <td>{deployment.version || compactID(deployment.artifact_id)}<div className="muted">{deployment.filename}</div></td>
+                    <td>{deployment.version ? (<><strong>{deployment.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={deployment.artifact_id} /></div></>) : (<CopyableID id={deployment.artifact_id} />)}<div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{deployment.filename}</div></td>
                     <td><StatusChip value={deployment.status} /></td>
                     <td><div style={{ minWidth: 140 }}><ProgressBar value={statusProgress(deployment)} max={100} color={deployment.status === "acked" ? "var(--success)" : deployment.status === "nacked" || deployment.status === "timeout" ? "var(--danger)" : "var(--warning)"} /><span className="muted" style={{ fontSize: 11 }}>{statusProgress(deployment)}%</span></div></td>
                     <td>{formatDate(deployment.created_at)}</td>
@@ -287,7 +287,7 @@ export function OTAPage() {
                 {!deployments.isLoading && selectedDeviceDeployments.length === 0 && <tr><td colSpan={5}><EmptyState title="No OTA history" description="This device has not received an OTA deployment." /></td></tr>}
                 {selectedDeviceDeployments.map((deployment) => (
                   <tr key={deployment.id}>
-                    <td>{deployment.version || compactID(deployment.artifact_id)}</td>
+                    <td>{deployment.version ? (<div style={{ display: "flex", flexDirection: "column" }}><strong>{deployment.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={deployment.artifact_id} /></div></div>) : (<CopyableID id={deployment.artifact_id} />)}</td>
                     <td>{formatDate(deployment.created_at)}</td>
                     <td>{durationLabel(deployment)}</td>
                     <td><StatusChip value={deployment.status} /></td>
@@ -300,7 +300,7 @@ export function OTAPage() {
         </Panel>
         <Panel
           title="Deployment Timeline"
-          subtitle={selectedDeployment ? compactID(selectedDeployment.id) : "Select Details from the deployment table"}
+          subtitle={selectedDeployment ? (<div style={{ display: "flex", alignItems: "center", gap: 6 }}><span>Deployment ID:</span><CopyableID id={selectedDeployment.id} /></div>) : "Select Details from the deployment table"}
           actions={selectedDeployment && <button className="button compact secondary" onClick={() => { setSelectedDeployment(null); setManifest(null); setError(""); }}><XIcon size={14} /></button>}
         >
           {error && <div className="form-message error field full" style={{ marginBottom: 14 }}>{error}</div>}

@@ -576,20 +576,22 @@ button:active:not(:disabled) {
 
 .copy-id-tooltip {
   position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 6px);
   z-index: 30;
   display: none;
   align-items: center;
-  gap: 8px;
-  max-width: min(420px, 80vw);
-  padding: 8px 10px;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 11px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: #101318;
   color: var(--text);
-  box-shadow: 0 14px 36px rgb(0 0 0 / 35%);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 30%);
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .copy-id-wrap:hover .copy-id-tooltip,

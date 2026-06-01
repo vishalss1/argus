@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Send } from "lucide-react";
-import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
+import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
 import { useCommands, useDevices } from "../hooks/useArgusData";
 import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
 import { api } from "../services/api";
@@ -56,7 +56,7 @@ export function CommandsPage() {
                   {!commands.isLoading && (commands.data?.length ?? 0) === 0 && <tr><td colSpan={4}><EmptyState title="No commands" description="No commands have been sent to this device." /></td></tr>}
                   {commands.data?.map((command) => (
                     <tr key={command.id}>
-                      <td><span className="mono">{compactID(command.id)}</span><pre className="code-block">{stringifyJson(command.payload)}</pre></td>
+                      <td><div style={{ marginBottom: 4 }}><CopyableID id={command.id} /></div><pre className="code-block">{stringifyJson(command.payload)}</pre></td>
                       <td>{command.type}</td>
                       <td><StatusChip value={command.status} /></td>
                       <td>{formatDate(command.created_at)}</td>

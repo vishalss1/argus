@@ -63,7 +63,7 @@ export function AlertsPage() {
                   {!alerts.isLoading && (alerts.data?.length ?? 0) === 0 && <tr><td colSpan={5}><EmptyState title="No alerts available" description="Alerts appear after ingested telemetry violates an enabled rule." /></td></tr>}
                   {alerts.data?.map((alert) => (
                     <tr key={alert.id}>
-                      <td><strong>{alert.message}</strong><div className="muted mono">{compactID(alert.id)}</div></td>
+                      <td><strong>{alert.message}</strong><div style={{ marginTop: 2 }}><CopyableID id={alert.id} /></div></td>
                       <td><CopyableID id={alert.device_id} /></td>
                       <td>{alert.metric} {alert.operator} {alert.threshold}</td>
                       <td>{alert.observed_value}</td>
