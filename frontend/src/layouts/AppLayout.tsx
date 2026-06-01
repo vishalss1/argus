@@ -21,7 +21,6 @@ import { useHealth } from "../hooks/useArgusData";
 const monitorLinks = [
   { to: "/dashboard", label: "Fleet Overview", icon: BarChart3 },
   { to: "/devices", label: "Devices", icon: Cpu },
-  { to: "/shadow", label: "Shadow State", icon: FileText },
   { to: "/telemetry", label: "Telemetry", icon: RadioTower }
 ];
 
@@ -32,7 +31,6 @@ const controlLinks = [
 ];
 
 const observeLinks = [
-  { to: "/observability", label: "Observability", icon: Gauge },
   { to: "/ai", label: "AI Insights", icon: Brain },
   { to: "/alerts", label: "Alerts", icon: AlertTriangle }
 ];
