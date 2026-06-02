@@ -130,9 +130,9 @@ func (r *RuleRepository) DeleteRule(ctx context.Context, id string) error {
 
 func (r *RuleRepository) CreateAlert(ctx context.Context, entity rule.Alert) (*rule.Alert, error) {
 	const query = `
-		INSERT INTO alerts (id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, message)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9)
-		RETURNING id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, message, created_at`
+		INSERT INTO alerts (id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, severity, message)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10)
+		RETURNING id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, severity, message, created_at`
 
 	alert, err := scanAlert(r.db.QueryRowContext(
 		ctx,
@@ -145,6 +145,7 @@ func (r *RuleRepository) CreateAlert(ctx context.Context, entity rule.Alert) (*r
 		entity.Operator,
 		entity.Threshold,
 		entity.ObservedValue,
+		entity.Severity,
 		entity.Message,
 	))
 	if err != nil {
@@ -239,6 +240,7 @@ func scanAlert(scanner ruleScanner) (*rule.Alert, error) {
 		&entity.Operator,
 		&entity.Threshold,
 		&entity.ObservedValue,
+		&entity.Severity,
 		&entity.Message,
 		&entity.CreatedAt,
 	)

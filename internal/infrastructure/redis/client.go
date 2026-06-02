@@ -17,6 +17,10 @@ type Client struct {
 	client *goredis.Client
 }
 
+func (c *Client) Client() *goredis.Client {
+	return c.client
+}
+
 func New(ctx context.Context, cfg Config) (*Client, error) {
 	client := goredis.NewClient(&goredis.Options{
 		Addr:     cfg.Addr,

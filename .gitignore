@@ -1,6 +1,9 @@
 CLAUDE.md
 PLAN.md
 PLAN2.md
+PLAN3.md
+PLAN4.md
+report_telemetry.md
 .env
 certs/*
 cmd/gen-certs/*

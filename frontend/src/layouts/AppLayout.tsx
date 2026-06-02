@@ -6,6 +6,7 @@ import {
   BarChart3,
   BookOpen,
   Brain,
+  Briefcase,
   Cpu,
   FileText,
   Gauge,
@@ -17,11 +18,13 @@ import {
 } from "lucide-react";
 import { LiveIndicator, SearchBar } from "../components/ui";
 import { useHealth } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 
 const monitorLinks = [
+  { to: "/workspaces", label: "Workspaces", icon: Briefcase },
   { to: "/dashboard", label: "Fleet Overview", icon: BarChart3 },
-  { to: "/devices", label: "Devices", icon: Cpu },
-  { to: "/telemetry", label: "Telemetry", icon: RadioTower }
+  { to: "/telemetry", label: "Telemetry", icon: Activity },
+  { to: "/devices", label: "Devices", icon: Cpu }
 ];
 
 const controlLinks = [
@@ -59,6 +62,7 @@ function NavGroup({ label, links }: { label: string; links: { to: string; label:
 
 export function AppLayout() {
   const health = useHealth();
+  const { selectedWorkspaceId, setSelectedWorkspaceId, workspaces } = useWorkspaceContext();
 
   return (
     <div className="app-shell">
@@ -72,6 +76,39 @@ export function AppLayout() {
             <small>Fleet Control</small>
           </span>
         </NavLink>
+
+        {workspaces.length > 0 && (
+          <div className="workspace-selector-nav" style={{ padding: "0 16px 16px", borderBottom: "1px solid var(--line)", marginBottom: "16px" }}>
+            <label style={{ display: "block", fontSize: "10px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px", letterSpacing: "0.5px" }}>
+              Active Workspace
+            </label>
+            <div style={{ position: "relative" }}>
+              <select
+                value={selectedWorkspaceId}
+                onChange={(e) => setSelectedWorkspaceId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 28px 8px 12px",
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "6px",
+                  color: "var(--text)",
+                  fontSize: "13px",
+                  outline: "none",
+                  appearance: "none",
+                  cursor: "pointer",
+                  fontWeight: 500
+                }}
+              >
+                {workspaces.map(ws => (
+                  <option key={ws.id} value={ws.id}>{ws.name}</option>
+                ))}
+              </select>
+              <Briefcase size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--faint)", pointerEvents: "none" }} />
+            </div>
+          </div>
+        )}
+
         <NavGroup label="Monitor" links={monitorLinks} />
         <NavGroup label="Control" links={controlLinks} />
         <NavGroup label="Observe" links={observeLinks} />

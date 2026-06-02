@@ -13,6 +13,8 @@ import { ObservabilityPage } from "../pages/ObservabilityPage";
 import { OTAPage } from "../pages/OTAPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { ShadowPage } from "../pages/ShadowPage";
+import { WorkspacesPage } from "../pages/WorkspacesPage";
+import { SessionDashboardPage } from "../pages/SessionDashboardPage";
 import { TelemetryPage } from "../pages/TelemetryPage";
 import AIPage from "../pages/AIPage";
 
@@ -26,10 +28,12 @@ export function App() {
         <Route path="about" element={<AboutPage />} />
       </Route>
       <Route element={<AppLayout />}>
+        <Route path="workspaces" element={<WorkspacesPage />} />
+        <Route path="sessions/:sessionID" element={<SessionDashboardPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="telemetry" element={<TelemetryPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="shadow" element={<ShadowPage />} />
-        <Route path="telemetry" element={<TelemetryPage />} />
         <Route path="ota" element={<OTAPage />} />
         <Route path="commands" element={<CommandsPage />} />
         <Route path="alerts" element={<AlertsPage />} />

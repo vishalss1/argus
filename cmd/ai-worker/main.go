@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/vishalss1/argus/internal/ai/analytics"
 	"github.com/vishalss1/argus/internal/ai/anomaly"
 	"github.com/vishalss1/argus/internal/ai/correlation"
 	"github.com/vishalss1/argus/internal/ai/memory"
@@ -16,6 +17,7 @@ import (
 	anomalydomain "github.com/vishalss1/argus/internal/domain/anomaly"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	eventdomain "github.com/vishalss1/argus/internal/domain/event"
+	findingdomain "github.com/vishalss1/argus/internal/domain/finding"
 	incidentdomain "github.com/vishalss1/argus/internal/domain/incident"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
 	"github.com/vishalss1/argus/internal/infrastructure/embedding"
@@ -88,6 +90,13 @@ func main() {
 
 	correlationEngine := correlation.NewEngine(incidentService, eventRepo)
 
+	findingRepo := postgres.NewFindingRepository(db)
+	analyticsEngine := analytics.NewEngine(func(ctx context.Context, f findingdomain.Finding) {
+		if _, err := findingRepo.Create(ctx, f); err != nil {
+			log.Printf("[AI WORKER] failed to persist ai finding: %v", err)
+		}
+	})
+
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   cfg.KafkaTelemetryTopic,
@@ -132,6 +141,10 @@ func main() {
 
 			if err := anomalyEngine.Analyze(ctx, t); err != nil {
 				log.Printf("failed to run anomaly detection: %v", err)
+			}
+
+			if err := analyticsEngine.Analyze(ctx, t); err != nil {
+				log.Printf("failed to run analytics engine: %v", err)
 			}
 
 			events, err := semanticEngine.AnalyzeTelemetry(ctx, t)
