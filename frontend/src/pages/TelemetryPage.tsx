@@ -1,608 +1,944 @@
-import { useState, useMemo, useEffect } from "react";
-import { 
-  useWorkspaceDevices, 
-  useLatestTelemetry 
-} from "../hooks/useArgusData";
+import { FormEvent, useMemo, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Activity,
+  Clock,
+  Cpu,
+  Send,
+  Battery,
+  Thermometer,
+  Droplets,
+  Wifi,
+  Workflow,
+  AlertTriangle,
+  Info,
+  Server,
+  Code,
+  Terminal,
+  Database,
+  X
+} from "lucide-react";
+import { CopyableID, EmptyState, PageHeader, Panel, StatusChip } from "../components/ui";
+import { useDevices, useAlerts, useCommands, useDeployments } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
-import { PageHeader, Panel } from "../components/ui";
-import { 
-  Activity, 
-  Briefcase, 
-  Cpu, 
-  Radio, 
-  RefreshCw, 
-  Thermometer, 
-  HardDrive, 
-  Battery, 
-  ShieldAlert,
-  Signal
-} from "lucide-react";
+import { api } from "../services/api";
+import { safeJsonParse, stringifyJson, compactID } from "../lib/format";
+import type { Telemetry } from "../types/api";
 
-// Helper to format uptime cleanly
-function formatUptime(seconds: number): string {
-  if (seconds < 60) {
-    return `${Math.floor(seconds)}s`;
-  }
-  const minutes = seconds / 60;
-  if (minutes < 60) {
-    return `${Math.floor(minutes)}m ${Math.floor(seconds % 60)}s`;
-  }
-  const hours = minutes / 60;
-  return `${Math.floor(hours)}h ${Math.floor(minutes % 60)}m ${Math.floor(seconds % 60)}s`;
+interface ChartProps {
+  data: Telemetry[];
+  metricKey: string;
+  title: string;
+  unit: string;
+  color: string;
+  timeframe: "15m" | "1h" | "24h" | "7d";
 }
 
-// Check if value is numeric
-function isNumeric(val: any): boolean {
-  return typeof val === "number" && !isNaN(val);
+function TelemetryChart({ data, metricKey, title, unit, color, timeframe }: ChartProps) {
+  const now = Date.now();
+  const cutoffs = {
+    "15m": 15 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "24h": 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000
+  };
+
+  const filteredData = useMemo(() => {
+    const cutoff = cutoffs[timeframe];
+    return [...data].reverse().filter(t => {
+      const recTime = new Date(t.recorded_at).getTime();
+      return now - recTime <= cutoff;
+    });
+  }, [data, timeframe]);
+
+  const values = useMemo(() => {
+    return filteredData.map(d => Number((d.metrics as any)?.[metricKey] ?? 0));
+  }, [filteredData, metricKey]);
+
+  const { minVal, maxVal, range } = useMemo(() => {
+    const min = values.length > 0 ? Math.min(...values) : 0;
+    const max = values.length > 0 ? Math.max(...values) : 100;
+    const rng = max - min || 1;
+    return {
+      minVal: min,
+      maxVal: max,
+      range: rng
+    };
+  }, [values]);
+
+  if (filteredData.length === 0) {
+    return (
+      <div className="chart-card-obs" style={{ height: 215, display: "grid", placeItems: "center" }}>
+        <div style={{ textAlign: "center", color: "var(--muted)" }}>
+          <Info size={20} style={{ marginBottom: 6, opacity: 0.5 }} />
+          <p style={{ margin: 0, fontSize: 12 }}>No {title} data in this window</p>
+        </div>
+      </div>
+    );
+  }
+
+  const minPadding = minVal - range * 0.1;
+  const maxPadding = maxVal + range * 0.1;
+  const rangeWithPadding = maxPadding - minPadding || 1;
+
+  const width = 500;
+  const height = 180;
+  const padding = { left: 45, right: 15, top: 15, bottom: 25 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  const points = filteredData.map((d, index) => {
+    const val = Number((d.metrics as any)?.[metricKey] ?? 0);
+    const x = padding.left + (index / (filteredData.length - 1 || 1)) * chartWidth;
+    const y = padding.top + chartHeight - ((val - minPadding) / rangeWithPadding) * chartHeight;
+    return { x, y, value: val, time: d.recorded_at };
+  });
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const areaPath = `${linePath} L ${points[points.length - 1].x} ${padding.top + chartHeight} L ${points[0].x} ${padding.top + chartHeight} Z`;
+
+  const firstTime = new Date(filteredData[0].recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const lastTime = new Date(filteredData[filteredData.length - 1].recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const currentVal = values[values.length - 1];
+
+  return (
+    <div className="chart-card-obs">
+      <div className="chart-card-obs-header">
+        <div>
+          <h3 style={{ fontSize: 13, color: "var(--muted)", fontWeight: 600 }}>{title}</h3>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 4 }}>
+            <span style={{ fontSize: 20, fontWeight: 700 }}>{currentVal.toFixed(1)}</span>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>{unit}</span>
+          </div>
+        </div>
+      </div>
+      
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", overflow: "visible" }}>
+        <defs>
+          <linearGradient id={`gradient-${metricKey}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+
+        {/* Gridlines */}
+        {[0, 0.5, 1].map((ratio) => {
+          const y = padding.top + ratio * chartHeight;
+          const gridVal = maxPadding - ratio * rangeWithPadding;
+          return (
+            <g key={ratio} opacity="0.12">
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--text)" strokeDasharray="3 3" />
+              <text x={padding.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill="var(--text)">
+                {gridVal.toFixed(0)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Time bounds */}
+        <text x={padding.left} y={height - 6} fontSize="10" fill="var(--muted)" opacity="0.8">
+          {firstTime}
+        </text>
+        <text x={width - padding.right} y={height - 6} textAnchor="end" fontSize="10" fill="var(--muted)" opacity="0.8">
+          {lastTime}
+        </text>
+
+        {/* Shaded Area */}
+        <path d={areaPath} fill={`url(#gradient-${metricKey})`} />
+
+        {/* Line Path */}
+        <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Interactive Dots */}
+        {points.map((p, idx) => (
+          <circle
+            key={idx}
+            cx={p.x}
+            cy={p.y}
+            r="3.5"
+            fill={color}
+            stroke="var(--surface)"
+            strokeWidth="1"
+            style={{ cursor: "pointer" }}
+          >
+            <title>{`${p.value.toFixed(1)} ${unit} at ${new Date(p.time).toLocaleTimeString()}`}</title>
+          </circle>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function formatUptime(seconds: number): string {
+  if (seconds === 0) return "0s";
+  if (!seconds || !Number.isFinite(seconds)) return "Unknown";
+
+  const roundedSecs = Math.round(seconds);
+  const secs = roundedSecs % 60;
+  const mins = Math.floor((roundedSecs % 3600) / 60);
+  const hrs = Math.floor(roundedSecs / 3600);
+
+  if (hrs > 0) {
+    return `${hrs}h ${mins}m ${secs}s`;
+  }
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
+function isUptimeKey(key: string): boolean {
+  const lowKey = key.toLowerCase();
+  return lowKey === "uptime" || lowKey === "uptime_s" || lowKey.includes("uptime") || lowKey.endsWith("uptime_s") || lowKey.endsWith("_uptime");
+}
+
+function BatteryIcon({ level }: { level: number }) {
+  if (level > 80) return <Battery size={15} style={{ color: "var(--success)" }} />;
+  if (level > 40) return <Battery size={15} style={{ color: "var(--warning)" }} />;
+  return <Battery size={15} style={{ color: "var(--danger)" }} />;
+}
+
+function RSSISignal({ rssi }: { rssi: number }) {
+  let bars = 0;
+  if (rssi > -60) bars = 4;
+  else if (rssi > -70) bars = 3;
+  else if (rssi > -80) bars = 2;
+  else if (rssi > -90) bars = 1;
+  return (
+    <div style={{ display: "inline-flex", gap: 2, alignItems: "flex-end", height: 12 }}>
+      {[1, 2, 3, 4].map(b => (
+        <span
+          key={b}
+          style={{
+            display: "block",
+            width: 3,
+            height: b * 3,
+            borderRadius: 1,
+            backgroundColor: b <= bars ? "var(--success)" : "var(--line)"
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function getMetricUnit(key: string): string {
+  const lowKey = key.toLowerCase();
+  if (lowKey.includes("temp") || lowKey.endsWith("_c")) return "°C";
+  if (lowKey.includes("humidity") || lowKey.includes("pct") || lowKey.endsWith("load") || lowKey.includes("battery") || lowKey.includes("usage")) return "%";
+  if (lowKey.includes("rssi") || lowKey.includes("dbm")) return "dBm";
+  if (lowKey.includes("heap") || lowKey.includes("mem") || lowKey.includes("bytes") || lowKey.includes("block")) {
+    return lowKey.includes("ram") || lowKey.includes("usage") ? "%" : "bytes";
+  }
+  if (lowKey.includes("uptime") || lowKey.endsWith("_s")) return "s";
+  if (lowKey.includes("voltage") || lowKey.endsWith("_v")) return "V";
+  return "";
+}
+
+function formatMetricLabel(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
 }
 
 export function TelemetryPage() {
-  const { selectedWorkspaceId } = useWorkspaceContext();
+  const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
+  const devices = useDevices();
+  const alerts = useAlerts();
+  const realtime = useRealtime();
 
-  // Reset device selection when workspace changes
-  useEffect(() => {
-    setSelectedDeviceId("");
-  }, [selectedWorkspaceId]);
+  const [deviceID, setDeviceID] = useState("");
+  const [timeframe, setTimeframe] = useState<"15m" | "1h" | "24h" | "7d">("1h");
+  const [showSimulation, setShowSimulation] = useState(false);
+  const [showRawPayload, setShowRawPayload] = useState(false);
+  const [simError, setSimError] = useState("");
+  const [simSuccess, setSimSuccess] = useState("");
 
-  // Get devices for selected workspace
-  const { data: devices, isLoading: devicesLoading } = useWorkspaceDevices(selectedWorkspaceId);
+  const deployments = useDeployments(deviceID);
+  const commands = useCommands(deviceID);
 
-  // Persistence for Device ID
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(() => {
-    return localStorage.getItem("argus_telemetry_device_id") || "";
+  const semanticEvents = useQuery({
+    queryKey: ["device-semantic-events", deviceID],
+    queryFn: () => api.ai.listDeviceEvents(deviceID),
+    enabled: Boolean(deviceID)
   });
 
-  // Set default device for workspace
+  const deviceHistory = useQuery({
+    queryKey: ["device-history", deviceID],
+    queryFn: () => api.ai.getDeviceHistory(deviceID),
+    enabled: Boolean(deviceID)
+  });
+
+  // Reset selected device ID when active workspace switches
   useEffect(() => {
-    if (!selectedDeviceId && devices && devices.length > 0) {
-      const firstDevId = devices[0].id;
-      setSelectedDeviceId(firstDevId);
-      localStorage.setItem("argus_telemetry_device_id", firstDevId);
-    }
-  }, [devices, selectedDeviceId]);
+    setDeviceID("");
+    setShowSimulation(false);
+    setShowRawPayload(false);
+  }, [selectedWorkspaceId]);
 
-  const handleDeviceChange = (id: string) => {
-    setSelectedDeviceId(id);
-    localStorage.setItem("argus_telemetry_device_id", id);
-  };
+  // Workspace-scoped Fleet stats computation
+  const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
+  const totalFleetCount = workspaceDevices.length;
+  const onlineCount = workspaceDevices.filter(d => d.status === "online").length;
+  const offlineCount = workspaceDevices.filter(d => d.status === "offline").length;
+  
+  const activeAlertsCount = useMemo(() => {
+    if (!alerts.data) return 0;
+    return alerts.data.filter(a => activeDeviceIds.has(a.device_id)).length;
+  }, [alerts.data, activeDeviceIds]);
 
-  // WebSocket / Realtime connection status and telemetry stream
-  const { status: wsStatus, telemetryByDevice } = useRealtime();
+  const totalMessageCount = useMemo(() => {
+    return Object.keys(realtime.telemetryByDevice)
+      .filter(id => activeDeviceIds.has(id))
+      .reduce((acc, curr) => acc + (realtime.telemetryByDevice[curr]?.length ?? 0), 0);
+  }, [realtime.telemetryByDevice, activeDeviceIds]);
 
-  // Initial / latest telemetry fallback
-  const latestTelemetryQuery = useLatestTelemetry(selectedDeviceId || undefined);
+  const avgRSSI = useMemo(() => {
+    let sum = 0;
+    let count = 0;
+    Object.keys(realtime.telemetryByDevice)
+      .filter(id => activeDeviceIds.has(id))
+      .forEach(id => {
+        const packets = realtime.telemetryByDevice[id] || [];
+        if (packets.length > 0) {
+          const last = packets[0];
+          const val = Number((last.metrics as any)?.rssi_dbm ?? (last.metrics as any)?.rssi);
+          if (Number.isFinite(val)) {
+            sum += val;
+            count++;
+          }
+        }
+      });
+    return count > 0 ? Math.round(sum / count) : -65;
+  }, [realtime.telemetryByDevice, activeDeviceIds]);
 
-  // Combine real-time WebSocket telemetry list and initial fallback
-  const telemetryHistory = useMemo(() => {
-    if (!selectedDeviceId) return [];
-    
-    // Check WebSocket history (newest first, up to 50 items)
-    const wsHistory = telemetryByDevice[selectedDeviceId] || [];
-    
-    if (wsHistory.length > 0) {
-      return wsHistory;
-    }
+  const firmwareDistribution = useMemo(() => {
+    const counts: Record<string, number> = {};
+    workspaceDevices.forEach(d => {
+      const v = d.firmware_version || "Unknown";
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (sorted.length === 0) return "N/A";
+    return `${sorted[0][0]} (${sorted[0][1]} dev)`;
+  }, [workspaceDevices]);
 
-    // Fallback to latest telemetry query
-    if (latestTelemetryQuery.data) {
-      return [latestTelemetryQuery.data];
-    }
+  // Selected device scoping
+  const liveTelemetry = deviceID ? realtime.telemetryByDevice[deviceID] || [] : [];
+  const selectedDevice = workspaceDevices.find(d => d.id === deviceID);
 
-    return [];
-  }, [selectedDeviceId, telemetryByDevice, latestTelemetryQuery.data]);
+  const latestTelemetry = liveTelemetry[0];
+  const latestMetrics = (latestTelemetry?.metrics as any) || {};
 
-  // Extract latest metrics payload
-  const currentMetrics = useMemo(() => {
-    if (telemetryHistory.length === 0) return null;
-    const rawMetrics = telemetryHistory[0].metrics;
-    if (rawMetrics && typeof rawMetrics === "object" && !Array.isArray(rawMetrics)) {
-      return rawMetrics as Record<string, any>;
-    }
-    return null;
-  }, [telemetryHistory]);
+  // Discover metrics in the payload dynamically
+  const metricKeys = useMemo(() => {
+    return Object.keys(latestMetrics).filter(key => {
+      const val = latestMetrics[key];
+      return typeof val === "number" || typeof val === "string";
+    });
+  }, [latestMetrics]);
 
-  // Track selected metric for charting
-  const [selectedMetric, setSelectedMetric] = useState<string>("cpu");
-
-  // Dynamically extract all numeric metrics keys for charts/cards selection
   const numericMetricKeys = useMemo(() => {
-    if (!currentMetrics) return ["cpu", "memory", "temperature"];
-    return Object.keys(currentMetrics).filter(key => isNumeric(currentMetrics[key]));
-  }, [currentMetrics]);
+    return Object.keys(latestMetrics).filter(key => {
+      if (isUptimeKey(key)) return false;
+      const val = latestMetrics[key];
+      return typeof val === "number";
+    });
+  }, [latestMetrics]);
 
-  // Automatically select an available numeric metric if the current selection is invalid
-  useEffect(() => {
-    if (numericMetricKeys.length > 0 && !numericMetricKeys.includes(selectedMetric)) {
-      setSelectedMetric(numericMetricKeys[0]);
+  // Extract core standard vitals dynamically from custom payload keys
+  const currentTemp = latestMetrics.temp_c ?? latestMetrics.temperature ?? null;
+  const currentHumidity = latestMetrics.humidity_pct ?? latestMetrics.humidity ?? null;
+  const currentRSSI = latestMetrics.rssi_dbm ?? latestMetrics.rssi ?? null;
+  const currentBattery = latestMetrics.battery_level ?? latestMetrics.battery ?? null;
+  const currentCPU = latestMetrics.cpu_load ?? null;
+  const currentRAM = latestMetrics.ram_usage ?? null;
+  const currentHeap = latestMetrics.free_heap ?? null;
+  const currentBlock = latestMetrics.largest_free_block ?? null;
+  const uptimeKey = Object.keys(latestMetrics).find(isUptimeKey);
+  const rawUptime = uptimeKey ? latestMetrics[uptimeKey] : null;
+  const currentUptime = rawUptime !== null && rawUptime !== undefined && !Number.isNaN(Number(rawUptime)) ? Number(rawUptime) : null;
+  const currentFirmware = latestMetrics.firmware_version ?? selectedDevice?.firmware_version ?? "Unknown";
+  const currentStatus = latestMetrics.status ?? selectedDevice?.status ?? "offline";
+
+  // Filter out the vitals that are displayed in core details to show as extra context
+  const VITALS_KEYS = new Set([
+    "temp_c", "temperature",
+    "humidity_pct", "humidity",
+    "rssi", "rssi_dbm",
+    "battery_level", "battery",
+    "cpu_load",
+    "free_heap", "ram_usage",
+    "uptime_s", "uptime",
+    "firmware_version"
+  ]);
+  const extraMetricKeys = useMemo(() => {
+    return Object.keys(latestMetrics).filter(key => {
+      if (isUptimeKey(key)) return false;
+      return !VITALS_KEYS.has(key);
+    });
+  }, [latestMetrics]);
+
+  // Synthesize events timeline
+  const timelineEvents = useMemo(() => {
+    if (!deviceID) return [];
+    
+    interface TimelineItem {
+      id: string;
+      time: string;
+      type: string;
+      title: string;
+      message: string;
+      tone: "neutral" | "success" | "warning" | "danger" | "info";
     }
-  }, [numericMetricKeys, selectedMetric]);
 
-  // Active Device information helper
-  const activeDevice = useMemo(() => {
-    if (!devices || !selectedDeviceId) return null;
-    return devices.find(d => d.id === selectedDeviceId) || null;
-  }, [devices, selectedDeviceId]);
+    const list: TimelineItem[] = [];
 
-  // Chart series (sorted chronologically - oldest to newest)
-  const chartData = useMemo(() => {
-    if (telemetryHistory.length === 0) return [];
-    
-    // Slice last 30 data points and reverse to have oldest first
-    const points = telemetryHistory
-      .slice(0, 30)
-      .map(item => {
-        const val = item.metrics && typeof item.metrics === "object" && !Array.isArray(item.metrics)
-          ? (item.metrics as Record<string, any>)[selectedMetric]
-          : null;
-        
-        return {
-          time: new Date(item.recorded_at || item.created_at).toLocaleTimeString([], { 
-            hour: "2-digit", 
-            minute: "2-digit", 
-            second: "2-digit" 
-          }),
-          timestamp: new Date(item.recorded_at || item.created_at).getTime(),
-          value: isNumeric(val) ? Number(val) : 0
-        };
-      })
-      .filter(p => isNumeric(p.value));
+    // Alerts
+    (alerts.data ?? [])
+      .filter(a => a.device_id === deviceID)
+      .forEach(a => {
+        list.push({
+          id: `alert-${a.id}`,
+          time: a.created_at,
+          type: "Alert Triggered",
+          title: `Alert Triggered: ${a.metric}`,
+          message: `${a.message} (value: ${a.observed_value})`,
+          tone: "danger"
+        });
+      });
 
-    // Sort chronologically by timestamp
-    return points.sort((a, b) => a.timestamp - b.timestamp);
-  }, [telemetryHistory, selectedMetric]);
-
-  // Auto-refresh control state (enabled by default)
-  const [autoRefresh, setAutoRefresh] = useState(true);
-
-  // SVG Chart sizing & calculations
-  const chartWidth = 600;
-  const chartHeight = 220;
-  const paddingX = 40;
-  const paddingY = 30;
-
-  const svgPaths = useMemo(() => {
-    if (chartData.length < 2) return { line: "", area: "", yMin: 0, yMax: 100 };
-
-    const minVal = Math.min(...chartData.map(d => d.value));
-    const maxVal = Math.max(...chartData.map(d => d.value));
-    const valRange = maxVal - minVal === 0 ? 100 : maxVal - minVal;
-    
-    // Add 10% breathing room to min/max on chart layout
-    const yMin = Math.max(0, minVal - valRange * 0.1);
-    const yMax = maxVal + valRange * 0.1;
-    const yRange = yMax - yMin;
-
-    const points = chartData.map((d, index) => {
-      const x = paddingX + (index / (chartData.length - 1)) * (chartWidth - paddingX * 2);
-      const y = chartHeight - paddingY - ((d.value - yMin) / yRange) * (chartHeight - paddingY * 2);
-      return { x, y };
+    // OTA Deployments
+    (deployments.data ?? []).forEach(d => {
+      if (d.created_at) {
+        list.push({
+          id: `ota-start-${d.id}`,
+          time: d.created_at,
+          type: "OTA Started",
+          title: `OTA Update Started: ${d.version || "Unknown"}`,
+          message: `File: ${d.filename || "n/a"}`,
+          tone: "warning"
+        });
+      }
+      if (d.status === "acked" && d.completed_at) {
+        list.push({
+          id: `ota-complete-${d.id}`,
+          time: d.completed_at,
+          type: "OTA Completed",
+          title: `OTA Update Succeeded`,
+          message: `Device running version ${d.version}`,
+          tone: "success"
+        });
+      } else if ((d.status === "nacked" || d.status === "timeout") && (d.failed_at || d.updated_at)) {
+        list.push({
+          id: `ota-failed-${d.id}`,
+          time: d.failed_at || d.updated_at,
+          type: "OTA Failed",
+          title: `OTA Update Failed: ${d.status}`,
+          message: d.failure_reason || d.result_message || "OTA process aborted",
+          tone: "danger"
+        });
+      }
     });
 
-    const linePath = points.reduce((acc, p, idx) => {
-      return acc + (idx === 0 ? `M ${p.x} ${p.y}` : ` L ${p.x} ${p.y}`);
-    }, "");
+    // Commands
+    (commands.data ?? []).forEach(c => {
+      if (c.created_at) {
+        list.push({
+          id: `cmd-sent-${c.id}`,
+          time: c.created_at,
+          type: "Command Sent",
+          title: `Command Sent: ${c.type}`,
+          message: c.payload ? JSON.stringify(c.payload) : "No arguments",
+          tone: "info"
+        });
+      }
+      if (c.status === "acked" && c.acknowledged_at) {
+        list.push({
+          id: `cmd-exec-${c.id}`,
+          time: c.acknowledged_at,
+          type: "Command Executed",
+          title: `Command Executed Successfully`,
+          message: `Command type: ${c.type} response: ${c.result_message || "Success"}`,
+          tone: "success"
+        });
+      } else if (c.status === "nacked" && c.acknowledged_at) {
+        list.push({
+          id: `cmd-failed-${c.id}`,
+          time: c.acknowledged_at,
+          type: "Command Failed",
+          title: `Command Rejected`,
+          message: `Command: ${c.type} was rejected: ${c.result_message || "Unknown error"}`,
+          tone: "danger"
+        });
+      }
+    });
 
-    const areaPath = linePath + 
-      ` L ${points[points.length - 1].x} ${chartHeight - paddingY}` + 
-      ` L ${points[0].x} ${chartHeight - paddingY} Z`;
+    // Semantic events from AI anomaly/correlation engine
+    (semanticEvents.data ?? []).forEach(e => {
+      list.push({
+        id: `semantic-${e.id}`,
+        time: e.created_at,
+        type: e.type.replace(/_/g, " ").toUpperCase(),
+        title: e.title,
+        message: e.summary,
+        tone: e.severity === "critical" || e.severity === "danger" ? "danger" : e.severity === "warning" ? "warning" : "info"
+      });
+    });
 
-    return { line: linePath, area: areaPath, yMin, yMax };
-  }, [chartData]);
+    // Device history memories
+    (deviceHistory.data ?? []).forEach(h => {
+      list.push({
+        id: `history-${h.id}`,
+        time: h.timestamp || h.created_at,
+        type: h.type.replace(/_/g, " ").toUpperCase(),
+        title: h.summary,
+        message: "Recorded operational log item",
+        tone: "neutral"
+      });
+    });
 
-  // Card icons helper
-  const getMetricIcon = (name: string) => {
-    const key = name.toLowerCase();
-    if (key.includes("cpu")) return <Cpu size={16} />;
-    if (key.includes("temp")) return <Thermometer size={16} />;
-    if (key.includes("mem") || key.includes("ram") || key.includes("storage")) return <HardDrive size={16} />;
-    if (key.includes("bat") || key.includes("power")) return <Battery size={16} />;
-    return <Activity size={16} />;
-  };
+    return list.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  }, [alerts.data, deployments.data, commands.data, semanticEvents.data, deviceHistory.data, deviceID]);
+
+  async function submitSimulation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSimError("");
+    setSimSuccess("");
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      await api.telemetry.ingest(deviceID, {
+        metrics: safeJsonParse(String(form.get("metrics") || "{}"))
+      });
+      formElement.reset();
+      setSimSuccess("Simulation telemetry packet ingested successfully!");
+      setTimeout(() => setSimSuccess(""), 4000);
+      await devices.refetch();
+    } catch (err) {
+      setSimError((err as Error).message);
+    }
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: "20px" }}>
-      <PageHeader 
-        title="Live Telemetry" 
-        description="Monitor system performance, device health and telemetry streams in real-time."
+    <>
+      <PageHeader
+        eyebrow="Fleet Analytics"
+        title="Fleet Observability"
+        description="Real-time telemetry aggregation, device vitals, system metrics graphing, and anomaly analysis."
+        actions={
+          <div className={`live-badge ${realtime.status === "connected" ? "online" : "offline"}`}>
+            <span className="live-dot" />
+            {realtime.status === "connected" ? "LIVE STREAM ACTIVE" : `WS: ${realtime.status.toUpperCase()}`}
+          </div>
+        }
       />
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "20px", width: "100%" }}>
-        
-        {/* Left Sidebar: Device Selector & Health Vitals */}
-        <div style={{ flex: "0 0 320px", display: "flex", flexDirection: "column", gap: "20px", minWidth: "300px" }}>
-          
-          {/* Workspace & Device selection Panel */}
-          <Panel title="Select Device">
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      {/* Fleet health summary statistics */}
+      <div className="stat-grid five" style={{ marginBottom: 18 }}>
+        <div className="stat-card tone-success">
+          <span>Online Devices</span>
+          <strong>{onlineCount}</strong>
+          <small>{totalFleetCount} total nodes registered</small>
+        </div>
+        <div className="stat-card tone-neutral">
+          <span>Offline Devices</span>
+          <strong>{offlineCount}</strong>
+          <small>{((offlineCount / (totalFleetCount || 1)) * 100).toFixed(0)}% of fleet inactive</small>
+        </div>
+        <div className="stat-card tone-info">
+          <span>Live Session Messages</span>
+          <strong>{totalMessageCount}</strong>
+          <small>Accumulated live stream</small>
+        </div>
+        <div className="stat-card tone-warning">
+          <span>Active Alerts</span>
+          <strong>{activeAlertsCount}</strong>
+          <small>Unresolved triggers</small>
+        </div>
+        <div className="stat-card tone-info">
+          <span>Top Firmware Version</span>
+          <strong>{firmwareDistribution.split(" ")[0]}</strong>
+          <small>{firmwareDistribution.substring(firmwareDistribution.indexOf("(") + 1, firmwareDistribution.length - 1) || "no devices"}</small>
+        </div>
+      </div>
 
-              {/* Devices list scroll area */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "2px" }}>
-                  Devices ({devices?.length ?? 0})
-                </label>
-                
-                {devicesLoading ? (
-                  <p className="muted" style={{ fontSize: "13px" }}>Loading devices...</p>
-                ) : !devices || devices.length === 0 ? (
-                  <p className="muted" style={{ fontSize: "13px", padding: "12px 0" }}>No devices found in this workspace.</p>
-                ) : (
-                  <div style={{ maxHeight: "240px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "6px", paddingRight: "4px" }}>
-                    {devices.map(d => {
-                      const isSelected = d.id === selectedDeviceId;
-                      const isOnline = d.status?.toLowerCase() === "online";
-                      return (
-                        <button
-                          key={d.id}
-                          onClick={() => handleDeviceChange(d.id)}
-                          style={{
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "10px 12px",
-                            background: isSelected ? "var(--surface-2)" : "rgba(255,255,255,0.01)",
-                            border: isSelected ? "1px solid var(--accent)" : "1px solid var(--line)",
-                            borderRadius: "6px",
-                            color: "inherit",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            transition: "all 0.2s"
-                          }}
-                        >
-                          <div>
-                            <div style={{ fontWeight: isSelected ? 600 : 400, fontSize: "14px" }}>{d.name}</div>
-                            <div className="muted" style={{ fontSize: "11px", marginTop: "2px" }}>{d.type}</div>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span style={{
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              backgroundColor: isOnline ? "var(--success)" : "var(--faint)"
-                            }} />
-                            <span style={{ fontSize: "11px", color: "var(--faint)" }}>{d.status}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+      {/* Selector sticky bar */}
+      <div className="sticky-selector-bar">
+        <label>
+          <Cpu size={16} className="text-accent" />
+          <span>Monitor Device</span>
+          <select value={deviceID} onChange={(event) => setDeviceID(event.target.value)}>
+            <option value="">Select monitored device</option>
+            {workspaceDevices.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.name} · {compactID(device.id)} ({device.status})
+              </option>
+            ))}
+          </select>
+        </label>
+        <div style={{ display: "flex", gap: 10 }}>
+          {deviceID && (
+            <button className="button compact secondary" onClick={() => setShowRawPayload(true)}>
+              <Code size={14} /> View Raw Payload
+            </button>
+          )}
+          {deviceID && (
+            <button
+              className={`button compact ${showSimulation ? "secondary" : "primary"}`}
+              onClick={() => setShowSimulation(!showSimulation)}
+            >
+              <Terminal size={14} /> Simulator
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!deviceID ? (
+        <EmptyState title="Select a device to start monitoring" description="Choose a registered device from the Selector dropdown above to load time-series charts, health analytics, and timeline events." />
+      ) : (
+        <div className="telemetry-dashboard">
+          {/* Main observability view */}
+          <div className="telemetry-main-column">
+            
+            {/* Live metric cards */}
+            <h3 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 10px" }}>Latest Vitals</h3>
+            {metricKeys.length === 0 ? (
+              <div style={{ marginBottom: 18 }}>
+                <EmptyState title="Waiting for telemetry..." description="No vitals telemetry has been ingested for this device. Use the Simulator to submit packet logs." />
               </div>
-            </div>
-          </Panel>
+            ) : (
+              <div className="metrics-cards-grid">
+                {metricKeys.map(key => {
+                  const val = latestMetrics[key];
+                  const label = formatMetricLabel(key);
+                  const isUptime = isUptimeKey(key);
+                  const isNumeric = typeof val === "number";
 
-          {/* Vitals Panel */}
-          <Panel title="Health Vitals">
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {!selectedDeviceId ? (
-                <p className="muted" style={{ fontSize: "13px" }}>Please select a device.</p>
-              ) : latestTelemetryQuery.isLoading && telemetryHistory.length === 0 ? (
-                <p className="muted" style={{ fontSize: "13px" }}>Loading health metrics...</p>
-              ) : !currentMetrics ? (
-                <div style={{ padding: "16px 0", textAlign: "center" }}>
-                  <ShieldAlert size={28} style={{ color: "var(--warning)", marginBottom: "8px" }} />
-                  <p className="muted" style={{ fontSize: "13px", margin: 0 }}>No active telemetry data.</p>
+                  let displayVal = "";
+                  let unit = "";
+
+                  if (isUptime) {
+                    const numVal = typeof val === "number" ? val : Number(val);
+                    displayVal = !Number.isNaN(numVal) ? formatUptime(numVal) : String(val);
+                    unit = "";
+                  } else {
+                    displayVal = isNumeric ? val.toFixed(1) : String(val);
+                    unit = getMetricUnit(key);
+                  }
+
+                  // Choose a visual color indicator
+                  let tone = "neutral";
+                  if (key.toLowerCase().includes("temp") && isNumeric && val > 50) tone = "danger";
+                  else if ((key.toLowerCase().includes("rssi") || key.toLowerCase().includes("dbm")) && isNumeric) {
+                    tone = val < -80 ? "warning" : "success";
+                  } else if ((key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) && isNumeric) {
+                    tone = val < 20 ? "danger" : "neutral";
+                  } else if (key.toLowerCase().includes("cpu") && isNumeric) {
+                    tone = val > 85 ? "danger" : "neutral";
+                  }
+
+                  return (
+                    <div key={key} className={`metric-card-obs ${tone}`}>
+                      <div className="metric-card-obs-header">
+                        <span>{label}</span>
+                        {key.toLowerCase().includes("temp") && <Thermometer size={14} />}
+                        {key.toLowerCase().includes("humidity") && <Droplets size={14} />}
+                        {(key.toLowerCase().includes("rssi") || key.toLowerCase().includes("dbm")) && <Wifi size={14} />}
+                        {(key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) && <BatteryIcon level={Number(val)} />}
+                        {key.toLowerCase().includes("cpu") && <Activity size={14} />}
+                        {key.toLowerCase().includes("heap") && <Server size={14} />}
+                        {!["temp", "humidity", "rssi", "dbm", "battery", "bat", "cpu", "heap"].some(k => key.toLowerCase().includes(k)) && <Database size={14} />}
+                      </div>
+                      <div className="metric-card-obs-body">
+                        <span className="metric-card-obs-value">{displayVal}</span>
+                        {unit && <span className="metric-card-obs-unit">{unit}</span>}
+                      </div>
+                      {(key.toLowerCase().includes("rssi") || key.toLowerCase().includes("dbm")) && isNumeric && (
+                        <div className="metric-card-obs-trend">
+                          <RSSISignal rssi={Number(val)} /> Signal Status
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Time-series charts */}
+            {numericMetricKeys.length > 0 && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "18px 0 10px" }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Metrics Visualization</h3>
+                  <div className="chart-time-filters">
+                    {(["15m", "1h", "24h", "7d"] as const).map(tf => (
+                      <button
+                        key={tf}
+                        className={timeframe === tf ? "active" : ""}
+                        onClick={() => setTimeframe(tf)}
+                      >
+                        {tf.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "320px", overflowY: "auto" }}>
-                  {Object.keys(currentMetrics).map(key => {
-                    const val = currentMetrics[key];
-                    let displayVal = String(val);
+                
+                <div className="charts-grid-obs">
+                  {numericMetricKeys.map(key => {
+                    const unit = getMetricUnit(key);
+                    const label = formatMetricLabel(key);
                     
-                    // Specific Uptime formatting
-                    if (key.toLowerCase() === "uptime" && isNumeric(val)) {
-                      displayVal = formatUptime(Number(val));
-                    } else if (isNumeric(val)) {
-                      displayVal = Number(val).toFixed(1);
-                    }
+                    let color = "#4f8cff";
+                    if (key.toLowerCase().includes("temp")) color = "#f0525f";
+                    else if (key.toLowerCase().includes("heap") || key.toLowerCase().includes("mem")) color = "#22c878";
+                    else if (key.toLowerCase().includes("cpu")) color = "#e3a62f";
+                    else if (key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) color = "#a855f7";
 
                     return (
-                      <div 
-                        key={key} 
-                        style={{ 
-                          display: "flex", 
-                          justifyContent: "space-between", 
-                          alignItems: "center", 
-                          padding: "8px 10px", 
-                          background: "rgba(255,255,255,0.02)", 
-                          borderRadius: "4px",
-                          border: "1px solid rgba(255,255,255,0.02)"
-                        }}
-                      >
-                        <span className="mono" style={{ fontSize: "12px", color: "var(--faint)", textTransform: "capitalize" }}>
-                          {key.replace(/_/g, " ")}
-                        </span>
-                        <strong className="mono" style={{ fontSize: "13px" }}>{displayVal}</strong>
-                      </div>
+                      <TelemetryChart
+                        key={key}
+                        data={liveTelemetry}
+                        metricKey={key}
+                        title={label}
+                        unit={unit}
+                        color={color}
+                        timeframe={timeframe}
+                      />
                     );
                   })}
                 </div>
+              </>
+            )}
+
+            {/* Event Timeline */}
+            <Panel title="Event Timeline" subtitle="Unified operations log from telemetry alarms, OTA deployments, command executions, and presence transitions.">
+              {timelineEvents.length === 0 ? (
+                <EmptyState title="No timeline events recorded" description="No actions or anomalies have occurred on this device yet." />
+              ) : (
+                <div className="timeline-list">
+                  {timelineEvents.slice(0, 15).map(event => (
+                    <div className="timeline-event-card" key={event.id}>
+                      <div className="timeline-event-side">
+                        <div className={`timeline-event-icon ${event.tone}`}>
+                          {event.tone === "danger" && <AlertTriangle size={13} />}
+                          {event.tone === "warning" && <Workflow size={13} />}
+                          {event.tone === "success" && <Activity size={13} />}
+                          {event.tone === "info" && <Send size={13} />}
+                          {event.tone === "neutral" && <Clock size={13} />}
+                        </div>
+                      </div>
+                      <div className="timeline-event-content">
+                        <div className="timeline-event-meta">
+                          <span style={{ fontWeight: 600, textTransform: "uppercase", fontSize: 9, letterSpacing: 0.5 }}>{event.type}</span>
+                          <time>{new Date(event.time).toLocaleString()}</time>
+                        </div>
+                        <span className="timeline-event-title">{event.title}</span>
+                        {event.message && <p className="timeline-event-desc">{event.message}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </div>
+            </Panel>
+          </div>
+
+          {/* Right sidebar: device specifics */}
+          <div className="telemetry-sidebar-column">
+            <Panel title="Device Health Vitals" subtitle={`Vitals details for node`}>
+              <div className="detail-card-list">
+                <div className="detail-card-row">
+                  <strong>Device Name</strong>
+                  <span>{selectedDevice?.name || "--"}</span>
+                </div>
+                <div className="detail-card-row">
+                  <strong>ID</strong>
+                  <span className="mono" style={{ fontSize: 11 }}><CopyableID id={deviceID} length={8} /></span>
+                </div>
+                <div className="detail-card-row">
+                  <strong>Status</strong>
+                  <StatusChip value={currentStatus} />
+                </div>
+                <div className="detail-card-row">
+                  <strong>Firmware Version</strong>
+                  <span>{currentFirmware}</span>
+                </div>
+                {currentUptime !== null && (
+                  <div className="detail-card-row">
+                    <strong>Uptime</strong>
+                    <span>{formatUptime(currentUptime)}</span>
+                  </div>
+                )}
+                <div className="detail-card-row">
+                  <strong>MQTT status</strong>
+                  <StatusChip value={realtime.status === "connected" ? "connected" : "disconnected"} />
+                </div>
+                {currentRSSI !== null && (
+                  <div className="detail-card-row">
+                    <strong>Network RSSI</strong>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="mono">{currentRSSI} dBm</span>
+                      <RSSISignal rssi={currentRSSI} />
+                    </div>
+                  </div>
+                )}
+                {currentBattery !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>Battery Level</span>
+                      <span>{currentBattery.toFixed(1)}%</span>
+                    </strong>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                      <BatteryIcon level={currentBattery} />
+                      <div style={{ flex: 1, height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden" }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${currentBattery}%`,
+                            background: currentBattery < 20 ? "var(--danger)" : currentBattery < 50 ? "var(--warning)" : "var(--success)"
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {currentCPU !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>CPU Core Load</span>
+                      <span>{currentCPU.toFixed(1)}%</span>
+                    </strong>
+                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${currentCPU}%`,
+                          background: currentCPU > 85 ? "var(--danger)" : currentCPU > 60 ? "var(--warning)" : "var(--success)"
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {currentRAM !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>RAM Memory Usage</span>
+                      <span>{currentRAM.toFixed(1)}%</span>
+                    </strong>
+                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${currentRAM}%`,
+                          background: currentRAM > 85 ? "var(--danger)" : currentRAM > 60 ? "var(--warning)" : "var(--success)"
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {currentHeap !== null && (
+                  <div className="detail-card-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+                    <strong style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                      <span>Heap Free Memory</span>
+                      <span>{(currentHeap / 1024).toFixed(1)} KB</span>
+                    </strong>
+                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(100, (currentHeap / 280000) * 100)}%`,
+                          background: currentHeap < 40000 ? "var(--danger)" : "var(--accent)"
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {currentBlock !== null && (
+                  <div className="detail-card-row">
+                    <strong>Largest Free Block</strong>
+                    <span>{(currentBlock / 1024).toFixed(1)} KB</span>
+                  </div>
+                )}
+
+                {/* Render extra dynamically discovered telemetry attributes */}
+                {extraMetricKeys.length > 0 && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+                    <h4 style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: 0.5 }}>Extra Attributes</h4>
+                    <div className="detail-card-list">
+                      {extraMetricKeys.map(key => {
+                        const val = latestMetrics[key];
+                        return (
+                          <div className="detail-card-row" key={key}>
+                            <strong>{formatMetricLabel(key)}</strong>
+                            <span>{typeof val === "number" ? val.toFixed(1) : String(val)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          </div>
+        </div>
+      )}
+
+      {/* Simulator form (collapsible panel) */}
+      {showSimulation && deviceID && (
+        <div style={{ marginTop: 18 }}>
+          <Panel title="Developer Tools: Telemetry Payload Simulator" subtitle="Publish simulated JSON telemetry payloads to the device's real-time MQTT feed.">
+            <form className="form-grid" onSubmit={submitSimulation}>
+              <label className="field full">
+                <span>Metrics JSON</span>
+                <textarea
+                  name="metrics"
+                  defaultValue={JSON.stringify(
+                    {
+                      temp_c: currentTemp ?? 26.4,
+                      cpu_load: currentCPU ?? 7.2,
+                      rssi_dbm: currentRSSI ?? -74,
+                      uptime_s: currentUptime ? currentUptime + 30 : 1524,
+                      free_heap: currentHeap ?? 218212,
+                      ram_usage: currentRAM ?? 36.9,
+                      battery_level: currentBattery ?? 82.0,
+                      firmware_version: currentFirmware ?? "v1.4.9"
+                    },
+                    null,
+                    2
+                  )}
+                  rows={10}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: "12px", background: "#0d1015" }}
+                />
+              </label>
+              {simError && <div className="form-message error field full">{simError}</div>}
+              {simSuccess && <div className="form-message success field full">{simSuccess}</div>}
+              <button className="button primary" type="submit">
+                <Send size={15} /> Publish Ingestion Event
+              </button>
+            </form>
           </Panel>
         </div>
+      )}
 
-        {/* Main Content Area */}
-        <div style={{ flex: "1", minWidth: "500px", display: "flex", flexDirection: "column", gap: "20px" }}>
-          
-          {/* Connection Control Bar */}
-          <div style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid var(--line)",
-            borderRadius: "10px",
-            padding: "16px 20px",
-            display: "flex",
-            flexWrap: "wrap",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "16px",
-            backdropFilter: "blur(10px)"
-          }}>
-            <div>
-              {activeDevice ? (
-                <>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 600 }}>{activeDevice.name}</h3>
-                    <span style={{
-                      padding: "2px 8px",
-                      background: "rgba(255,255,255,0.05)",
-                      border: "1px solid var(--line)",
-                      borderRadius: "12px",
-                      fontSize: "11px",
-                      color: "var(--faint)"
-                    }}>
-                      {activeDevice.type}
-                    </span>
-                  </div>
-                  <div className="muted mono" style={{ fontSize: "11px", marginTop: "4px" }}>UUID: {activeDevice.id}</div>
-                </>
-              ) : (
-                <h3 style={{ margin: 0, fontSize: "18px", color: "var(--faint)" }}>No device selected</h3>
-              )}
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-              {/* WS Status Indicator */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{
-                  width: "10px",
-                  height: "10px",
-                  borderRadius: "50%",
-                  backgroundColor: 
-                    wsStatus === "connected" ? "var(--success)" :
-                    wsStatus === "connecting" ? "var(--warning)" : "var(--danger)",
-                  boxShadow: wsStatus === "connected" ? "0 0 8px var(--success)" : "none",
-                  transition: "all 0.3s"
-                }} />
-                <span className="mono" style={{ fontSize: "12px", textTransform: "capitalize" }}>
-                  {wsStatus === "connected" ? "Streaming" : wsStatus}
-                </span>
-              </div>
-
-              {/* Auto-Refresh Toggle */}
-              <button 
-                onClick={() => setAutoRefresh(!autoRefresh)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  color: autoRefresh ? "var(--accent)" : "var(--faint)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "6px 10px",
-                  borderRadius: "4px",
-                  transition: "all 0.2s"
-                }}
-              >
-                <Radio size={16} className={autoRefresh && wsStatus === "connected" ? "pulse" : ""} />
-                <span style={{ fontSize: "12px", fontWeight: 500 }}>Live Feed</span>
+      {/* Raw Payload sliding drawer modal */}
+      {showRawPayload && (
+        <div className="payload-drawer-overlay" onClick={() => setShowRawPayload(false)}>
+          <div className="payload-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="payload-drawer-header">
+              <h3>Latest Raw Payload</h3>
+              <button className="button compact secondary" onClick={() => setShowRawPayload(false)}>
+                <X size={16} />
               </button>
             </div>
-          </div>
-
-          {/* Metric Summary Cards (Max 4 numeric cards) */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "16px"
-          }}>
-            {numericMetricKeys.slice(0, 4).map(key => {
-              const val = currentMetrics ? currentMetrics[key] : null;
-              let suffix = "";
-              if (key.toLowerCase().includes("cpu") || key.toLowerCase().includes("mem") || key.toLowerCase().includes("ram") || key.toLowerCase().includes("util")) {
-                suffix = "%";
-              } else if (key.toLowerCase().includes("temp")) {
-                suffix = "°C";
-              } else if (key.toLowerCase().includes("volt")) {
-                suffix = "V";
-              }
-
-              // Simple trend indication based on last two points
-              let trend: "up" | "down" | "flat" = "flat";
-              if (telemetryHistory.length >= 2) {
-                const prevMetrics = telemetryHistory[1].metrics;
-                if (prevMetrics && typeof prevMetrics === "object" && !Array.isArray(prevMetrics)) {
-                  const prevVal = (prevMetrics as Record<string, any>)[key];
-                  if (isNumeric(val) && isNumeric(prevVal)) {
-                    if (Number(val) > Number(prevVal)) trend = "up";
-                    else if (Number(val) < Number(prevVal)) trend = "down";
-                  }
-                }
-              }
-
-              return (
-                <div key={key} style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "10px",
-                  padding: "16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                  backdropFilter: "blur(10px)"
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", color: "var(--faint)" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                      {key.replace(/_/g, " ")}
-                    </span>
-                    {getMetricIcon(key)}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                    <span style={{ fontSize: "24px", fontWeight: 700, fontFamily: "monospace" }}>
-                      {isNumeric(val) ? Number(val).toFixed(1) : "—"}
-                    </span>
-                    <span style={{ fontSize: "14px", color: "var(--faint)" }}>{suffix}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px" }}>
-                    {trend === "up" ? (
-                      <span style={{ color: "var(--warning)" }}>▲ increasing</span>
-                    ) : trend === "down" ? (
-                      <span style={{ color: "var(--success)" }}>▼ decreasing</span>
-                    ) : (
-                      <span style={{ color: "var(--faint)" }}>■ stable</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Placeholder card if no metrics */}
-            {numericMetricKeys.length === 0 && (
-              <div style={{
-                gridColumn: "1 / -1",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px dashed var(--line)",
-                borderRadius: "10px",
-                padding: "24px",
-                textAlign: "center",
-                color: "var(--faint)",
-                fontSize: "14px"
-              }}>
-                Awaiting telemetry payload from active device stream...
-              </div>
-            )}
-          </div>
-
-          {/* SVG Real-time Time Series Chart */}
-          <Panel 
-            title="Real-time Stream" 
-            actions={
-              <div style={{ display: "flex", gap: "6px" }}>
-                {numericMetricKeys.map(key => (
-                  <button
-                    key={key}
-                    onClick={() => setSelectedMetric(key)}
-                    style={{
-                      background: selectedMetric === key ? "var(--accent)" : "rgba(255,255,255,0.04)",
-                      border: selectedMetric === key ? "1px solid var(--accent)" : "1px solid var(--line)",
-                      borderRadius: "4px",
-                      color: selectedMetric === key ? "#fff" : "var(--faint)",
-                      padding: "4px 8px",
-                      fontSize: "12px",
-                      textTransform: "capitalize",
-                      cursor: "pointer"
-                    }}
-                  >
-                    {key}
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "10px 0" }}>
-              {chartData.length < 2 ? (
-                <div style={{ height: `${chartHeight}px`, display: "flex", alignItems: "center", justifyContent: "center", border: "1px dashed var(--line)", borderRadius: "8px", background: "rgba(255,255,255,0.01)" }}>
-                  <p className="muted" style={{ fontSize: "14px" }}>
-                    {selectedDeviceId ? "Awaiting telemetry data to populate the graph..." : "Select a device to view live charts"}
-                  </p>
-                </div>
-              ) : (
-                <div style={{ width: "100%", overflowX: "auto" }}>
-                  <svg 
-                    viewBox={`0 0 ${chartWidth} ${chartHeight}`} 
-                    style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}
-                  >
-                    {/* Definitions for gradient fills */}
-                    <defs>
-                      <linearGradient id="chart-gradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
-                        <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-
-                    {/* Grid Lines */}
-                    {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
-                      const y = paddingY + ratio * (chartHeight - paddingY * 2);
-                      const yVal = svgPaths.yMax - ratio * (svgPaths.yMax - svgPaths.yMin);
-                      return (
-                        <g key={i}>
-                          <line 
-                            x1={paddingX} 
-                            y1={y} 
-                            x2={chartWidth - paddingX} 
-                            y2={y} 
-                            stroke="var(--line)" 
-                            strokeWidth="1" 
-                            strokeDasharray="4 4" 
-                          />
-                          <text 
-                            x={paddingX - 8} 
-                            y={y + 4} 
-                            fill="var(--faint)" 
-                            fontSize="10" 
-                            fontFamily="monospace"
-                            textAnchor="end"
-                          >
-                            {yVal.toFixed(0)}
-                          </text>
-                        </g>
-                      );
-                    })}
-
-                    {/* Area under the line */}
-                    <path 
-                      d={svgPaths.area} 
-                      fill="url(#chart-gradient)" 
-                    />
-
-                    {/* Line path */}
-                    <path 
-                      d={svgPaths.line} 
-                      fill="none" 
-                      stroke="var(--accent)" 
-                      strokeWidth="2" 
-                    />
-
-                    {/* X axis labels */}
-                    {chartData.map((d, index) => {
-                      // Label only a subset of points to avoid cluttering
-                      const labelInterval = Math.max(1, Math.floor(chartData.length / 5));
-                      if (index % labelInterval !== 0 && index !== chartData.length - 1) return null;
-                      
-                      const x = paddingX + (index / (chartData.length - 1)) * (chartWidth - paddingX * 2);
-                      return (
-                        <text 
-                          key={index}
-                          x={x} 
-                          y={chartHeight - paddingY + 16} 
-                          fill="var(--faint)" 
-                          fontSize="9" 
-                          fontFamily="monospace"
-                          textAnchor="middle"
-                        >
-                          {d.time}
-                        </text>
-                      );
-                    })}
-                  </svg>
-                </div>
-              )}
+            <div className="payload-drawer-body">
+              <pre className="code-block" style={{ margin: 0, fontSize: "11px", whiteSpace: "pre-wrap", overflowX: "auto" }}>
+                {latestTelemetry ? stringifyJson(latestTelemetry) : "{}"}
+              </pre>
             </div>
-          </Panel>
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
