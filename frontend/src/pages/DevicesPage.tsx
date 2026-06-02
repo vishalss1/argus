@@ -2,14 +2,17 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Trash2, Edit2, Save, X } from "lucide-react";
 import { api } from "../services/api";
 import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
-import { useCreateDevice, useDevices, useUpdateDevice } from "../hooks/useArgusData";
+import { useCreateDevice, useDevices, useUpdateDevice, useAssignDevice } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
 import type { Device } from "../types/api";
 
 export function DevicesPage() {
+  const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
   const devices = useDevices();
   const create = useCreateDevice();
   const update = useUpdateDevice();
+  const assignDevice = useAssignDevice();
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
   const [editDevice, setEditDevice] = useState<Device | null>(null);
@@ -32,11 +35,11 @@ export function DevicesPage() {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return devices.data ?? [];
-    return (devices.data ?? []).filter((device) =>
+    if (!needle) return workspaceDevices;
+    return workspaceDevices.filter((device) =>
       [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle) 
     );
-  }, [devices.data, query]);
+  }, [workspaceDevices, query]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,7 +58,10 @@ export function DevicesPage() {
         await update.mutateAsync({ id: editDevice.id, payload });
         setEditDevice(null);
       } else {
-        await create.mutateAsync(payload);
+        const newDev = await create.mutateAsync(payload);
+        if (selectedWorkspaceId && newDev?.id) {
+          await assignDevice.mutateAsync({ workspaceID: selectedWorkspaceId, deviceID: newDev.id });
+        }
         formElement.reset();
       }
       setIsDrawerOpen(false);

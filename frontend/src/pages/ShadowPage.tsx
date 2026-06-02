@@ -2,18 +2,19 @@ import { FormEvent, useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import { EmptyState, ErrorState, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
 import { useDevices, useShadow } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { formatDate, safeJsonParse, stringifyJson } from "../lib/format";
 import { api } from "../services/api";
 
 export function ShadowPage() {
-  const devices = useDevices();
+  const { workspaceDevices } = useWorkspaceContext();
   const [deviceID, setDeviceID] = useState("");
   const shadow = useShadow(deviceID);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!deviceID && devices.data?.[0]) setDeviceID(devices.data[0].id);
-  }, [deviceID, devices.data]);
+    if (!deviceID && workspaceDevices[0]) setDeviceID(workspaceDevices[0].id);
+  }, [deviceID, workspaceDevices]);
 
   async function updateDesired(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,7 +48,7 @@ export function ShadowPage() {
           <div className="field" style={{ marginBottom: 14 }}>
             <SelectField label="Device" value={deviceID} onChange={setDeviceID}>
               <option value="">Select a device</option>
-              {devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+              {workspaceDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
             </SelectField>
           </div>
           {!deviceID ? (

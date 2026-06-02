@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Briefcase, Plus, Rocket, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   EmptyState,
@@ -16,8 +16,9 @@ import {
   StatCard,
   StatusChip
 } from "../components/ui";
-import { useAlerts, useAllDeployments, useDevices, useFirmware, useHealth, useOTAStats } from "../hooks/useArgusData";
+import { useAlerts, useAllDeployments, useCreateWorkspace, useDevices, useFirmware, useFleetSummary, useHealth, useOTAStats, useWorkspaces } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { countByStatus, formatDate } from "../lib/format";
 import type { JsonValue } from "../types/api";
 
@@ -100,17 +101,167 @@ function extractSignalReading(device: { metadata?: JsonValue }, liveTelemetry?: 
 }
 
 export function DashboardPage() {
+  const workspaces = useWorkspaces();
+  const hasWorkspaces = (workspaces.data ?? []).length > 0;
+
+  if (workspaces.isLoading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 40, height: 40, border: "3px solid var(--line)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
+          <p className="muted">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasWorkspaces) {
+    return <WorkspaceOnboarding />;
+  }
+
+  return <FleetDashboard />;
+}
+
+function WorkspaceOnboarding() {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const createWorkspace = useCreateWorkspace();
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    await createWorkspace.mutateAsync({ name: name.trim(), description: description.trim() });
+    setName("");
+    setDescription("");
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "70vh", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 560, width: "100%", textAlign: "center" }}>
+        {/* Hero icon */}
+        <div style={{
+          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
+          background: "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.15))",
+          border: "1px solid rgba(99,102,241,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <Briefcase size={36} style={{ color: "var(--accent)" }} />
+        </div>
+
+        {/* Title */}
+        <h1 style={{ fontSize: "28px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
+          Welcome to ARGUS
+        </h1>
+        <p className="muted" style={{ fontSize: "16px", lineHeight: 1.6, margin: "0 0 36px", maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
+          Create your first workspace to organize devices, run sessions, and monitor your fleet in real time.
+        </p>
+
+        {/* Workspace creation form */}
+        <form onSubmit={handleCreate} style={{
+          background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "12px",
+          padding: "28px", textAlign: "left"
+        }}>
+          <h3 style={{ margin: "0 0 20px", fontSize: "16px", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
+            <Plus size={18} style={{ color: "var(--accent)" }} />
+            Create Workspace
+          </h3>
+
+          <div className="form-group" style={{ marginBottom: "16px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "6px", color: "var(--faint)" }}>
+              Workspace Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Factory Floor Alpha"
+              required
+              autoFocus
+              style={{
+                width: "100%", padding: "10px 14px", fontSize: "14px",
+                background: "var(--surface-2)", border: "1px solid var(--line)",
+                borderRadius: "8px", color: "inherit", outline: "none",
+                boxSizing: "border-box"
+              }}
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: "24px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "6px", color: "var(--faint)" }}>
+              Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional — describe what this workspace monitors"
+              rows={3}
+              style={{
+                width: "100%", padding: "10px 14px", fontSize: "14px",
+                background: "var(--surface-2)", border: "1px solid var(--line)",
+                borderRadius: "8px", color: "inherit", outline: "none", resize: "vertical",
+                boxSizing: "border-box"
+              }}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="button primary"
+            disabled={createWorkspace.isPending || !name.trim()}
+            style={{ width: "100%", padding: "12px", fontSize: "15px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+          >
+            {createWorkspace.isPending ? (
+              "Creating..."
+            ) : (
+              <>
+                Get Started
+                <ArrowRight size={16} />
+              </>
+            )}
+          </button>
+        </form>
+
+        {/* Feature hints */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginTop: "32px"
+        }}>
+          {[
+            { icon: <Briefcase size={18} />, label: "Organize Devices", desc: "Group by project" },
+            { icon: <Rocket size={18} />, label: "Run Sessions", desc: "Monitor in real time" },
+            { icon: <RefreshCw size={18} />, label: "OTA Updates", desc: "Deploy firmware" }
+          ].map((item) => (
+            <div key={item.label} style={{
+              padding: "16px 12px", borderRadius: "10px",
+              background: "rgba(255,255,255,0.02)", border: "1px solid var(--line)",
+              textAlign: "center"
+            }}>
+              <div style={{ color: "var(--accent)", marginBottom: "8px" }}>{item.icon}</div>
+              <div style={{ fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>{item.label}</div>
+              <div className="muted" style={{ fontSize: "11px" }}>{item.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FleetDashboard() {
+  const { workspaceDevices } = useWorkspaceContext();
   const devices = useDevices({ realtime: true });
+  const fleetSummary = useFleetSummary();
   const { telemetryByDevice } = useRealtime();
   const alerts = useAlerts();
   const firmware = useFirmware();
   const health = useHealth();
   const otaStats = useOTAStats();
   const deployments = useAllDeployments();
-  const deviceList = devices.data ?? [];
+  const deviceList = workspaceDevices;
   const statusCounts = countByStatus(deviceList);
   const [filter, setFilter] = useState("All");
   const [page, setPage] = useState(1);
+
+  const activeDeviceIds = useMemo(() => new Set(deviceList.map(d => d.id)), [deviceList]);
 
   const filtered = useMemo(() => {
     if (filter === "All") return deviceList;
@@ -132,35 +283,44 @@ export function DashboardPage() {
   const eventEntries = useMemo(() => {
     const entries: { time: string; type: string; detail: ReactNode }[] = [];
     if (alerts.data) {
-      alerts.data.slice(0, 6).forEach((alert) => {
-        const time = new Date(alert.created_at).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        entries.push({
-          time,
-          type: "ALERT",
-          detail: (
-            <>
-              <CopyableID id={alert.device_id} length={8} /> {alert.message}
-            </>
-          )
+      alerts.data
+        .filter((alert) => activeDeviceIds.has(alert.device_id))
+        .slice(0, 6)
+        .forEach((alert) => {
+          const time = new Date(alert.created_at).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          entries.push({
+            time,
+            type: "ALERT",
+            detail: (
+              <>
+                <CopyableID id={alert.device_id} length={8} /> {alert.message}
+              </>
+            )
+          });
         });
-      });
     }
     return entries;
-  }, [alerts.data]);
+  }, [alerts.data, activeDeviceIds]);
 
   const totalDevices = deviceList.length;
   const onlineCount = statusCounts.online ?? 0;
   const warningCount = statusCounts.warning ?? 0;
   const criticalCount = statusCounts.critical ?? 0;
   const offlineCount = statusCounts.offline ?? 0;
-  const otaCount = (deployments.data ?? []).filter((deployment) => ["pending", "available", "downloading", "flashing", "rebooting"].includes(deployment.status)).length;
+  const otaCount = (deployments.data ?? []).filter((deployment) => activeDeviceIds.has(deployment.device_id) && ["pending", "available", "downloading", "flashing", "rebooting"].includes(deployment.status)).length;
+
+  const workspaceAvgHealth = useMemo(() => {
+    if (totalDevices === 0) return 100;
+    const stableCount = onlineCount + warningCount;
+    return (stableCount / totalDevices) * 100;
+  }, [totalDevices, onlineCount, warningCount]);
 
   return (
     <>
       <PageHeader
         title="Fleet Overview"
         actions={
-          <button className="button secondary" type="button" onClick={refresh}>
+          <button className="button secondary" type="button" onClick={() => { refresh(); void fleetSummary.refetch(); }}>
             <RefreshCw size={15} aria-hidden />
             Refresh
           </button>
@@ -170,24 +330,24 @@ export function DashboardPage() {
         <StatCard
           label="Total Devices"
           value={totalDevices.toLocaleString()}
-          detail="Total Devices"
+          detail="Active profile total"
         />
         <StatCard
           label="Online"
           value={onlineCount.toLocaleString()}
-          detail="Online"
+          detail="Currently connected"
           tone="success"
         />
         <StatCard
-          label="Warnings"
-          value={warningCount.toLocaleString()}
-          detail="Warnings"
-          tone="warning"
+          label="Avg Health"
+          value={`${workspaceAvgHealth.toFixed(1)}%`}
+          detail="Workspace average"
+          tone={workspaceAvgHealth < 70 ? "danger" : "success"}
         />
         <StatCard
-          label="Critical"
+          label="High Risk"
           value={criticalCount.toLocaleString()}
-          detail="Critical"
+          detail="Critical devices"
           tone="danger"
         />
         <StatCard

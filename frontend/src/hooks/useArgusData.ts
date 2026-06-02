@@ -14,8 +14,129 @@ export const queryKeys = {
   commands: (deviceID: string) => ["commands", deviceID] as const,
   deployments: (deviceID: string) => ["deployments", deviceID] as const,
   deploymentEvents: (deploymentID: string) => ["deployment-events", deploymentID] as const,
-  shadow: (deviceID: string) => ["shadow", deviceID] as const
+  shadow: (deviceID: string) => ["shadow", deviceID] as const,
+  fleetSummary: ["fleet", "summary"] as const,
+  fleetHistory: ["fleet", "history"] as const,
+  latestTelemetry: (deviceID: string) => ["telemetry", "latest", deviceID] as const,
+  aiFindings: (deviceID: string) => ["ai", "findings", deviceID] as const,
+  workspaces: ["workspaces"] as const,
+  workspace: (id: string) => ["workspaces", id] as const,
+  workspaceDevices: (id: string) => ["workspaces", id, "devices"] as const,
+  sessions: (workspaceID: string) => ["sessions", workspaceID] as const
 };
+
+export function useWorkspaces() {
+  return useQuery({ queryKey: queryKeys.workspaces, queryFn: api.workspaces.list });
+}
+
+export function useWorkspace(id: string) {
+  return useQuery({
+    queryKey: queryKeys.workspace(id),
+    queryFn: () => api.workspaces.get(id),
+    enabled: Boolean(id)
+  });
+}
+
+export function useCreateWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, description }: { name: string; description: string }) =>
+      api.workspaces.create(name, description),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.workspaces })
+  });
+}
+
+export function useWorkspaceDevices(workspaceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.workspaceDevices(workspaceID ?? ""),
+    queryFn: () => api.workspaces.listDevices(workspaceID!),
+    enabled: Boolean(workspaceID)
+  });
+}
+
+export function useAssignDevice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspaceID, deviceID }: { workspaceID: string; deviceID: string }) =>
+      api.workspaces.assignDevice(workspaceID, deviceID),
+    onSuccess: (_, { workspaceID }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDevices(workspaceID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.devices });
+    }
+  });
+}
+
+export function useUnassignDevice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ workspaceID, deviceID }: { workspaceID: string; deviceID: string }) =>
+      api.workspaces.unassignDevice(workspaceID, deviceID),
+    onSuccess: (_, { workspaceID }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDevices(workspaceID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.devices });
+    }
+  });
+}
+
+export function useSessions(workspaceID: string) {
+  return useQuery({
+    queryKey: queryKeys.sessions(workspaceID),
+    queryFn: () => api.sessions.list(workspaceID),
+    enabled: Boolean(workspaceID),
+    refetchInterval: 5_000
+  });
+}
+
+export function useCreateSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (workspaceID: string) => api.sessions.create(workspaceID),
+    onSuccess: (_, variables) => queryClient.invalidateQueries({ queryKey: queryKeys.sessions(variables) })
+  });
+}
+
+export function useStartSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionID: string) => api.sessions.start(sessionID),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sessions"] })
+  });
+}
+
+export function useStopSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionID, success }: { sessionID: string; success: boolean }) => api.sessions.stop(sessionID, success),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sessions"] })
+  });
+}
+
+export function useFleetSummary() {
+  return useQuery({ queryKey: queryKeys.fleetSummary, queryFn: api.fleet.summary, refetchInterval: 60_000 });
+}
+
+export function useFleetHistory() {
+  return useQuery({ queryKey: queryKeys.fleetHistory, queryFn: api.fleet.history });
+}
+
+export function useLatestTelemetry(deviceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.latestTelemetry(deviceID ?? ""),
+    queryFn: () => api.telemetry.latest(deviceID!),
+    enabled: Boolean(deviceID),
+    refetchInterval: 5_000
+  });
+}
+
+export function useAIFindings(deviceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.aiFindings(deviceID ?? ""),
+    queryFn: () => api.ai.getFindings(deviceID!),
+    enabled: Boolean(deviceID)
+  });
+}
 
 export function useDevices({ realtime = false }: { realtime?: boolean } = {}) {
   void realtime;

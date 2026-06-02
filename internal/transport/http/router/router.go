@@ -20,6 +20,10 @@ func New(
 	otaHandler *handler.OTAHandler,
 	ruleHandler *handler.RuleHandler,
 	aiHandler *handler.AIHandler,
+	findingHandler *handler.FindingHandler,
+	fleetHandler *handler.FleetHandler,
+	workspaceHandler *handler.WorkspaceHandler,
+	sessionHandler *handler.SessionHandler,
 	websocketHandler *transportws.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -38,8 +42,31 @@ func New(
 	apiRouter := chi.NewRouter()
 
 	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
-	apiRouter.Post("/provision", deviceHandler.ProvisionDevice)
+	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
 	apiRouter.Get("/alerts", ruleHandler.ListAlerts)
+	apiRouter.Get("/telemetry/exports/{fileName}", func(w http.ResponseWriter, r *http.Request) {
+		telemetryHandler.DownloadExport(w, r, chi.URLParam(r, "fileName"))
+	})
+	apiRouter.Get("/fleet/summary", fleetHandler.GetLatestSummary)
+	apiRouter.Get("/fleet/history", fleetHandler.ListSummaries)
+
+	apiRouter.Route("/workspaces", func(r chi.Router) {
+		r.Get("/", workspaceHandler.List)
+		r.Post("/", workspaceHandler.Create)
+		r.Route("/{workspaceID}", func(r chi.Router) {
+			r.Get("/", workspaceHandler.Get)
+			r.Get("/devices", workspaceHandler.ListDevices)
+			r.Post("/devices", workspaceHandler.AssignDevice)
+			r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
+			r.Post("/sessions", sessionHandler.Create)
+			r.Get("/sessions", sessionHandler.List)
+		})
+	})
+
+	apiRouter.Route("/sessions/{sessionID}", func(r chi.Router) {
+		r.Post("/start", sessionHandler.Start)
+		r.Post("/stop", sessionHandler.Stop)
+	})
 
 	apiRouter.Route("/ai", func(r chi.Router) {
 		r.Post("/query", aiHandler.Ask)
@@ -102,6 +129,12 @@ func New(
 			r.Post("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 				telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
 			})
+			r.Get("/telemetry/latest", func(w http.ResponseWriter, r *http.Request) {
+				telemetryHandler.GetLatestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+			})
+			r.Post("/telemetry/export", func(w http.ResponseWriter, r *http.Request) {
+				telemetryHandler.ExportTelemetry(w, r, chi.URLParam(r, "deviceID"))
+			})
 			r.Get("/commands", func(w http.ResponseWriter, r *http.Request) {
 				commandHandler.ListCommands(w, r, chi.URLParam(r, "deviceID"))
 			})
@@ -137,6 +170,9 @@ func New(
 			})
 			r.Get("/ai/events", aiHandler.ListDeviceEvents)
 			r.Get("/ai/history", aiHandler.GetDeviceHistory)
+			r.Get("/ai/findings", func(w http.ResponseWriter, r *http.Request) {
+				findingHandler.ListByDevice(w, r, chi.URLParam(r, "deviceID"))
+			})
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
 			})

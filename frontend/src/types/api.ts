@@ -15,6 +15,7 @@ export interface Device {
   firmware_version: string;
   status: DeviceStatus;
   metadata?: JsonValue;
+  workspace_id?: string;
   last_seen?: string;
   created_at: string;
   updated_at: string;
@@ -214,4 +215,91 @@ export interface ReasoningResponse {
   confidence: number;
   evidence: string[];
   suggested_actions: string[];
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  device_count: number;
+  created_at: string;
+}
+
+export interface DeviceSummary {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  firmware_version: string;
+  last_seen?: string;
+}
+
+export type SessionStatus = "CREATED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+
+export interface Session {
+  id: string;
+  workspace_id: string;
+  status: SessionStatus;
+  started_at?: string;
+  ended_at?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface SessionEvent {
+  id: string;
+  session_id: string;
+  device_id: string;
+  event_type: string;
+  severity: string;
+  payload: JsonValue;
+  created_at: string;
+}
+
+export interface SessionAlert {
+  id: string;
+  session_id: string;
+  device_id: string;
+  severity: string;
+  message: string;
+  resolved: boolean;
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface SessionCommand {
+  id: string;
+  session_id: string;
+  device_id: string;
+  command: string;
+  issued_by?: string;
+  status: string;
+  issued_at: string;
+  completed_at?: string;
+}
+
+export interface SessionStatistics {
+  session_id: string;
+  duration_seconds: number;
+  messages_processed: number;
+  alerts_count: number;
+  critical_events: number;
+  uptime_percentage: number;
+  average_latency_ms: number;
+  updated_at: string;
+}
+
+export interface SessionReport {
+  id: string;
+  session_id: string;
+  report_json: JsonValue;
+  generated_at: string;
+}
+
+export interface SessionAIReport {
+  id: string;
+  session_id: string;
+  summary_text: string;
+  metadata: JsonValue;
+  generated_at: string;
 }

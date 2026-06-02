@@ -26,11 +26,12 @@ type Alert struct {
 	ID            string    `json:"id" db:"id"`
 	RuleID        string    `json:"rule_id" db:"rule_id"`
 	DeviceID      string    `json:"device_id" db:"device_id"`
-	TelemetryID   string    `json:"telemetry_id" db:"telemetry_id"`
+	TelemetryID   *string   `json:"telemetry_id" db:"telemetry_id"`
 	Metric        string    `json:"metric" db:"metric"`
 	Operator      string    `json:"operator" db:"operator"`
 	Threshold     float64   `json:"threshold" db:"threshold"`
 	ObservedValue float64   `json:"observed_value" db:"observed_value"`
+	Severity      string    `json:"severity" db:"severity"`
 	Message       string    `json:"message" db:"message"`
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 }

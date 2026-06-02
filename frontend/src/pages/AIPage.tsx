@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { api } from "../services/api";
 import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
-import { Panel, PageHeader, StatusChip, CopyableID, EmptyState } from "../components/ui";
-import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap } from "lucide-react";
+import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard } from "../components/ui";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle } from "lucide-react";
+import { useAIFindings, useDevices } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 
 const AIPage: React.FC = () => {
   const [events, setEvents] = useState<SemanticEvent[]>([]);
@@ -11,6 +13,20 @@ const AIPage: React.FC = () => {
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deviceID, setDeviceID] = useState("");
+  
+  const { workspaceDevices } = useWorkspaceContext();
+  const { data: findings } = useAIFindings(deviceID);
+
+  const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
+
+  const filteredEvents = useMemo<SemanticEvent[]>(() => {
+    return events.filter((ev: SemanticEvent) => activeDeviceIds.has(ev.device_id));
+  }, [events, activeDeviceIds]);
+
+  const filteredIncidents = useMemo<Incident[]>(() => {
+    return incidents.filter((inc: Incident) => inc.device_ids.some((id: string) => activeDeviceIds.has(id)));
+  }, [incidents, activeDeviceIds]);
 
   useEffect(() => {
     fetchBaseData();
@@ -59,13 +75,58 @@ const AIPage: React.FC = () => {
     );
   }
 
+  const latestFinding = findings && findings.length > 0 ? findings[0] : null;
+
   return (
     <>
       <PageHeader 
         title="AI Operational Intelligence" 
         description="Real-time semantic reasoning, statistical anomaly detection, and incident correlation."
-        actions={<div className="live-badge online"><span className="live-dot" />LOCAL INFERENCE ACTIVE</div>}
+        actions={
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <select 
+              value={deviceID} 
+              onChange={(e) => setDeviceID(e.target.value)}
+              className="button secondary compact"
+              style={{ minWidth: 180, background: "var(--surface-2)" }}
+            >
+              <option value="">All Devices</option>
+              {workspaceDevices.map(d => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+            <div className="live-badge online"><span className="live-dot" />LOCAL INFERENCE ACTIVE</div>
+          </div>
+        }
       />
+
+      {deviceID && latestFinding && (
+        <div className="stat-grid four" style={{ marginBottom: 18 }}>
+          <StatCard
+            label="Health Score"
+            value={`${latestFinding.health_score}%`}
+            detail="Overall system health"
+            tone={latestFinding.health_score < 70 ? "danger" : "success"}
+          />
+          <StatCard
+            label="Risk Score"
+            value={latestFinding.risk_score.toFixed(2)}
+            detail="Probability of failure"
+            tone={latestFinding.risk_score > 0.5 ? "danger" : "neutral"}
+          />
+          <StatCard
+            label="AI Summary"
+            value={latestFinding.severity.toUpperCase()}
+            detail={latestFinding.summary}
+            tone={latestFinding.severity === "critical" ? "danger" : "warning"}
+          />
+          <StatCard
+            label="Last Analyzed"
+            value={new Date(latestFinding.created_at).toLocaleTimeString()}
+            detail="Recent inference window"
+          />
+        </div>
+      )}
 
       <div className="split">
         <div className="grid">
@@ -161,7 +222,7 @@ const AIPage: React.FC = () => {
                 <Zap size={16} style={{ color: "var(--warning)" }} /> Semantic Operational Feed
               </span>
             }
-            subtitle={`${events.length} events detected`}
+            subtitle={`${filteredEvents.length} events detected`}
           >
             <div className="table-wrap">
               <table className="ai-table">
@@ -174,7 +235,7 @@ const AIPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {events.length === 0 ? (
+                  {filteredEvents.length === 0 ? (
                     <tr>
                       <td colSpan={4}>
                         <EmptyState
@@ -184,7 +245,7 @@ const AIPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    events.slice(0, 12).map(ev => (
+                    filteredEvents.slice(0, 12).map((ev: SemanticEvent) => (
                       <tr key={ev.id}>
                         <td>
                           <strong>{ev.type.replace('_', ' ')}</strong>
@@ -221,10 +282,10 @@ const AIPage: React.FC = () => {
                 <AlertCircle size={14} className="text-danger" /> Active Incidents
               </span>
             }
-            subtitle={`${incidents.filter(i => i.status === "open").length} open incidents`}
+            subtitle={`${filteredIncidents.filter((i: Incident) => i.status === "open").length} open incidents`}
           >
             <div className="grid" style={{ gap: 12 }}>
-              {incidents.filter(i => i.status === "open").map(inc => (
+              {filteredIncidents.filter((i: Incident) => i.status === "open").map((inc: Incident) => (
                 <div key={inc.id} className="incident-card">
                   <div className="incident-card-header">
                     <StatusChip value={inc.severity} />
@@ -236,13 +297,13 @@ const AIPage: React.FC = () => {
                   <h4 className="incident-title">{inc.title}</h4>
                   <p className="incident-summary">{inc.summary}</p>
                   <div className="incident-devices">
-                    {inc.device_ids.map(d => (
+                    {inc.device_ids.map((d: string) => (
                       <CopyableID key={d} id={d} length={6} />
                     ))}
                   </div>
                 </div>
               ))}
-              {incidents.filter(i => i.status === "open").length === 0 && (
+              {filteredIncidents.filter((i: Incident) => i.status === "open").length === 0 && (
                 <div className="empty-incidents">
                   No active incidents detected
                 </div>

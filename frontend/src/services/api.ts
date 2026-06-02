@@ -6,6 +6,7 @@ import type {
   Deployment,
   DeploymentEvent,
   Device,
+  DeviceSummary,
   FirmwareArtifact,
   JsonValue,
   Manifest,
@@ -16,7 +17,15 @@ import type {
   Incident,
   OperationalMemory,
   OTAFleetStats,
-  ReasoningResponse
+  ReasoningResponse,
+  Workspace,
+  Session,
+  SessionEvent,
+  SessionAlert,
+  SessionCommand,
+  SessionStatistics,
+  SessionReport,
+  SessionAIReport
 } from "../types/api";
 import { request } from "./http";
 
@@ -52,6 +61,49 @@ export const api = {
       request(`/devices/${deviceID}/telemetry`, {
         method: "POST",
         body: JSON.stringify(payload)
+      }),
+    latest: (deviceID: string) => request<any>(`/devices/${deviceID}/telemetry/latest`),
+    export: (deviceID: string, from: string, to: string) =>
+      request<any>(`/devices/${deviceID}/telemetry/export`, {
+        method: "POST",
+        body: JSON.stringify({ from, to })
+      })
+  },
+
+  fleet: {
+    summary: () => request<any>("/fleet/summary"),
+    history: () => request<any[]>("/fleet/history")
+  },
+
+  workspaces: {
+    list: () => request<Workspace[]>("/workspaces"),
+    create: (name: string, description: string) =>
+      request<Workspace>("/workspaces", {
+        method: "POST",
+        body: JSON.stringify({ name, description })
+      }),
+    get: (id: string) => request<Workspace>(`/workspaces/${id}`),
+    listDevices: (workspaceID: string) =>
+      request<DeviceSummary[]>(`/workspaces/${workspaceID}/devices`),
+    assignDevice: (workspaceID: string, deviceID: string) =>
+      request<void>(`/workspaces/${workspaceID}/devices`, {
+        method: "POST",
+        body: JSON.stringify({ device_id: deviceID })
+      }),
+    unassignDevice: (workspaceID: string, deviceID: string) =>
+      request<void>(`/workspaces/${workspaceID}/devices/${deviceID}`, {
+        method: "DELETE"
+      })
+  },
+
+  sessions: {
+    create: (workspaceID: string) => request<Session>(`/workspaces/${workspaceID}/sessions`, { method: "POST" }),
+    list: (workspaceID: string) => request<Session[]>(`/workspaces/${workspaceID}/sessions`),
+    start: (id: string) => request<Session>(`/sessions/${id}/start`, { method: "POST" }),
+    stop: (id: string, success: boolean) =>
+      request<Session>(`/sessions/${id}/stop`, {
+        method: "POST",
+        body: JSON.stringify({ success })
       })
   },
 
@@ -137,6 +189,7 @@ export const api = {
     getIncident: (id: string) => request<Incident>(`/ai/incidents/${id}`),
     resolveIncident: (id: string) => request<void>(`/ai/incidents/${id}/resolve`, { method: "POST" }),
     getDeviceHistory: (deviceID: string) => request<OperationalMemory[]>(`/devices/${deviceID}/ai/history`),
+    getFindings: (deviceID: string) => request<any[]>(`/devices/${deviceID}/ai/findings`),
     query: (query: string) => request<ReasoningResponse>("/ai/query", {
       method: "POST",
       body: JSON.stringify({ query })
