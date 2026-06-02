@@ -1,17 +1,27 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useMemo } from "react";
 import { Plus, Trash2, Edit2, Save, X } from "lucide-react";
 import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
 import { useAlerts, useRules, useUpdateRule } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate } from "../lib/format";
 import { api } from "../services/api";
 import type { Rule } from "../types/api";
 
 export function AlertsPage() {
+  const { workspaceDevices } = useWorkspaceContext();
   const alerts = useAlerts();
   const rules = useRules();
   const updateRule = useUpdateRule();
   const [error, setError] = useState("");
   const [editRuleState, setEditRuleState] = useState<Rule | null>(null);
+
+  const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
+
+  const filteredAlerts = useMemo(() => {
+    if (!alerts.data) return [];
+    return alerts.data.filter(alert => activeDeviceIds.has(alert.device_id));
+  }, [alerts.data, activeDeviceIds]);
+
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,8 +70,8 @@ export function AlertsPage() {
                 <thead><tr><th>Alert</th><th>Device</th><th>Metric</th><th>Observed</th><th>Created</th></tr></thead>
                 <tbody>
                   {alerts.isLoading && <LoadingRows rows={5} />}
-                  {!alerts.isLoading && (alerts.data?.length ?? 0) === 0 && <tr><td colSpan={5}><EmptyState title="No alerts available" description="Alerts appear after ingested telemetry violates an enabled rule." /></td></tr>}
-                  {alerts.data?.map((alert) => (
+                  {!alerts.isLoading && filteredAlerts.length === 0 && <tr><td colSpan={5}><EmptyState title="No alerts available" description="Alerts appear after ingested telemetry violates an enabled rule." /></td></tr>}
+                  {filteredAlerts.map((alert) => (
                     <tr key={alert.id}>
                       <td><strong>{alert.message}</strong><div style={{ marginTop: 2 }}><CopyableID id={alert.id} /></div></td>
                       <td><CopyableID id={alert.device_id} /></td>

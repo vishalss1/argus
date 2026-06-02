@@ -13,6 +13,7 @@ type Device struct {
 	Status          string          `json:"status" db:"status"`
 	Metadata        json.RawMessage `json:"metadata" db:"metadata" swaggertype:"object"`
 	LastSeen        *time.Time      `json:"last_seen,omitempty" db:"last_seen"`
+	WorkspaceID     *string         `json:"workspace_id,omitempty" db:"workspace_id"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
 }
