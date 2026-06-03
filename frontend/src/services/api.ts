@@ -25,7 +25,8 @@ import type {
   SessionCommand,
   SessionStatistics,
   SessionReport,
-  SessionAIReport
+  SessionAIReport,
+  SessionArtifact
 } from "../types/api";
 import { request } from "./http";
 
@@ -107,7 +108,8 @@ export const api = {
       request<{ download_url: string; expires_at: string }>(`/sessions/${id}/export`, {
         method: "POST",
         body: JSON.stringify({ format })
-      })
+      }),
+    getArtifact: (id: string) => request<SessionArtifact>(`/sessions/${id}/artifact`)
   },
 
   commands: {

@@ -111,15 +111,13 @@ func (h *SessionHandler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := h.service.Repo().GetStatistics(ctx, sessionID)
+	artifact, err := h.service.Repo().GetArtifactBySession(ctx, sessionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	report, err := h.service.Repo().GetReportBySession(ctx, sessionID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	if artifact == nil {
+		writeError(w, http.StatusNotFound, "session artifact not found")
 		return
 	}
 
@@ -133,11 +131,6 @@ func (h *SessionHandler) Export(w http.ResponseWriter, r *http.Request) {
 	filePath := filepath.Join(h.exportDir, fileName)
 
 	if format == "json" {
-		exportData := map[string]interface{}{
-			"session":    sess,
-			"statistics": stats,
-			"report":     report,
-		}
 		file, err := os.Create(filePath)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -145,11 +138,14 @@ func (h *SessionHandler) Export(w http.ResponseWriter, r *http.Request) {
 		}
 		defer file.Close()
 
-		if err := json.NewEncoder(file).Encode(exportData); err != nil {
+		_, _ = file.Write(artifact.ArtifactJSON)
+	} else if format == "csv" {
+		var payload session.SessionArtifactPayload
+		if err := json.Unmarshal(artifact.ArtifactJSON, &payload); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-	} else if format == "csv" {
+
 		file, err := os.Create(filePath)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -160,38 +156,64 @@ func (h *SessionHandler) Export(w http.ResponseWriter, r *http.Request) {
 		writer := csv.NewWriter(file)
 		defer writer.Flush()
 
-		writer.Write([]string{"Metric", "Value"})
-		writer.Write([]string{"Session ID", sess.ID})
-		writer.Write([]string{"Workspace ID", sess.WorkspaceID})
-		writer.Write([]string{"Status", string(sess.Status)})
-		if sess.StartedAt != nil {
-			writer.Write([]string{"Started At", sess.StartedAt.Format(time.RFC3339)})
-		} else {
-			writer.Write([]string{"Started At", "-"})
+		// 1. Device Summaries
+		_ = writer.Write([]string{"=== DEVICE SUMMARIES ==="})
+		_ = writer.Write([]string{
+			"Device ID", "First Seen", "Last Seen", "Uptime %", "Sample Count",
+			"Battery Avg", "Battery Min", "Battery Max",
+			"Temp Avg", "Temp Min", "Temp Max",
+			"Signal Avg", "Signal Min", "Signal Max",
+			"Distance Travelled (km)", "Warnings", "Criticals", "Commands", "Anomalies",
+		})
+		for _, summary := range payload.DeviceSummaries {
+			_ = writer.Write([]string{
+				summary.DeviceID, summary.FirstSeen, summary.LastSeen, fmt.Sprintf("%.2f", summary.UptimePercentage), fmt.Sprintf("%d", summary.SampleCount),
+				fmt.Sprintf("%.2f", summary.BatteryAverage), fmt.Sprintf("%.2f", summary.BatteryMin), fmt.Sprintf("%.2f", summary.BatteryMax),
+				fmt.Sprintf("%.2f", summary.TemperatureAverage), fmt.Sprintf("%.2f", summary.TemperatureMin), fmt.Sprintf("%.2f", summary.TemperatureMax),
+				fmt.Sprintf("%.2f", summary.SignalAverage), fmt.Sprintf("%.2f", summary.SignalMin), fmt.Sprintf("%.2f", summary.SignalMax),
+				fmt.Sprintf("%.4f", summary.DistanceTravelled), fmt.Sprintf("%d", summary.WarningCount), fmt.Sprintf("%d", summary.CriticalCount),
+				fmt.Sprintf("%d", summary.CommandsReceived), fmt.Sprintf("%d", summary.AnomaliesDetected),
+			})
 		}
-		if sess.EndedAt != nil {
-			writer.Write([]string{"Ended At", sess.EndedAt.Format(time.RFC3339)})
-		} else {
-			writer.Write([]string{"Ended At", "-"})
-		}
+		_ = writer.Write([]string{""}) // spacing row
 
-		if stats != nil {
-			writer.Write([]string{"Duration (Seconds)", fmt.Sprintf("%d", stats.DurationSeconds)})
-			writer.Write([]string{"Messages Processed", fmt.Sprintf("%d", stats.MessagesProcessed)})
-			writer.Write([]string{"Alerts Count", fmt.Sprintf("%d", stats.AlertsCount)})
-			writer.Write([]string{"Critical Events", fmt.Sprintf("%d", stats.CriticalEvents)})
-			writer.Write([]string{"Uptime Percentage", fmt.Sprintf("%.2f", stats.UptimePercentage)})
-			writer.Write([]string{"Average Latency (ms)", fmt.Sprintf("%.2f", stats.AvgLatencyMS)})
-			writer.Write([]string{"Average Battery", fmt.Sprintf("%.2f", stats.AvgBattery)})
-			writer.Write([]string{"Minimum Battery", fmt.Sprintf("%.2f", stats.MinBattery)})
-			writer.Write([]string{"Maximum Battery", fmt.Sprintf("%.2f", stats.MaxBattery)})
-			writer.Write([]string{"Average Temperature", fmt.Sprintf("%.2f", stats.AvgTemperature)})
-			writer.Write([]string{"Minimum Temperature", fmt.Sprintf("%.2f", stats.MinTemperature)})
-			writer.Write([]string{"Maximum Temperature", fmt.Sprintf("%.2f", stats.MaxTemperature)})
-			writer.Write([]string{"Distance Travelled (km)", fmt.Sprintf("%.4f", stats.DistanceTravelled)})
-			writer.Write([]string{"Device Participation Count", fmt.Sprintf("%d", stats.DeviceParticipationCount)})
-			writer.Write([]string{"Command Count", fmt.Sprintf("%d", stats.CommandCount)})
-			writer.Write([]string{"Anomaly Count", fmt.Sprintf("%d", stats.AnomalyCount)})
+		// 2. Telemetry Rollups
+		_ = writer.Write([]string{"=== TELEMETRY ROLLUPS ==="})
+		_ = writer.Write([]string{
+			"Device ID", "Timestamp", "Battery Avg", "Battery Min", "Battery Max",
+			"Temp Avg", "Temp Min", "Temp Max",
+			"Signal Avg", "Signal Min", "Signal Max", "Sample Count",
+		})
+		for devID, rollups := range payload.TelemetryRollups {
+			for _, r := range rollups {
+				_ = writer.Write([]string{
+					devID, r.Timestamp,
+					fmt.Sprintf("%.2f", r.BatteryAvg), fmt.Sprintf("%.2f", r.BatteryMin), fmt.Sprintf("%.2f", r.BatteryMax),
+					fmt.Sprintf("%.2f", r.TemperatureAvg), fmt.Sprintf("%.2f", r.TemperatureMin), fmt.Sprintf("%.2f", r.TemperatureMax),
+					fmt.Sprintf("%.2f", r.SignalAvg), fmt.Sprintf("%.2f", r.SignalMin), fmt.Sprintf("%.2f", r.SignalMax),
+					fmt.Sprintf("%d", r.SampleCount),
+				})
+			}
+		}
+		_ = writer.Write([]string{""}) // spacing row
+
+		// 3. Alerts
+		_ = writer.Write([]string{"=== ALERTS ==="})
+		_ = writer.Write([]string{"Timestamp", "Severity", "Source Device", "Type", "Message", "Resolution State"})
+		for _, a := range payload.Alerts {
+			_ = writer.Write([]string{a.Timestamp, a.Severity, a.SourceDevice, a.AlertType, a.Message, a.ResolutionState})
+		}
+		_ = writer.Write([]string{""}) // spacing row
+
+		// 4. Commands
+		_ = writer.Write([]string{"=== COMMANDS ==="})
+		_ = writer.Write([]string{"Timestamp", "Target Device", "Command", "Status", "Ack Time"})
+		for _, c := range payload.Commands {
+			ackTimeVal := "-"
+			if c.AcknowledgementTime != nil {
+				ackTimeVal = *c.AcknowledgementTime
+			}
+			_ = writer.Write([]string{c.Timestamp, c.TargetDevice, c.Command, c.Status, ackTimeVal})
 		}
 	}
 
@@ -253,5 +275,21 @@ func (h *SessionHandler) GetReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *SessionHandler) GetArtifact(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "sessionID")
+	artifact, err := h.service.Repo().GetArtifactBySession(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if artifact == nil {
+		writeError(w, http.StatusNotFound, "session artifact not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(artifact.ArtifactJSON)
 }
 

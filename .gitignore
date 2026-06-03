@@ -6,6 +6,7 @@ PLAN4.md
 report_telemetry.md
 .env
 certs/*
+data/*
 cmd/gen-certs/*
 cmd/ota-keygen/*
 .antigravitycli

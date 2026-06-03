@@ -234,7 +234,7 @@ func Bootstrap() (*Server, error) {
 
 	sessionRepository := postgres.NewSessionRepository(database)
 	sessionService := session.NewService(sessionRepository)
-	sessionManager := session.NewManager(sessionService, usageService, redisClient)
+	sessionManager := session.NewManager(sessionService, usageService, redisClient, workspaceRepository, findingRepository)
 	sessionHandler := transporthandler.NewSessionHandler(sessionService, sessionManager, exportDir)
 
 	// Recover any RUNNING sessions to Redis hot-state
@@ -670,9 +670,13 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 		return
 	}
 
-	// Track sample count
+	// Track sample count (session-wide)
 	countKey := fmt.Sprintf("session:%s:metrics:count", sessionID)
 	redisClient.Client().Incr(ctx, countKey)
+
+	// Track sample count (per-device)
+	devSampleKey := fmt.Sprintf("session:%s:device:%s:sample_count", sessionID, deviceID)
+	redisClient.Client().Incr(ctx, devSampleKey)
 
 	// Track device participation
 	devsKey := fmt.Sprintf("session:%s:devices", sessionID)
@@ -683,6 +687,13 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 	redisClient.Client().SetNX(ctx, firstSeenKey, time.Now().Unix(), 0)
 	lastSeenKey := fmt.Sprintf("session:%s:device:%s:last_seen", sessionID, deviceID)
 	redisClient.Client().Set(ctx, lastSeenKey, time.Now().Unix(), 0)
+
+	// Rollup minute key
+	minuteStr := t.RecordedAt.Truncate(time.Minute).Format(time.RFC3339)
+	rollupMinutesKey := fmt.Sprintf("session:%s:device:%s:rollup_minutes", sessionID, deviceID)
+	redisClient.Client().SAdd(ctx, rollupMinutesKey, minuteStr)
+	rollupKey := fmt.Sprintf("session:%s:device:%s:rollup:%s", sessionID, deviceID, minuteStr)
+	redisClient.Client().HIncrBy(ctx, rollupKey, "sample_count", 1)
 
 	// Update battery stats
 	var batteryVal float64
@@ -699,9 +710,20 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 		}
 	}
 	if hasBattery {
+		// Session aggregates
 		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:battery:sum", sessionID), batteryVal)
 		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:metrics:battery:count", sessionID))
 		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:metrics:battery:min", sessionID), fmt.Sprintf("session:%s:metrics:battery:max", sessionID), batteryVal)
+
+		// Per-device aggregates
+		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:battery:sum", sessionID, deviceID), batteryVal)
+		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:device:%s:battery:count", sessionID, deviceID))
+		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:battery:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:battery:max", sessionID, deviceID), batteryVal)
+
+		// Telemetry Rollup
+		redisClient.Client().HIncrByFloat(ctx, rollupKey, "battery:sum", batteryVal)
+		redisClient.Client().HIncrBy(ctx, rollupKey, "battery:count", 1)
+		updateRollupMinMax(ctx, redisClient, rollupKey, "battery:min", "battery:max", batteryVal)
 	}
 
 	// Update temperature stats
@@ -724,9 +746,46 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 		}
 	}
 	if hasTemp {
+		// Session aggregates
 		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:temp:sum", sessionID), tempVal)
 		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:metrics:temp:count", sessionID))
 		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:metrics:temp:min", sessionID), fmt.Sprintf("session:%s:metrics:temp:max", sessionID), tempVal)
+
+		// Per-device aggregates
+		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:temp:sum", sessionID, deviceID), tempVal)
+		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:device:%s:temp:count", sessionID, deviceID))
+		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:temp:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:temp:max", sessionID, deviceID), tempVal)
+
+		// Telemetry Rollup
+		redisClient.Client().HIncrByFloat(ctx, rollupKey, "temp:sum", tempVal)
+		redisClient.Client().HIncrBy(ctx, rollupKey, "temp:count", 1)
+		updateRollupMinMax(ctx, redisClient, rollupKey, "temp:min", "temp:max", tempVal)
+	}
+
+	// Update signal stats (RSSI / signal strength)
+	var rssiVal float64
+	hasRSSI := false
+	if v, ok := metrics["rssi_dbm"]; ok {
+		if f, ok := toFloat(v); ok {
+			rssiVal = f
+			hasRSSI = true
+		}
+	} else if v, ok := metrics["rssi"]; ok {
+		if f, ok := toFloat(v); ok {
+			rssiVal = f
+			hasRSSI = true
+		}
+	}
+	if hasRSSI {
+		// Per-device aggregates
+		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:signal:sum", sessionID, deviceID), rssiVal)
+		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:device:%s:signal:count", sessionID, deviceID))
+		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:signal:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:signal:max", sessionID, deviceID), rssiVal)
+
+		// Telemetry Rollup
+		redisClient.Client().HIncrByFloat(ctx, rollupKey, "signal:sum", rssiVal)
+		redisClient.Client().HIncrBy(ctx, rollupKey, "signal:count", 1)
+		updateRollupMinMax(ctx, redisClient, rollupKey, "signal:min", "signal:max", rssiVal)
 	}
 
 	// Update uptime metrics
@@ -789,7 +848,10 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 			_, err2 := fmt.Sscanf(lastGPS["lon"], "%f", &prevLon)
 			if err1 == nil && err2 == nil {
 				dist := haversineDistance(prevLat, prevLon, latVal, lonVal)
+				// Session-wide distance
 				redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:distance", sessionID), dist)
+				// Per-device distance
+				redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:distance", sessionID, deviceID), dist)
 			}
 		}
 		// Update last known gps
@@ -797,6 +859,30 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 			"lat": fmt.Sprintf("%f", latVal),
 			"lon": fmt.Sprintf("%f", lonVal),
 		})
+	}
+}
+
+func updateRollupMinMax(ctx context.Context, r *redis.Client, hashKey, minField, maxField string, val float64) {
+	// Min
+	minValStr, err := r.Client().HGet(ctx, hashKey, minField).Result()
+	if err != nil || minValStr == "" {
+		r.Client().HSet(ctx, hashKey, minField, val)
+	} else {
+		var currentMin float64
+		if _, err := fmt.Sscanf(minValStr, "%f", &currentMin); err == nil && val < currentMin {
+			r.Client().HSet(ctx, hashKey, minField, val)
+		}
+	}
+
+	// Max
+	maxValStr, err := r.Client().HGet(ctx, hashKey, maxField).Result()
+	if err != nil || maxValStr == "" {
+		r.Client().HSet(ctx, hashKey, maxField, val)
+	} else {
+		var currentMax float64
+		if _, err := fmt.Sscanf(maxValStr, "%f", &currentMax); err == nil && val > currentMax {
+			r.Client().HSet(ctx, hashKey, maxField, val)
+		}
 	}
 }
 

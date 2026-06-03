@@ -419,3 +419,35 @@ func (r *SessionRepository) CloseStaleSessions(ctx context.Context, timeout time
 	}
 	return res.RowsAffected()
 }
+
+func (r *SessionRepository) CreateArtifact(ctx context.Context, a session.Artifact) (*session.Artifact, error) {
+	query := `
+		INSERT INTO session_artifacts (session_id, workspace_id, generated_at, report_version, artifact_json)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING session_id, workspace_id, generated_at, report_version, artifact_json
+	`
+	var created session.Artifact
+	err := r.db.QueryRowContext(
+		ctx, query,
+		a.SessionID, a.WorkspaceID, a.GeneratedAt, a.ReportVersion, a.ArtifactJSON,
+	).Scan(&created.SessionID, &created.WorkspaceID, &created.GeneratedAt, &created.ReportVersion, &created.ArtifactJSON)
+
+	if err != nil {
+		return nil, fmt.Errorf("create session artifact: %w", err)
+	}
+	return &created, nil
+}
+
+func (r *SessionRepository) GetArtifactBySession(ctx context.Context, sessionID string) (*session.Artifact, error) {
+	query := `SELECT session_id, workspace_id, generated_at, report_version, artifact_json FROM session_artifacts WHERE session_id = $1`
+	var a session.Artifact
+	err := r.db.QueryRowContext(ctx, query, sessionID).Scan(&a.SessionID, &a.WorkspaceID, &a.GeneratedAt, &a.ReportVersion, &a.ArtifactJSON)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get session artifact: %w", err)
+	}
+	return &a, nil
+}
+

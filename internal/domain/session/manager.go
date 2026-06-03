@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vishalss1/argus/internal/domain/finding"
 	"github.com/vishalss1/argus/internal/domain/usage"
+	"github.com/vishalss1/argus/internal/domain/workspace"
 	"github.com/vishalss1/argus/internal/infrastructure/redis"
 )
 
@@ -18,13 +21,23 @@ type Manager struct {
 	sessionService *Service
 	usageService   *usage.Service
 	redisClient    *redis.Client
+	workspaceRepo  workspace.Repository
+	findingRepo    finding.Repository
 }
 
-func NewManager(sessionService *Service, usageService *usage.Service, redisClient *redis.Client) *Manager {
+func NewManager(
+	sessionService *Service,
+	usageService *usage.Service,
+	redisClient *redis.Client,
+	workspaceRepo workspace.Repository,
+	findingRepo finding.Repository,
+) *Manager {
 	return &Manager{
 		sessionService: sessionService,
 		usageService:   usageService,
 		redisClient:    redisClient,
+		workspaceRepo:  workspaceRepo,
+		findingRepo:    findingRepo,
 	}
 }
 
@@ -184,7 +197,8 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	maxTemp := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:max", id))
 
 	distance := getRedisFloat(fmt.Sprintf("session:%s:metrics:distance", id))
-	deviceCount := int(m.redisClient.Client().SCard(ctx, fmt.Sprintf("session:%s:devices", id)).Val())
+	devices, _ := m.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
+	deviceCount := len(devices)
 
 	// Fetch database counts for alerts, commands, anomalies
 	alerts, _ := m.sessionService.repo.ListAlertsBySession(ctx, id)
@@ -195,26 +209,333 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	commandCount := len(commands)
 	anomalyCount := len(events)
 
-	// Device participation & device uptime detailed list (for extensible metrics in report)
-	devices, _ := m.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
-	devicesUptime := make(map[string]interface{})
+	// Device summaries, timeline, alerts, commands, findings, rollups payload generation
+	deviceSummaries := make(map[string]DeviceSummaryReport)
+	
+	// Format Alerts
+	var alertArchives []AlertArchive
+	for _, a := range alerts {
+		resState := "Active"
+		if a.Resolved {
+			resState = "Resolved"
+		}
+		alertArchives = append(alertArchives, AlertArchive{
+			Timestamp:       a.CreatedAt.Format(time.RFC3339),
+			Severity:        a.Severity,
+			SourceDevice:    a.DeviceID,
+			AlertType:       "Rule Violation",
+			Message:         a.Message,
+			ResolutionState: resState,
+		})
+	}
+
+	// Format Commands
+	var commandArchives []CommandArchive
+	for _, c := range commands {
+		var ackTime *string
+		if c.CompletedAt != nil {
+			tStr := c.CompletedAt.Format(time.RFC3339)
+			ackTime = &tStr
+		}
+		commandArchives = append(commandArchives, CommandArchive{
+			Timestamp:           c.IssuedAt.Format(time.RFC3339),
+			TargetDevice:        c.DeviceID,
+			Command:             c.Command,
+			Status:              c.Status,
+			AcknowledgementTime: ackTime,
+		})
+	}
+
+	// AI Findings
+	var findingArchives []AIFindingsArchive
+	for _, devID := range devices {
+		findings, _ := m.findingRepo.ListByDevice(ctx, devID)
+		for _, f := range findings {
+			// Check if finding is within session interval
+			if (sess.StartedAt != nil && (f.CreatedAt.After(*sess.StartedAt) || f.CreatedAt.Equal(*sess.StartedAt))) && f.CreatedAt.Before(now) {
+				findingArchives = append(findingArchives, AIFindingsArchive{
+					Timestamp:       f.CreatedAt.Format(time.RFC3339),
+					DeviceID:        f.DeviceID,
+					FindingType:     "AI Anomaly Insight",
+					Severity:        f.Severity,
+					Recommendation:  f.Summary,
+					ConfidenceScore: 1.0 - f.RiskScore,
+				})
+			}
+		}
+	}
+
+	// Timeline construction
+	var timeline []TimelineEntry
+	startedAtStr := ""
+	if sess.StartedAt != nil {
+		startedAtStr = sess.StartedAt.Format(time.RFC3339)
+	}
+	timeline = append(timeline, TimelineEntry{
+		Timestamp: startedAtStr,
+		Type:      "Session Started",
+		Message:   fmt.Sprintf("Operational session %s started in workspace %s.", id, sess.WorkspaceID),
+	})
+
 	for _, devID := range devices {
 		firstSeen := getRedisInt(fmt.Sprintf("session:%s:device:%s:first_seen", id, devID))
 		lastSeen := getRedisInt(fmt.Sprintf("session:%s:device:%s:last_seen", id, devID))
-		calculatedUptime := 0
-		if lastSeen >= firstSeen {
-			calculatedUptime = lastSeen - firstSeen
-		}
-		minUptime := getRedisFloat(fmt.Sprintf("session:%s:device:%s:uptime_s:min", id, devID))
-		maxUptime := getRedisFloat(fmt.Sprintf("session:%s:device:%s:uptime_s:max", id, devID))
+		sampleCount := getRedisInt(fmt.Sprintf("session:%s:device:%s:sample_count", id, devID))
 
-		devicesUptime[devID] = map[string]interface{}{
-			"first_seen_ts":       firstSeen,
-			"last_seen_ts":        lastSeen,
-			"calculated_uptime_s": calculatedUptime,
-			"min_reported_uptime": minUptime,
-			"max_reported_uptime": maxUptime,
+		// uptime
+		uptimePercentage := 100.0
+		if durationSec > 0 && lastSeen >= firstSeen {
+			uptimePercentage = float64(lastSeen-firstSeen) / float64(durationSec) * 100.0
+			if uptimePercentage > 100.0 {
+				uptimePercentage = 100.0
+			}
 		}
+
+		// battery
+		batSum := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:sum", id, devID))
+		batCount := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:count", id, devID))
+		batMin := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:min", id, devID))
+		batMax := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:max", id, devID))
+		batAvg := 0.0
+		if batCount > 0 {
+			batAvg = batSum / batCount
+		}
+
+		// temp
+		tempSum := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:sum", id, devID))
+		tempCount := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:count", id, devID))
+		tempMin := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:min", id, devID))
+		tempMax := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:max", id, devID))
+		tempAvg := 0.0
+		if tempCount > 0 {
+			tempAvg = tempSum / tempCount
+		}
+
+		// signal
+		sigSum := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:sum", id, devID))
+		sigCount := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:count", id, devID))
+		sigMin := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:min", id, devID))
+		sigMax := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:max", id, devID))
+		sigAvg := 0.0
+		if sigCount > 0 {
+			sigAvg = sigSum / sigCount
+		}
+
+		// distance
+		devDistance := getRedisFloat(fmt.Sprintf("session:%s:device:%s:distance", id, devID))
+
+		// counts
+		warningCount := 0
+		criticalCount := 0
+		for _, a := range alerts {
+			if a.DeviceID == devID {
+				if a.Severity == "WARNING" || a.Severity == "warning" {
+					warningCount++
+				} else if a.Severity == "CRITICAL" || a.Severity == "critical" {
+					criticalCount++
+				}
+			}
+		}
+
+		devCommandCount := 0
+		for _, c := range commands {
+			if c.DeviceID == devID {
+				devCommandCount++
+			}
+		}
+
+		devAnomalyCount := 0
+		for _, e := range events {
+			if e.DeviceID == devID {
+				devAnomalyCount++
+			}
+		}
+
+		// First seen event to timeline
+		if firstSeen > 0 {
+			timeline = append(timeline, TimelineEntry{
+				Timestamp: time.Unix(int64(firstSeen), 0).UTC().Format(time.RFC3339),
+				Type:      "Device Joined",
+				DeviceID:  &devID,
+				Message:   fmt.Sprintf("Device %s joined the active session.", devID),
+			})
+		}
+
+		deviceSummaries[devID] = DeviceSummaryReport{
+			DeviceID:           devID,
+			FirstSeen:          time.Unix(int64(firstSeen), 0).UTC().Format(time.RFC3339),
+			LastSeen:           time.Unix(int64(lastSeen), 0).UTC().Format(time.RFC3339),
+			UptimePercentage:   uptimePercentage,
+			SampleCount:        sampleCount,
+			BatteryAverage:     batAvg,
+			BatteryMin:         batMin,
+			BatteryMax:         batMax,
+			TemperatureAverage: tempAvg,
+			TemperatureMin:     tempMin,
+			TemperatureMax:     tempMax,
+			SignalAverage:      sigAvg,
+			SignalMin:          sigMin,
+			SignalMax:          sigMax,
+			DistanceTravelled:  devDistance,
+			WarningCount:       warningCount,
+			CriticalCount:      criticalCount,
+			CommandsReceived:   devCommandCount,
+			AnomaliesDetected:  devAnomalyCount,
+		}
+	}
+
+	// Add alerts to timeline
+	for _, a := range alerts {
+		timeline = append(timeline, TimelineEntry{
+			Timestamp: a.CreatedAt.Format(time.RFC3339),
+			Type:      "Alert Triggered",
+			DeviceID:  &a.DeviceID,
+			Message:   fmt.Sprintf("Alert Triggered (%s): %s", a.Severity, a.Message),
+		})
+		if a.Resolved && a.ResolvedAt != nil {
+			timeline = append(timeline, TimelineEntry{
+				Timestamp: a.ResolvedAt.Format(time.RFC3339),
+				Type:      "Alert Cleared",
+				DeviceID:  &a.DeviceID,
+				Message:   fmt.Sprintf("Alert cleared: %s", a.Message),
+			})
+		}
+	}
+
+	// Add commands to timeline
+	for _, c := range commands {
+		issuedByVal := "-"
+		if c.IssuedBy != nil {
+			issuedByVal = *c.IssuedBy
+		}
+		timeline = append(timeline, TimelineEntry{
+			Timestamp: c.IssuedAt.Format(time.RFC3339),
+			Type:      "Command Sent",
+			DeviceID:  &c.DeviceID,
+			Message:   fmt.Sprintf("Command dispatched: %s (Issued by: %s)", c.Command, issuedByVal),
+		})
+		if c.CompletedAt != nil {
+			timeline = append(timeline, TimelineEntry{
+				Timestamp: c.CompletedAt.Format(time.RFC3339),
+				Type:      "Command Acknowledged",
+				DeviceID:  &c.DeviceID,
+				Message:   fmt.Sprintf("Command acknowledged status: %s", c.Status),
+			})
+		}
+	}
+
+	// Add findings to timeline
+	for _, f := range findingArchives {
+		devIDCopy := f.DeviceID
+		timeline = append(timeline, TimelineEntry{
+			Timestamp: f.Timestamp,
+			Type:      "AI Finding Generated",
+			DeviceID:  &devIDCopy,
+			Message:   fmt.Sprintf("AI Finding (%s): %s", f.Severity, f.Recommendation),
+		})
+	}
+
+	// Add anomalies to timeline
+	for _, e := range events {
+		timeline = append(timeline, TimelineEntry{
+			Timestamp: e.CreatedAt.Format(time.RFC3339),
+			Type:      "Anomaly Detected",
+			DeviceID:  &e.DeviceID,
+			Message:   fmt.Sprintf("Anomaly detected (%s): %s", e.Severity, e.Type),
+		})
+	}
+
+	// Add session completed to timeline
+	timeline = append(timeline, TimelineEntry{
+		Timestamp: now.Format(time.RFC3339),
+		Type:      "Session Completed",
+		Message:   fmt.Sprintf("Operational session %s stopped with status %s.", id, status),
+	})
+
+	// Sort timeline chronologically
+	sort.Slice(timeline, func(i, j int) bool {
+		return timeline[i].Timestamp < timeline[j].Timestamp
+	})
+
+	// Rollups Construction
+	rollupsMap := make(map[string][]TelemetryRollup)
+	for _, devID := range devices {
+		minutesKey := fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID)
+		minutes, _ := m.redisClient.Client().SMembers(ctx, minutesKey).Result()
+
+		var deviceRollups []TelemetryRollup
+		for _, minute := range minutes {
+			rollupKey := fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute)
+			rollupData, _ := m.redisClient.Client().HGetAll(ctx, rollupKey).Result()
+			if len(rollupData) == 0 {
+				continue
+			}
+
+			getFloat := func(field string) float64 {
+				v, _ := strconv.ParseFloat(rollupData[field], 64)
+				return v
+			}
+			getInt := func(field string) int {
+				v, _ := strconv.Atoi(rollupData[field])
+				return v
+			}
+
+			sampleCount := getInt("sample_count")
+			if sampleCount == 0 {
+				continue
+			}
+
+			// battery
+			batSum := getFloat("battery:sum")
+			batCount := getFloat("battery:count")
+			batMin := getFloat("battery:min")
+			batMax := getFloat("battery:max")
+			batAvg := 0.0
+			if batCount > 0 {
+				batAvg = batSum / batCount
+			}
+
+			// temp
+			tempSum := getFloat("temp:sum")
+			tempCount := getFloat("temp:count")
+			tempMin := getFloat("temp:min")
+			tempMax := getFloat("temp:max")
+			tempAvg := 0.0
+			if tempCount > 0 {
+				tempAvg = tempSum / tempCount
+			}
+
+			// signal
+			sigSum := getFloat("signal:sum")
+			sigCount := getFloat("signal:count")
+			sigMin := getFloat("signal:min")
+			sigMax := getFloat("signal:max")
+			sigAvg := 0.0
+			if sigCount > 0 {
+				sigAvg = sigSum / sigCount
+			}
+
+			deviceRollups = append(deviceRollups, TelemetryRollup{
+				Timestamp:      minute,
+				BatteryAvg:     batAvg,
+				BatteryMin:     batMin,
+				BatteryMax:     batMax,
+				TemperatureAvg: tempAvg,
+				TemperatureMin: tempMin,
+				TemperatureMax: tempMax,
+				SignalAvg:      sigAvg,
+				SignalMin:      sigMin,
+				SignalMax:      sigMax,
+				SampleCount:    sampleCount,
+			})
+		}
+
+		// Sort device rollups
+		sort.Slice(deviceRollups, func(i, j int) bool {
+			return deviceRollups[i].Timestamp < deviceRollups[j].Timestamp
+		})
+
+		rollupsMap[devID] = deviceRollups
 	}
 
 	// 3. Save Statistics
@@ -260,7 +581,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 			"alert_count":                alertCount,
 			"command_count":              commandCount,
 			"anomaly_count":              anomalyCount,
-			"devices_detail":             devicesUptime,
 		},
 	}
 	reportJSONBytes, _ := json.Marshal(reportJSONData)
@@ -271,6 +591,30 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		GeneratedAt: now,
 	}
 	_, _ = m.sessionService.repo.CreateReport(ctx, report)
+
+	// 4b. Save v2 Artifact
+	artifactPayload := SessionArtifactPayload{
+		SessionID:        id,
+		GeneratedAt:      now.Format(time.RFC3339),
+		ReportVersion:    "2.0",
+		WorkspaceID:      stopped.WorkspaceID,
+		SessionSummary:   fmt.Sprintf("Session completed with %d device(s) participating, processing %d total telemetry samples.", deviceCount, msgCount),
+		DeviceSummaries:  deviceSummaries,
+		Alerts:           alertArchives,
+		Commands:         commandArchives,
+		AIFindings:       findingArchives,
+		Timeline:         timeline,
+		TelemetryRollups: rollupsMap,
+	}
+	artifactBytes, _ := json.Marshal(artifactPayload)
+	artifact := Artifact{
+		SessionID:     id,
+		WorkspaceID:   stopped.WorkspaceID,
+		GeneratedAt:   now,
+		ReportVersion: "2.0",
+		ArtifactJSON:  json.RawMessage(artifactBytes),
+	}
+	_, _ = m.sessionService.repo.CreateArtifact(ctx, artifact)
 
 	// 5. Cleanup Redis State
 	activeKey := fmt.Sprintf("session:%s:active", id)
@@ -319,12 +663,32 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		fmt.Sprintf("session:%s:devices", id),
 	)
 	for _, devID := range devices {
+		minutesKey := fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID)
+		minutes, _ := m.redisClient.Client().SMembers(ctx, minutesKey).Result()
+		for _, minute := range minutes {
+			m.redisClient.Client().Del(ctx, fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute))
+		}
 		m.redisClient.Client().Del(ctx,
 			fmt.Sprintf("session:%s:device:%s:first_seen", id, devID),
 			fmt.Sprintf("session:%s:device:%s:last_seen", id, devID),
 			fmt.Sprintf("session:%s:device:%s:uptime_s:min", id, devID),
 			fmt.Sprintf("session:%s:device:%s:uptime_s:max", id, devID),
 			fmt.Sprintf("session:%s:device:%s:last_gps", id, devID),
+			fmt.Sprintf("session:%s:device:%s:sample_count", id, devID),
+			fmt.Sprintf("session:%s:device:%s:battery:sum", id, devID),
+			fmt.Sprintf("session:%s:device:%s:battery:count", id, devID),
+			fmt.Sprintf("session:%s:device:%s:battery:min", id, devID),
+			fmt.Sprintf("session:%s:device:%s:battery:max", id, devID),
+			fmt.Sprintf("session:%s:device:%s:temp:sum", id, devID),
+			fmt.Sprintf("session:%s:device:%s:temp:count", id, devID),
+			fmt.Sprintf("session:%s:device:%s:temp:min", id, devID),
+			fmt.Sprintf("session:%s:device:%s:temp:max", id, devID),
+			fmt.Sprintf("session:%s:device:%s:signal:sum", id, devID),
+			fmt.Sprintf("session:%s:device:%s:signal:count", id, devID),
+			fmt.Sprintf("session:%s:device:%s:signal:min", id, devID),
+			fmt.Sprintf("session:%s:device:%s:signal:max", id, devID),
+			fmt.Sprintf("session:%s:device:%s:distance", id, devID),
+			minutesKey,
 		)
 	}
 
