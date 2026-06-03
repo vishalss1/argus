@@ -62,12 +62,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload)
       }),
-    latest: (deviceID: string) => request<any>(`/devices/${deviceID}/telemetry/latest`),
-    export: (deviceID: string, from: string, to: string) =>
-      request<any>(`/devices/${deviceID}/telemetry/export`, {
-        method: "POST",
-        body: JSON.stringify({ from, to })
-      })
+    latest: (deviceID: string) => request<any>(`/devices/${deviceID}/telemetry/latest`)
   },
 
   fleet: {
@@ -99,11 +94,19 @@ export const api = {
   sessions: {
     create: (workspaceID: string) => request<Session>(`/workspaces/${workspaceID}/sessions`, { method: "POST" }),
     list: (workspaceID: string) => request<Session[]>(`/workspaces/${workspaceID}/sessions`),
+    get: (id: string) => request<Session>(`/sessions/${id}`),
+    getStatistics: (id: string) => request<SessionStatistics>(`/sessions/${id}/statistics`),
+    getReport: (id: string) => request<SessionReport>(`/sessions/${id}/report`),
     start: (id: string) => request<Session>(`/sessions/${id}/start`, { method: "POST" }),
     stop: (id: string, success: boolean) =>
       request<Session>(`/sessions/${id}/stop`, {
         method: "POST",
         body: JSON.stringify({ success })
+      }),
+    export: (id: string, format: "json" | "csv") =>
+      request<{ download_url: string; expires_at: string }>(`/sessions/${id}/export`, {
+        method: "POST",
+        body: JSON.stringify({ format })
       })
   },
 

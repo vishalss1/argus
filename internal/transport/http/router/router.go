@@ -64,8 +64,12 @@ func New(
 	})
 
 	apiRouter.Route("/sessions/{sessionID}", func(r chi.Router) {
+		r.Get("/", sessionHandler.Get)
 		r.Post("/start", sessionHandler.Start)
 		r.Post("/stop", sessionHandler.Stop)
+		r.Post("/export", sessionHandler.Export)
+		r.Get("/statistics", sessionHandler.GetStatistics)
+		r.Get("/report", sessionHandler.GetReport)
 	})
 
 	apiRouter.Route("/ai", func(r chi.Router) {
@@ -131,9 +135,6 @@ func New(
 			})
 			r.Get("/telemetry/latest", func(w http.ResponseWriter, r *http.Request) {
 				telemetryHandler.GetLatestTelemetry(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Post("/telemetry/export", func(w http.ResponseWriter, r *http.Request) {
-				telemetryHandler.ExportTelemetry(w, r, chi.URLParam(r, "deviceID"))
 			})
 			r.Get("/commands", func(w http.ResponseWriter, r *http.Request) {
 				commandHandler.ListCommands(w, r, chi.URLParam(r, "deviceID"))

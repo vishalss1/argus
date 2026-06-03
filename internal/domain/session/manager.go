@@ -2,10 +2,14 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vishalss1/argus/internal/domain/usage"
 	"github.com/vishalss1/argus/internal/infrastructure/redis"
 )
@@ -83,6 +87,9 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 	// 4. Record Usage
 	_ = m.usageService.RecordSessionStarted(ctx, tenantID)
 
+	wsActiveKey := fmt.Sprintf("workspace:%s:active_session", started.WorkspaceID)
+	_ = m.redisClient.Client().Set(ctx, wsActiveKey, started.ID, 0).Err()
+
 	return started, nil
 }
 
@@ -130,12 +137,196 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		SessionsFailedTotal.Inc()
 	}
 
-	// 2. Cleanup Redis
+	// 2. Fetch rolling aggregates from Redis & compute metrics
+	durationSec := 0
+	if sess.StartedAt != nil {
+		durationSec = int(now.Sub(*sess.StartedAt).Seconds())
+	}
+	if durationSec < 0 {
+		durationSec = 0
+	}
+
+	getRedisFloat := func(key string) float64 {
+		val, err := m.redisClient.Client().Get(ctx, key).Result()
+		if err != nil {
+			return 0.0
+		}
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	}
+
+	getRedisInt := func(key string) int {
+		val, err := m.redisClient.Client().Get(ctx, key).Result()
+		if err != nil {
+			return 0
+		}
+		i, _ := strconv.Atoi(val)
+		return i
+	}
+
+	msgCount := getRedisInt(fmt.Sprintf("session:%s:metrics:count", id))
+	batteryCount := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:count", id))
+	batterySum := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:sum", id))
+	avgBattery := 0.0
+	if batteryCount > 0 {
+		avgBattery = batterySum / batteryCount
+	}
+	minBattery := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:min", id))
+	maxBattery := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:max", id))
+
+	tempCount := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:count", id))
+	tempSum := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:sum", id))
+	avgTemp := 0.0
+	if tempCount > 0 {
+		avgTemp = tempSum / tempCount
+	}
+	minTemp := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:min", id))
+	maxTemp := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:max", id))
+
+	distance := getRedisFloat(fmt.Sprintf("session:%s:metrics:distance", id))
+	deviceCount := int(m.redisClient.Client().SCard(ctx, fmt.Sprintf("session:%s:devices", id)).Val())
+
+	// Fetch database counts for alerts, commands, anomalies
+	alerts, _ := m.sessionService.repo.ListAlertsBySession(ctx, id)
+	commands, _ := m.sessionService.repo.ListCommandsBySession(ctx, id)
+	events, _ := m.sessionService.repo.ListEventsBySession(ctx, id)
+
+	alertCount := len(alerts)
+	commandCount := len(commands)
+	anomalyCount := len(events)
+
+	// Device participation & device uptime detailed list (for extensible metrics in report)
+	devices, _ := m.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
+	devicesUptime := make(map[string]interface{})
+	for _, devID := range devices {
+		firstSeen := getRedisInt(fmt.Sprintf("session:%s:device:%s:first_seen", id, devID))
+		lastSeen := getRedisInt(fmt.Sprintf("session:%s:device:%s:last_seen", id, devID))
+		calculatedUptime := 0
+		if lastSeen >= firstSeen {
+			calculatedUptime = lastSeen - firstSeen
+		}
+		minUptime := getRedisFloat(fmt.Sprintf("session:%s:device:%s:uptime_s:min", id, devID))
+		maxUptime := getRedisFloat(fmt.Sprintf("session:%s:device:%s:uptime_s:max", id, devID))
+
+		devicesUptime[devID] = map[string]interface{}{
+			"first_seen_ts":       firstSeen,
+			"last_seen_ts":        lastSeen,
+			"calculated_uptime_s": calculatedUptime,
+			"min_reported_uptime": minUptime,
+			"max_reported_uptime": maxUptime,
+		}
+	}
+
+	// 3. Save Statistics
+	stats := Statistics{
+		SessionID:                id,
+		DurationSeconds:          durationSec,
+		MessagesProcessed:        msgCount,
+		AlertsCount:              alertCount,
+		CriticalEvents:           anomalyCount,
+		UptimePercentage:         100.0,
+		AvgLatencyMS:             0.0,
+		AvgBattery:               avgBattery,
+		MinBattery:               minBattery,
+		MaxBattery:               maxBattery,
+		AvgTemperature:           avgTemp,
+		MinTemperature:           minTemp,
+		MaxTemperature:           maxTemp,
+		DistanceTravelled:        distance,
+		DeviceParticipationCount: deviceCount,
+		CommandCount:             commandCount,
+		AnomalyCount:             anomalyCount,
+		UpdatedAt:                now,
+	}
+	_ = m.sessionService.repo.UpsertStatistics(ctx, stats)
+
+	// 4. Save Report (extensible JSONB representation)
+	reportJSONData := map[string]interface{}{
+		"session_id":        id,
+		"generated_at":      now.Format(time.RFC3339),
+		"duration":          durationSec,
+		"report_version":    "1.0",
+		"summary":           fmt.Sprintf("Session completed with %d device(s) participating, processing %d total telemetry samples.", deviceCount, msgCount),
+		"aggregated_metrics": map[string]interface{}{
+			"messages_processed":         msgCount,
+			"device_participation_count": deviceCount,
+			"battery_average":            avgBattery,
+			"battery_min":                minBattery,
+			"battery_max":                maxBattery,
+			"temperature_average":        avgTemp,
+			"temperature_min":            minTemp,
+			"temperature_max":            maxTemp,
+			"distance_travelled_km":      distance,
+			"alert_count":                alertCount,
+			"command_count":              commandCount,
+			"anomaly_count":              anomalyCount,
+			"devices_detail":             devicesUptime,
+		},
+	}
+	reportJSONBytes, _ := json.Marshal(reportJSONData)
+	report := Report{
+		ID:          uuid.New().String(),
+		SessionID:   id,
+		ReportJSON:  json.RawMessage(reportJSONBytes),
+		GeneratedAt: now,
+	}
+	_, _ = m.sessionService.repo.CreateReport(ctx, report)
+
+	// 5. Cleanup Redis State
 	activeKey := fmt.Sprintf("session:%s:active", id)
 	_ = m.redisClient.Client().Del(ctx, activeKey).Err()
 	_ = m.redisClient.Client().SRem(ctx, "sessions:active", id).Err()
 
-	// 3. TODO: Trigger report/AI analysis
+	wsActiveKey := fmt.Sprintf("workspace:%s:active_session", stopped.WorkspaceID)
+	_ = m.redisClient.Client().Del(ctx, wsActiveKey).Err()
+
+	// 6. strictly session-centric pipeline cleanup: delete cached device:*:latest hot keys
+	keysPattern := "device:*:latest"
+	var cursor uint64
+	for {
+		keys, nextCursor, err := m.redisClient.Client().Scan(ctx, cursor, keysPattern, 100).Result()
+		if err != nil {
+			break
+		}
+		for _, k := range keys {
+			if strings.HasPrefix(k, "device:") && strings.HasSuffix(k, ":latest") {
+				devID := strings.TrimSuffix(strings.TrimPrefix(k, "device:"), ":latest")
+				wsKey := fmt.Sprintf("device:%s:workspace", devID)
+				cachedWS, err := m.redisClient.Client().Get(ctx, wsKey).Result()
+				if err == nil && cachedWS == stopped.WorkspaceID {
+					_ = m.redisClient.Client().Del(ctx, k).Err()
+				}
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// Delete other session rolling aggregate keys from Redis
+	m.redisClient.Client().Del(ctx,
+		fmt.Sprintf("session:%s:metrics:count", id),
+		fmt.Sprintf("session:%s:metrics:battery:count", id),
+		fmt.Sprintf("session:%s:metrics:battery:sum", id),
+		fmt.Sprintf("session:%s:metrics:battery:min", id),
+		fmt.Sprintf("session:%s:metrics:battery:max", id),
+		fmt.Sprintf("session:%s:metrics:temp:count", id),
+		fmt.Sprintf("session:%s:metrics:temp:sum", id),
+		fmt.Sprintf("session:%s:metrics:temp:min", id),
+		fmt.Sprintf("session:%s:metrics:temp:max", id),
+		fmt.Sprintf("session:%s:metrics:distance", id),
+		fmt.Sprintf("session:%s:devices", id),
+	)
+	for _, devID := range devices {
+		m.redisClient.Client().Del(ctx,
+			fmt.Sprintf("session:%s:device:%s:first_seen", id, devID),
+			fmt.Sprintf("session:%s:device:%s:last_seen", id, devID),
+			fmt.Sprintf("session:%s:device:%s:uptime_s:min", id, devID),
+			fmt.Sprintf("session:%s:device:%s:uptime_s:max", id, devID),
+			fmt.Sprintf("session:%s:device:%s:last_gps", id, devID),
+		)
+	}
 
 	return stopped, nil
 }

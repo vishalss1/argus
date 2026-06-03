@@ -39,6 +39,8 @@ services:
       - PLAINTEXT://0.0.0.0:9092
       - --advertise-kafka-addr
       - PLAINTEXT://localhost:${KAFKA_PORT:-9092}
+      - --set
+      - log_retention_ms=3600000
     ports:
       - "${KAFKA_PORT:-9092}:9092"
 

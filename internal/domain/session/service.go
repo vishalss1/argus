@@ -17,6 +17,10 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
+func (s *Service) Repo() Repository {
+	return s.repo
+}
+
 func (s *Service) Create(ctx context.Context, workspaceID string, createdBy *string) (*Session, error) {
 	if workspaceID == "" {
 		return nil, errors.New("workspace id is required")
