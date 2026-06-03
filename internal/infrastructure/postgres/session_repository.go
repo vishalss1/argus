@@ -275,11 +275,13 @@ func (r *SessionRepository) ListCommandsBySession(ctx context.Context, sessionID
 	return commands, nil
 }
 
-func (r *SessionRepository) Upsert(ctx context.Context, s session.Statistics) error {
+func (r *SessionRepository) UpsertStatistics(ctx context.Context, s session.Statistics) error {
 	query := `
 		INSERT INTO session_statistics (
-			session_id, duration_seconds, messages_processed, alerts_count, critical_events, uptime_percentage, average_latency_ms, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			session_id, duration_seconds, messages_processed, alerts_count, critical_events, uptime_percentage, average_latency_ms,
+			average_battery, minimum_battery, maximum_battery, average_temperature, minimum_temperature, maximum_temperature,
+			distance_travelled, device_participation_count, command_count, anomaly_count, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		ON CONFLICT (session_id) DO UPDATE SET
 			duration_seconds = EXCLUDED.duration_seconds,
 			messages_processed = EXCLUDED.messages_processed,
@@ -287,11 +289,23 @@ func (r *SessionRepository) Upsert(ctx context.Context, s session.Statistics) er
 			critical_events = EXCLUDED.critical_events,
 			uptime_percentage = EXCLUDED.uptime_percentage,
 			average_latency_ms = EXCLUDED.average_latency_ms,
+			average_battery = EXCLUDED.average_battery,
+			minimum_battery = EXCLUDED.minimum_battery,
+			maximum_battery = EXCLUDED.maximum_battery,
+			average_temperature = EXCLUDED.average_temperature,
+			minimum_temperature = EXCLUDED.minimum_temperature,
+			maximum_temperature = EXCLUDED.maximum_temperature,
+			distance_travelled = EXCLUDED.distance_travelled,
+			device_participation_count = EXCLUDED.device_participation_count,
+			command_count = EXCLUDED.command_count,
+			anomaly_count = EXCLUDED.anomaly_count,
 			updated_at = EXCLUDED.updated_at
 	`
 	_, err := r.db.ExecContext(
 		ctx, query,
-		s.SessionID, s.DurationSeconds, s.MessagesProcessed, s.AlertsCount, s.CriticalEvents, s.UptimePercentage, s.AvgLatencyMS, s.UpdatedAt,
+		s.SessionID, s.DurationSeconds, s.MessagesProcessed, s.AlertsCount, s.CriticalEvents, s.UptimePercentage, s.AvgLatencyMS,
+		s.AvgBattery, s.MinBattery, s.MaxBattery, s.AvgTemperature, s.MinTemperature, s.MaxTemperature,
+		s.DistanceTravelled, s.DeviceParticipationCount, s.CommandCount, s.AnomalyCount, s.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert session statistics: %w", err)
@@ -301,12 +315,16 @@ func (r *SessionRepository) Upsert(ctx context.Context, s session.Statistics) er
 
 func (r *SessionRepository) GetStatistics(ctx context.Context, sessionID string) (*session.Statistics, error) {
 	query := `
-		SELECT session_id, duration_seconds, messages_processed, alerts_count, critical_events, uptime_percentage, average_latency_ms, updated_at
+		SELECT session_id, duration_seconds, messages_processed, alerts_count, critical_events, uptime_percentage, average_latency_ms,
+		       average_battery, minimum_battery, maximum_battery, average_temperature, minimum_temperature, maximum_temperature,
+		       distance_travelled, device_participation_count, command_count, anomaly_count, updated_at
 		FROM session_statistics WHERE session_id = $1
 	`
 	var s session.Statistics
 	err := r.db.QueryRowContext(ctx, query, sessionID).Scan(
-		&s.SessionID, &s.DurationSeconds, &s.MessagesProcessed, &s.AlertsCount, &s.CriticalEvents, &s.UptimePercentage, &s.AvgLatencyMS, &s.UpdatedAt,
+		&s.SessionID, &s.DurationSeconds, &s.MessagesProcessed, &s.AlertsCount, &s.CriticalEvents, &s.UptimePercentage, &s.AvgLatencyMS,
+		&s.AvgBattery, &s.MinBattery, &s.MaxBattery, &s.AvgTemperature, &s.MinTemperature, &s.MaxTemperature,
+		&s.DistanceTravelled, &s.DeviceParticipationCount, &s.CommandCount, &s.AnomalyCount, &s.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil

@@ -22,7 +22,10 @@ export const queryKeys = {
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   workspaceDevices: (id: string) => ["workspaces", id, "devices"] as const,
-  sessions: (workspaceID: string) => ["sessions", workspaceID] as const
+  sessions: (workspaceID: string) => ["sessions", workspaceID] as const,
+  session: (id: string) => ["session", id] as const,
+  sessionStats: (id: string) => ["session", id, "stats"] as const,
+  sessionReport: (id: string) => ["session", id, "report"] as const
 };
 
 export function useWorkspaces() {
@@ -110,6 +113,30 @@ export function useStopSession() {
   return useMutation({
     mutationFn: ({ sessionID, success }: { sessionID: string; success: boolean }) => api.sessions.stop(sessionID, success),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sessions"] })
+  });
+}
+
+export function useSession(sessionID: string) {
+  return useQuery({
+    queryKey: queryKeys.session(sessionID),
+    queryFn: () => api.sessions.get(sessionID),
+    enabled: Boolean(sessionID)
+  });
+}
+
+export function useSessionStatistics(sessionID: string) {
+  return useQuery({
+    queryKey: queryKeys.sessionStats(sessionID),
+    queryFn: () => api.sessions.getStatistics(sessionID),
+    enabled: Boolean(sessionID)
+  });
+}
+
+export function useSessionReport(sessionID: string) {
+  return useQuery({
+    queryKey: queryKeys.sessionReport(sessionID),
+    queryFn: () => api.sessions.getReport(sessionID),
+    enabled: Boolean(sessionID)
   });
 }
 

@@ -14,6 +14,7 @@ import { OTAPage } from "../pages/OTAPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { WorkspacesPage } from "../pages/WorkspacesPage";
 import { SessionDashboardPage } from "../pages/SessionDashboardPage";
+import { SessionReportPage } from "../pages/SessionReportPage";
 import { TelemetryPage } from "../pages/TelemetryPage";
 import AIPage from "../pages/AIPage";
 
@@ -29,6 +30,7 @@ export function App() {
       <Route element={<AppLayout />}>
         <Route path="workspaces" element={<WorkspacesPage />} />
         <Route path="sessions/:sessionID" element={<SessionDashboardPage />} />
+        <Route path="sessions/:sessionID/report" element={<SessionReportPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="telemetry" element={<TelemetryPage />} />
         <Route path="devices" element={<DevicesPage />} />

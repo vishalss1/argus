@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -234,7 +235,7 @@ func Bootstrap() (*Server, error) {
 	sessionRepository := postgres.NewSessionRepository(database)
 	sessionService := session.NewService(sessionRepository)
 	sessionManager := session.NewManager(sessionService, usageService, redisClient)
-	sessionHandler := transporthandler.NewSessionHandler(sessionService, sessionManager)
+	sessionHandler := transporthandler.NewSessionHandler(sessionService, sessionManager, exportDir)
 
 	// Recover any RUNNING sessions to Redis hot-state
 	if err := sessionManager.RecoverActiveSessions(appCtx); err != nil {
@@ -339,7 +340,7 @@ func Bootstrap() (*Server, error) {
 		if hasProfile("telemetry") {
 			go func() {
 				defer server.wg.Done()
-				startTelemetryLiveConsumer(appCtx, cfg, redisTelemetryRepo, redisClient, kafkaProducer)
+				startTelemetryLiveConsumer(appCtx, cfg, redisTelemetryRepo, redisClient, kafkaProducer, deviceService)
 			}()
 		}
 		if hasProfile("alerts") {
@@ -533,7 +534,7 @@ func monitorPresence(ctx context.Context, s *devicedomain.PresenceService, timeo
 	}
 }
 
-func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemetryRepo *redis.TelemetryRepository, redisClient *redis.Client, kafkaProducer *kafka.Producer) {
+func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemetryRepo *redis.TelemetryRepository, redisClient *redis.Client, kafkaProducer *kafka.Producer, deviceService *devicedomain.Service) {
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   cfg.KafkaTelemetryTopic,
@@ -565,19 +566,237 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 				continue
 			}
 
-			err = withRetry(3, func() error {
-				return telemetryRepo.SetLatest(ctx, t.DeviceID, t)
-			})
-
-			if err != nil {
-				log.Printf("[LIVE CONSUMER] permanent error for device %s: %v", t.DeviceID, err)
-				if kafkaProducer != nil {
-					_ = kafkaProducer.PublishDLQ(ctx, cfg.KafkaTelemetryTopic, msg.Key, msg.Value, err.Error())
+			// Determine device workspace and active session
+			var workspaceID string
+			var sessionID string
+			wsKey := fmt.Sprintf("device:%s:workspace", t.DeviceID)
+			cachedWS, err := redisClient.Client().Get(ctx, wsKey).Result()
+			if err == nil && cachedWS != "" {
+				workspaceID = cachedWS
+			} else {
+				dev, err := deviceService.GetByID(ctx, t.DeviceID)
+				if err == nil && dev != nil && dev.WorkspaceID != nil {
+					workspaceID = *dev.WorkspaceID
+					_ = redisClient.Client().Set(ctx, wsKey, workspaceID, 24*time.Hour).Err()
 				}
+			}
+
+			if workspaceID != "" {
+				sessionKey := fmt.Sprintf("workspace:%s:active_session", workspaceID)
+				sID, err := redisClient.Client().Get(ctx, sessionKey).Result()
+				if err == nil && sID != "" {
+					sessionID = sID
+				}
+			}
+
+			// Under strictly session-centric pipeline: raw telemetry is only made available
+			// during an active running session. If no session is active, it is not stored.
+			if sessionID != "" {
+				err = withRetry(3, func() error {
+					return telemetryRepo.SetLatest(ctx, t.DeviceID, t)
+				})
+
+				if err != nil {
+					log.Printf("[LIVE CONSUMER] permanent error for device %s: %v", t.DeviceID, err)
+					if kafkaProducer != nil {
+						_ = kafkaProducer.PublishDLQ(ctx, cfg.KafkaTelemetryTopic, msg.Key, msg.Value, err.Error())
+					}
+				}
+
+				// Continuously update rolling session aggregates in Redis
+				accumulateSessionMetrics(ctx, redisClient, sessionID, t.DeviceID, t)
 			}
 
 			consumer.CommitMessages(ctx, msg)
 		}
+	}
+}
+
+func toFloat(val interface{}) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	default:
+		return 0, false
+	}
+}
+
+func updateMinMaxFloat(ctx context.Context, r *redis.Client, minKey, maxKey string, val float64) {
+	// For Min
+	minValStr, err := r.Client().Get(ctx, minKey).Result()
+	if err != nil {
+		r.Client().Set(ctx, minKey, val, 0)
+	} else {
+		var currentMin float64
+		if _, err := fmt.Sscanf(minValStr, "%f", &currentMin); err == nil && val < currentMin {
+			r.Client().Set(ctx, minKey, val, 0)
+		}
+	}
+
+	// For Max
+	maxValStr, err := r.Client().Get(ctx, maxKey).Result()
+	if err != nil {
+		r.Client().Set(ctx, maxKey, val, 0)
+	} else {
+		var currentMax float64
+		if _, err := fmt.Sscanf(maxValStr, "%f", &currentMax); err == nil && val > currentMax {
+			r.Client().Set(ctx, maxKey, val, 0)
+		}
+	}
+}
+
+func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371.0 // Earth radius in km
+	dLat := (lat2 - lat1) * (math.Pi / 180.0)
+	dLon := (lon2 - lon1) * (math.Pi / 180.0)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*(math.Pi/180.0))*math.Cos(lat2*(math.Pi/180.0))*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return R * c
+}
+
+func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, sessionID, deviceID string, t telemetrydomain.Telemetry) {
+	var metrics map[string]interface{}
+	if err := json.Unmarshal(t.Metrics, &metrics); err != nil {
+		return
+	}
+
+	// Track sample count
+	countKey := fmt.Sprintf("session:%s:metrics:count", sessionID)
+	redisClient.Client().Incr(ctx, countKey)
+
+	// Track device participation
+	devsKey := fmt.Sprintf("session:%s:devices", sessionID)
+	redisClient.Client().SAdd(ctx, devsKey, deviceID)
+
+	// Track device first/last seen
+	firstSeenKey := fmt.Sprintf("session:%s:device:%s:first_seen", sessionID, deviceID)
+	redisClient.Client().SetNX(ctx, firstSeenKey, time.Now().Unix(), 0)
+	lastSeenKey := fmt.Sprintf("session:%s:device:%s:last_seen", sessionID, deviceID)
+	redisClient.Client().Set(ctx, lastSeenKey, time.Now().Unix(), 0)
+
+	// Update battery stats
+	var batteryVal float64
+	hasBattery := false
+	if v, ok := metrics["battery_level"]; ok {
+		if f, ok := toFloat(v); ok {
+			batteryVal = f
+			hasBattery = true
+		}
+	} else if v, ok := metrics["battery"]; ok {
+		if f, ok := toFloat(v); ok {
+			batteryVal = f
+			hasBattery = true
+		}
+	}
+	if hasBattery {
+		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:battery:sum", sessionID), batteryVal)
+		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:metrics:battery:count", sessionID))
+		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:metrics:battery:min", sessionID), fmt.Sprintf("session:%s:metrics:battery:max", sessionID), batteryVal)
+	}
+
+	// Update temperature stats
+	var tempVal float64
+	hasTemp := false
+	if v, ok := metrics["temp_c"]; ok {
+		if f, ok := toFloat(v); ok {
+			tempVal = f
+			hasTemp = true
+		}
+	} else if v, ok := metrics["temperature"]; ok {
+		if f, ok := toFloat(v); ok {
+			tempVal = f
+			hasTemp = true
+		}
+	} else if v, ok := metrics["temp"]; ok {
+		if f, ok := toFloat(v); ok {
+			tempVal = f
+			hasTemp = true
+		}
+	}
+	if hasTemp {
+		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:temp:sum", sessionID), tempVal)
+		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:metrics:temp:count", sessionID))
+		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:metrics:temp:min", sessionID), fmt.Sprintf("session:%s:metrics:temp:max", sessionID), tempVal)
+	}
+
+	// Update uptime metrics
+	var uptimeVal float64
+	hasUptime := false
+	if v, ok := metrics["uptime_s"]; ok {
+		if f, ok := toFloat(v); ok {
+			uptimeVal = f
+			hasUptime = true
+		}
+	} else if v, ok := metrics["uptime"]; ok {
+		if f, ok := toFloat(v); ok {
+			uptimeVal = f
+			hasUptime = true
+		}
+	}
+	if hasUptime {
+		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:uptime_s:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:uptime_s:max", sessionID, deviceID), uptimeVal)
+	}
+
+	// Update distance travelled (Haversine formula based on lat/lon)
+	var latVal, lonVal float64
+	hasGPS := false
+	if vLat, okLat := metrics["latitude"]; okLat {
+		if vLon, okLon := metrics["longitude"]; okLon {
+			if fLat, ok1 := toFloat(vLat); ok1 {
+				if fLon, ok2 := toFloat(vLon); ok2 {
+					latVal = fLat
+					lonVal = fLon
+					hasGPS = true
+				}
+			}
+		}
+	} else if vLat, okLat := metrics["lat"]; okLat {
+		if vLon, okLon := metrics["lon"]; okLon {
+			if fLat, ok1 := toFloat(vLat); ok1 {
+				if fLon, ok2 := toFloat(vLon); ok2 {
+					latVal = fLat
+					lonVal = fLon
+					hasGPS = true
+				}
+			}
+		} else if vLon, okLon := metrics["lng"]; okLon {
+			if fLat, ok1 := toFloat(vLat); ok1 {
+				if fLon, ok2 := toFloat(vLon); ok2 {
+					latVal = fLat
+					lonVal = fLon
+					hasGPS = true
+				}
+			}
+		}
+	}
+
+	if hasGPS {
+		gpsKey := fmt.Sprintf("session:%s:device:%s:last_gps", sessionID, deviceID)
+		lastGPS, err := redisClient.Client().HGetAll(ctx, gpsKey).Result()
+		if err == nil && len(lastGPS) > 0 {
+			var prevLat, prevLon float64
+			_, err1 := fmt.Sscanf(lastGPS["lat"], "%f", &prevLat)
+			_, err2 := fmt.Sscanf(lastGPS["lon"], "%f", &prevLon)
+			if err1 == nil && err2 == nil {
+				dist := haversineDistance(prevLat, prevLon, latVal, lonVal)
+				redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:distance", sessionID), dist)
+			}
+		}
+		// Update last known gps
+		redisClient.Client().HSet(ctx, gpsKey, map[string]interface{}{
+			"lat": fmt.Sprintf("%f", latVal),
+			"lon": fmt.Sprintf("%f", lonVal),
+		})
 	}
 }
 

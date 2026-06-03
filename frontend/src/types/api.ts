@@ -286,6 +286,16 @@ export interface SessionStatistics {
   critical_events: number;
   uptime_percentage: number;
   average_latency_ms: number;
+  average_battery?: number;
+  minimum_battery?: number;
+  maximum_battery?: number;
+  average_temperature?: number;
+  minimum_temperature?: number;
+  maximum_temperature?: number;
+  distance_travelled?: number;
+  device_participation_count?: number;
+  command_count?: number;
+  anomaly_count?: number;
   updated_at: string;
 }
 
