@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/vishalss1/argus/internal/domain/telemetry"
 )
 
@@ -33,6 +34,18 @@ func (r *TelemetryRepository) SetLatest(ctx context.Context, deviceID string, t 
 		return fmt.Errorf("redis set: %w", err)
 	}
 
+	return nil
+}
+
+func (r *TelemetryRepository) SetLatestPipeline(ctx context.Context, pipe goredis.Pipeliner, deviceID string, t telemetry.Telemetry) error {
+	key := fmt.Sprintf("device:%s:latest", deviceID)
+
+	data, err := json.Marshal(t)
+	if err != nil {
+		return fmt.Errorf("marshal telemetry: %w", err)
+	}
+
+	pipe.Set(ctx, key, data, r.ttl)
 	return nil
 }
 

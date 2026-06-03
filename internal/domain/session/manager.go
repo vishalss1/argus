@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/vishalss1/argus/internal/domain/usage"
 	"github.com/vishalss1/argus/internal/domain/workspace"
 	"github.com/vishalss1/argus/internal/infrastructure/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type Manager struct {
@@ -107,6 +109,11 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 }
 
 func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Session, error) {
+	stopStart := time.Now()
+	defer func() {
+		SessionStopDurationSeconds.Observe(time.Since(stopStart).Seconds())
+	}()
+
 	// 0. Fetch session to check idempotency
 	sess, err := m.sessionService.Get(ctx, id)
 	if err != nil {
@@ -144,12 +151,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		return nil, err
 	}
 
-	if success {
-		SessionsCompletedTotal.Inc()
-	} else {
-		SessionsFailedTotal.Inc()
-	}
-
 	// 2. Fetch rolling aggregates from Redis & compute metrics
 	durationSec := 0
 	if sess.StartedAt != nil {
@@ -159,8 +160,75 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		durationSec = 0
 	}
 
-	getRedisFloat := func(key string) float64 {
-		val, err := m.redisClient.Client().Get(ctx, key).Result()
+	artifactGenStart := time.Now()
+
+	// Fetch all participating devices first
+	devices, _ := m.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
+	deviceCount := len(devices)
+
+	// Build Pipeline 1: Fetch all device and session top-level metrics in 1 RTT
+	pipe := m.redisClient.Client().Pipeline()
+
+	// Session-wide metrics
+	sessCountCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:count", id))
+	sessBatCountCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:count", id))
+	sessBatSumCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:sum", id))
+	sessBatMinCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:min", id))
+	sessBatMaxCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:max", id))
+	sessTempCountCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:count", id))
+	sessTempSumCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:sum", id))
+	sessTempMinCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:min", id))
+	sessTempMaxCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:max", id))
+	sessDistCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:distance", id))
+
+	// Device-specific metrics mapping
+	type devCmds struct {
+		firstSeen   *goredis.StringCmd
+		lastSeen    *goredis.StringCmd
+		sampleCount *goredis.StringCmd
+		batSum      *goredis.StringCmd
+		batCount    *goredis.StringCmd
+		batMin      *goredis.StringCmd
+		batMax      *goredis.StringCmd
+		tempSum     *goredis.StringCmd
+		tempCount   *goredis.StringCmd
+		tempMin     *goredis.StringCmd
+		tempMax     *goredis.StringCmd
+		sigSum      *goredis.StringCmd
+		sigCount    *goredis.StringCmd
+		sigMin      *goredis.StringCmd
+		sigMax      *goredis.StringCmd
+		dist        *goredis.StringCmd
+		rollupMins  *goredis.StringSliceCmd
+	}
+
+	devCmdMap := make(map[string]devCmds)
+	for _, devID := range devices {
+		devCmdMap[devID] = devCmds{
+			firstSeen:   pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:first_seen", id, devID)),
+			lastSeen:    pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:last_seen", id, devID)),
+			sampleCount: pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:sample_count", id, devID)),
+			batSum:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:sum", id, devID)),
+			batCount:    pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:count", id, devID)),
+			batMin:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:min", id, devID)),
+			batMax:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:max", id, devID)),
+			tempSum:     pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:sum", id, devID)),
+			tempCount:   pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:count", id, devID)),
+			tempMin:     pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:min", id, devID)),
+			tempMax:     pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:max", id, devID)),
+			sigSum:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:sum", id, devID)),
+			sigCount:    pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:count", id, devID)),
+			sigMin:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:min", id, devID)),
+			sigMax:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:max", id, devID)),
+			dist:        pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:distance", id, devID)),
+			rollupMins:  pipe.SMembers(ctx, fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID)),
+		}
+	}
+
+	_, _ = pipe.Exec(ctx)
+
+	cmdFloatVal := func(c *goredis.StringCmd) float64 {
+		val, err := c.Result()
 		if err != nil {
 			return 0.0
 		}
@@ -168,8 +236,8 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		return f
 	}
 
-	getRedisInt := func(key string) int {
-		val, err := m.redisClient.Client().Get(ctx, key).Result()
+	cmdIntVal := func(c *goredis.StringCmd) int {
+		val, err := c.Result()
 		if err != nil {
 			return 0
 		}
@@ -177,28 +245,25 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		return i
 	}
 
-	msgCount := getRedisInt(fmt.Sprintf("session:%s:metrics:count", id))
-	batteryCount := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:count", id))
-	batterySum := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:sum", id))
+	msgCount := cmdIntVal(sessCountCmd)
+	batteryCount := cmdFloatVal(sessBatCountCmd)
+	batterySum := cmdFloatVal(sessBatSumCmd)
 	avgBattery := 0.0
 	if batteryCount > 0 {
 		avgBattery = batterySum / batteryCount
 	}
-	minBattery := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:min", id))
-	maxBattery := getRedisFloat(fmt.Sprintf("session:%s:metrics:battery:max", id))
+	minBattery := cmdFloatVal(sessBatMinCmd)
+	maxBattery := cmdFloatVal(sessBatMaxCmd)
 
-	tempCount := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:count", id))
-	tempSum := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:sum", id))
+	tempCount := cmdFloatVal(sessTempCountCmd)
+	tempSum := cmdFloatVal(sessTempSumCmd)
 	avgTemp := 0.0
 	if tempCount > 0 {
 		avgTemp = tempSum / tempCount
 	}
-	minTemp := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:min", id))
-	maxTemp := getRedisFloat(fmt.Sprintf("session:%s:metrics:temp:max", id))
-
-	distance := getRedisFloat(fmt.Sprintf("session:%s:metrics:distance", id))
-	devices, _ := m.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
-	deviceCount := len(devices)
+	minTemp := cmdFloatVal(sessTempMinCmd)
+	maxTemp := cmdFloatVal(sessTempMaxCmd)
+	distance := cmdFloatVal(sessDistCmd)
 
 	// Fetch database counts for alerts, commands, anomalies
 	alerts, _ := m.sessionService.repo.ListAlertsBySession(ctx, id)
@@ -209,7 +274,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	commandCount := len(commands)
 	anomalyCount := len(events)
 
-	// Device summaries, timeline, alerts, commands, findings, rollups payload generation
 	deviceSummaries := make(map[string]DeviceSummaryReport)
 	
 	// Format Alerts
@@ -251,7 +315,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	for _, devID := range devices {
 		findings, _ := m.findingRepo.ListByDevice(ctx, devID)
 		for _, f := range findings {
-			// Check if finding is within session interval
 			if (sess.StartedAt != nil && (f.CreatedAt.After(*sess.StartedAt) || f.CreatedAt.Equal(*sess.StartedAt))) && f.CreatedAt.Before(now) {
 				findingArchives = append(findingArchives, AIFindingsArchive{
 					Timestamp:       f.CreatedAt.Format(time.RFC3339),
@@ -278,11 +341,11 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	})
 
 	for _, devID := range devices {
-		firstSeen := getRedisInt(fmt.Sprintf("session:%s:device:%s:first_seen", id, devID))
-		lastSeen := getRedisInt(fmt.Sprintf("session:%s:device:%s:last_seen", id, devID))
-		sampleCount := getRedisInt(fmt.Sprintf("session:%s:device:%s:sample_count", id, devID))
+		cmds := devCmdMap[devID]
+		firstSeen := cmdIntVal(cmds.firstSeen)
+		lastSeen := cmdIntVal(cmds.lastSeen)
+		sampleCount := cmdIntVal(cmds.sampleCount)
 
-		// uptime
 		uptimePercentage := 100.0
 		if durationSec > 0 && lastSeen >= firstSeen {
 			uptimePercentage = float64(lastSeen-firstSeen) / float64(durationSec) * 100.0
@@ -291,40 +354,35 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 			}
 		}
 
-		// battery
-		batSum := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:sum", id, devID))
-		batCount := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:count", id, devID))
-		batMin := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:min", id, devID))
-		batMax := getRedisFloat(fmt.Sprintf("session:%s:device:%s:battery:max", id, devID))
+		batSum := cmdFloatVal(cmds.batSum)
+		batCount := cmdFloatVal(cmds.batCount)
+		batMin := cmdFloatVal(cmds.batMin)
+		batMax := cmdFloatVal(cmds.batMax)
 		batAvg := 0.0
 		if batCount > 0 {
 			batAvg = batSum / batCount
 		}
 
-		// temp
-		tempSum := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:sum", id, devID))
-		tempCount := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:count", id, devID))
-		tempMin := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:min", id, devID))
-		tempMax := getRedisFloat(fmt.Sprintf("session:%s:device:%s:temp:max", id, devID))
+		tempSum := cmdFloatVal(cmds.tempSum)
+		tempCount := cmdFloatVal(cmds.tempCount)
+		tempMin := cmdFloatVal(cmds.tempMin)
+		tempMax := cmdFloatVal(cmds.tempMax)
 		tempAvg := 0.0
 		if tempCount > 0 {
 			tempAvg = tempSum / tempCount
 		}
 
-		// signal
-		sigSum := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:sum", id, devID))
-		sigCount := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:count", id, devID))
-		sigMin := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:min", id, devID))
-		sigMax := getRedisFloat(fmt.Sprintf("session:%s:device:%s:signal:max", id, devID))
+		sigSum := cmdFloatVal(cmds.sigSum)
+		sigCount := cmdFloatVal(cmds.sigCount)
+		sigMin := cmdFloatVal(cmds.sigMin)
+		sigMax := cmdFloatVal(cmds.sigMax)
 		sigAvg := 0.0
 		if sigCount > 0 {
 			sigAvg = sigSum / sigCount
 		}
 
-		// distance
-		devDistance := getRedisFloat(fmt.Sprintf("session:%s:device:%s:distance", id, devID))
+		devDistance := cmdFloatVal(cmds.dist)
 
-		// counts
 		warningCount := 0
 		criticalCount := 0
 		for _, a := range alerts {
@@ -351,7 +409,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 			}
 		}
 
-		// First seen event to timeline
 		if firstSeen > 0 {
 			timeline = append(timeline, TimelineEntry{
 				Timestamp: time.Unix(int64(firstSeen), 0).UTC().Format(time.RFC3339),
@@ -384,7 +441,7 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		}
 	}
 
-	// Add alerts to timeline
+	// Add alerts, commands, findings, anomalies to timeline
 	for _, a := range alerts {
 		timeline = append(timeline, TimelineEntry{
 			Timestamp: a.CreatedAt.Format(time.RFC3339),
@@ -402,7 +459,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		}
 	}
 
-	// Add commands to timeline
 	for _, c := range commands {
 		issuedByVal := "-"
 		if c.IssuedBy != nil {
@@ -424,7 +480,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		}
 	}
 
-	// Add findings to timeline
 	for _, f := range findingArchives {
 		devIDCopy := f.DeviceID
 		timeline = append(timeline, TimelineEntry{
@@ -435,7 +490,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		})
 	}
 
-	// Add anomalies to timeline
 	for _, e := range events {
 		timeline = append(timeline, TimelineEntry{
 			Timestamp: e.CreatedAt.Format(time.RFC3339),
@@ -445,97 +499,106 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		})
 	}
 
-	// Add session completed to timeline
 	timeline = append(timeline, TimelineEntry{
 		Timestamp: now.Format(time.RFC3339),
 		Type:      "Session Completed",
 		Message:   fmt.Sprintf("Operational session %s stopped with status %s.", id, status),
 	})
 
-	// Sort timeline chronologically
 	sort.Slice(timeline, func(i, j int) bool {
 		return timeline[i].Timestamp < timeline[j].Timestamp
 	})
 
-	// Rollups Construction
-	rollupsMap := make(map[string][]TelemetryRollup)
+	// Build Pipeline 2: Fetch all Minute Rollups in 1 RTT
+	rollupPipe := m.redisClient.Client().Pipeline()
+	type rollupKeyCmd struct {
+		devID     string
+		minuteStr string
+		cmd       *goredis.MapStringStringCmd
+	}
+	var rollupCmds []rollupKeyCmd
+
 	for _, devID := range devices {
-		minutesKey := fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID)
-		minutes, _ := m.redisClient.Client().SMembers(ctx, minutesKey).Result()
-
-		var deviceRollups []TelemetryRollup
+		minutes, _ := devCmdMap[devID].rollupMins.Result()
 		for _, minute := range minutes {
-			rollupKey := fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute)
-			rollupData, _ := m.redisClient.Client().HGetAll(ctx, rollupKey).Result()
-			if len(rollupData) == 0 {
-				continue
-			}
-
-			getFloat := func(field string) float64 {
-				v, _ := strconv.ParseFloat(rollupData[field], 64)
-				return v
-			}
-			getInt := func(field string) int {
-				v, _ := strconv.Atoi(rollupData[field])
-				return v
-			}
-
-			sampleCount := getInt("sample_count")
-			if sampleCount == 0 {
-				continue
-			}
-
-			// battery
-			batSum := getFloat("battery:sum")
-			batCount := getFloat("battery:count")
-			batMin := getFloat("battery:min")
-			batMax := getFloat("battery:max")
-			batAvg := 0.0
-			if batCount > 0 {
-				batAvg = batSum / batCount
-			}
-
-			// temp
-			tempSum := getFloat("temp:sum")
-			tempCount := getFloat("temp:count")
-			tempMin := getFloat("temp:min")
-			tempMax := getFloat("temp:max")
-			tempAvg := 0.0
-			if tempCount > 0 {
-				tempAvg = tempSum / tempCount
-			}
-
-			// signal
-			sigSum := getFloat("signal:sum")
-			sigCount := getFloat("signal:count")
-			sigMin := getFloat("signal:min")
-			sigMax := getFloat("signal:max")
-			sigAvg := 0.0
-			if sigCount > 0 {
-				sigAvg = sigSum / sigCount
-			}
-
-			deviceRollups = append(deviceRollups, TelemetryRollup{
-				Timestamp:      minute,
-				BatteryAvg:     batAvg,
-				BatteryMin:     batMin,
-				BatteryMax:     batMax,
-				TemperatureAvg: tempAvg,
-				TemperatureMin: tempMin,
-				TemperatureMax: tempMax,
-				SignalAvg:      sigAvg,
-				SignalMin:      sigMin,
-				SignalMax:      sigMax,
-				SampleCount:    sampleCount,
+			rKey := fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute)
+			rollupCmds = append(rollupCmds, rollupKeyCmd{
+				devID:     devID,
+				minuteStr: minute,
+				cmd:       rollupPipe.HGetAll(ctx, rKey),
 			})
 		}
+	}
 
-		// Sort device rollups
-		sort.Slice(deviceRollups, func(i, j int) bool {
-			return deviceRollups[i].Timestamp < deviceRollups[j].Timestamp
+	_, _ = rollupPipe.Exec(ctx)
+
+	rollupsMap := make(map[string][]TelemetryRollup)
+	for _, rc := range rollupCmds {
+		rollupData, err := rc.cmd.Result()
+		if err != nil || len(rollupData) == 0 {
+			continue
+		}
+
+		getFloat := func(field string) float64 {
+			v, _ := strconv.ParseFloat(rollupData[field], 64)
+			return v
+		}
+		getInt := func(field string) int {
+			v, _ := strconv.Atoi(rollupData[field])
+			return v
+		}
+
+		sampleCount := getInt("sample_count")
+		if sampleCount == 0 {
+			continue
+		}
+
+		batSum := getFloat("battery:sum")
+		batCount := getFloat("battery:count")
+		batMin := getFloat("battery:min")
+		batMax := getFloat("battery:max")
+		batAvg := 0.0
+		if batCount > 0 {
+			batAvg = batSum / batCount
+		}
+
+		tempSum := getFloat("temp:sum")
+		tempCount := getFloat("temp:count")
+		tempMin := getFloat("temp:min")
+		tempMax := getFloat("temp:max")
+		tempAvg := 0.0
+		if tempCount > 0 {
+			tempAvg = tempSum / tempCount
+		}
+
+		sigSum := getFloat("signal:sum")
+		sigCount := getFloat("signal:count")
+		sigMin := getFloat("signal:min")
+		sigMax := getFloat("signal:max")
+		sigAvg := 0.0
+		if sigCount > 0 {
+			sigAvg = sigSum / sigCount
+		}
+
+		rollupsMap[rc.devID] = append(rollupsMap[rc.devID], TelemetryRollup{
+			Timestamp:      rc.minuteStr,
+			BatteryAvg:     batAvg,
+			BatteryMin:     batMin,
+			BatteryMax:     batMax,
+			TemperatureAvg: tempAvg,
+			TemperatureMin: tempMin,
+			TemperatureMax: tempMax,
+			SignalAvg:      sigAvg,
+			SignalMin:      sigMin,
+			SignalMax:      sigMax,
+			SampleCount:    sampleCount,
 		})
+	}
 
-		rollupsMap[devID] = deviceRollups
+	for devID := range rollupsMap {
+		sort.Slice(rollupsMap[devID], func(i, j int) bool {
+			return rollupsMap[devID][i].Timestamp < rollupsMap[devID][j].Timestamp
+		})
 	}
 
 	// 3. Save Statistics
@@ -616,40 +679,15 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	}
 	_, _ = m.sessionService.repo.CreateArtifact(ctx, artifact)
 
-	// 5. Cleanup Redis State
-	activeKey := fmt.Sprintf("session:%s:active", id)
-	_ = m.redisClient.Client().Del(ctx, activeKey).Err()
-	_ = m.redisClient.Client().SRem(ctx, "sessions:active", id).Err()
+	// Record observability metrics
+	SessionArtifactGenerationDurationSeconds.Observe(time.Since(artifactGenStart).Seconds())
+	SessionArtifactSizeBytes.Observe(float64(len(artifactBytes)))
 
-	wsActiveKey := fmt.Sprintf("workspace:%s:active_session", stopped.WorkspaceID)
-	_ = m.redisClient.Client().Del(ctx, wsActiveKey).Err()
-
-	// 6. strictly session-centric pipeline cleanup: delete cached device:*:latest hot keys
-	keysPattern := "device:*:latest"
-	var cursor uint64
-	for {
-		keys, nextCursor, err := m.redisClient.Client().Scan(ctx, cursor, keysPattern, 100).Result()
-		if err != nil {
-			break
-		}
-		for _, k := range keys {
-			if strings.HasPrefix(k, "device:") && strings.HasSuffix(k, ":latest") {
-				devID := strings.TrimSuffix(strings.TrimPrefix(k, "device:"), ":latest")
-				wsKey := fmt.Sprintf("device:%s:workspace", devID)
-				cachedWS, err := m.redisClient.Client().Get(ctx, wsKey).Result()
-				if err == nil && cachedWS == stopped.WorkspaceID {
-					_ = m.redisClient.Client().Del(ctx, k).Err()
-				}
-			}
-		}
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
-	}
-
-	// Delete other session rolling aggregate keys from Redis
-	m.redisClient.Client().Del(ctx,
+	// 5. Cleanup Redis State (Gather all keys to delete in a single batch)
+	var keysToDelete []string
+	keysToDelete = append(keysToDelete,
+		fmt.Sprintf("session:%s:active", id),
+		fmt.Sprintf("workspace:%s:active_session", stopped.WorkspaceID),
 		fmt.Sprintf("session:%s:metrics:count", id),
 		fmt.Sprintf("session:%s:metrics:battery:count", id),
 		fmt.Sprintf("session:%s:metrics:battery:sum", id),
@@ -662,13 +700,9 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		fmt.Sprintf("session:%s:metrics:distance", id),
 		fmt.Sprintf("session:%s:devices", id),
 	)
+
 	for _, devID := range devices {
-		minutesKey := fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID)
-		minutes, _ := m.redisClient.Client().SMembers(ctx, minutesKey).Result()
-		for _, minute := range minutes {
-			m.redisClient.Client().Del(ctx, fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute))
-		}
-		m.redisClient.Client().Del(ctx,
+		keysToDelete = append(keysToDelete,
 			fmt.Sprintf("session:%s:device:%s:first_seen", id, devID),
 			fmt.Sprintf("session:%s:device:%s:last_seen", id, devID),
 			fmt.Sprintf("session:%s:device:%s:uptime_s:min", id, devID),
@@ -688,8 +722,63 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 			fmt.Sprintf("session:%s:device:%s:signal:min", id, devID),
 			fmt.Sprintf("session:%s:device:%s:signal:max", id, devID),
 			fmt.Sprintf("session:%s:device:%s:distance", id, devID),
-			minutesKey,
+			fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID),
 		)
+		minutes, _ := devCmdMap[devID].rollupMins.Result()
+		for _, minute := range minutes {
+			keysToDelete = append(keysToDelete, fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute))
+		}
+	}
+
+	// Bulk delete cached device:*:latest hot keys
+	var latestKeys []string
+	keysPattern := "device:*:latest"
+	var cursor uint64
+	for {
+		keys, nextCursor, err := m.redisClient.Client().Scan(ctx, cursor, keysPattern, 100).Result()
+		if err != nil {
+			break
+		}
+		latestKeys = append(latestKeys, keys...)
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	if len(latestKeys) > 0 {
+		wsPipe := m.redisClient.Client().Pipeline()
+		wsCmds := make(map[string]*goredis.StringCmd)
+		for _, k := range latestKeys {
+			if strings.HasPrefix(k, "device:") && strings.HasSuffix(k, ":latest") {
+				devID := strings.TrimSuffix(strings.TrimPrefix(k, "device:"), ":latest")
+				wsKey := fmt.Sprintf("device:%s:workspace", devID)
+				wsCmds[k] = wsPipe.Get(ctx, wsKey)
+			}
+		}
+		_, _ = wsPipe.Exec(ctx)
+
+		for k, cmd := range wsCmds {
+			cachedWS, err := cmd.Result()
+			if err == nil && cachedWS == stopped.WorkspaceID {
+				keysToDelete = append(keysToDelete, k)
+			}
+		}
+	}
+
+	// Delete everything in batches of 1000 using a single pipeline
+	if len(keysToDelete) > 0 {
+		delPipe := m.redisClient.Client().Pipeline()
+		const batchSize = 1000
+		for i := 0; i < len(keysToDelete); i += batchSize {
+			end := i + batchSize
+			if end > len(keysToDelete) {
+				end = len(keysToDelete)
+			}
+			delPipe.Del(ctx, keysToDelete[i:end]...)
+		}
+		_, _ = delPipe.Exec(ctx)
+		log.Printf("[SESSION STOP] cleaned up %d Redis keys for session %s", len(keysToDelete), id)
 	}
 
 	return stopped, nil

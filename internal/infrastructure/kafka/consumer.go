@@ -24,6 +24,7 @@ func NewConsumer(config ConsumerConfig) *Consumer {
 			GroupID:  config.GroupID,
 			MinBytes: 10e3, // 10KB
 			MaxBytes: 10e6, // 10MB
+			StartOffset: segmentio.FirstOffset,
 		}),
 	}
 }
