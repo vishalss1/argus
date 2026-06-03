@@ -25,7 +25,8 @@ export const queryKeys = {
   sessions: (workspaceID: string) => ["sessions", workspaceID] as const,
   session: (id: string) => ["session", id] as const,
   sessionStats: (id: string) => ["session", id, "stats"] as const,
-  sessionReport: (id: string) => ["session", id, "report"] as const
+  sessionReport: (id: string) => ["session", id, "report"] as const,
+  sessionArtifact: (id: string) => ["session", id, "artifact"] as const
 };
 
 export function useWorkspaces() {
@@ -136,6 +137,14 @@ export function useSessionReport(sessionID: string) {
   return useQuery({
     queryKey: queryKeys.sessionReport(sessionID),
     queryFn: () => api.sessions.getReport(sessionID),
+    enabled: Boolean(sessionID)
+  });
+}
+
+export function useSessionArtifact(sessionID: string) {
+  return useQuery({
+    queryKey: queryKeys.sessionArtifact(sessionID),
+    queryFn: () => api.sessions.getArtifact(sessionID),
     enabled: Boolean(sessionID)
   });
 }

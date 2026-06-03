@@ -70,6 +70,7 @@ func New(
 		r.Post("/export", sessionHandler.Export)
 		r.Get("/statistics", sessionHandler.GetStatistics)
 		r.Get("/report", sessionHandler.GetReport)
+		r.Get("/artifact", sessionHandler.GetArtifact)
 	})
 
 	apiRouter.Route("/ai", func(r chi.Router) {

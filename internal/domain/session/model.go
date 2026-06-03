@@ -45,4 +45,6 @@ type Repository interface {
 	ListEventsBySession(ctx context.Context, sessionID string) ([]Event, error)
 	ListAlertsBySession(ctx context.Context, sessionID string) ([]Alert, error)
 	ListCommandsBySession(ctx context.Context, sessionID string) ([]Command, error)
+	CreateArtifact(ctx context.Context, a Artifact) (*Artifact, error)
+	GetArtifactBySession(ctx context.Context, sessionID string) (*Artifact, error)
 }
