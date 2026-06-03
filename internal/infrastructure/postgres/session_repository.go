@@ -83,6 +83,31 @@ func (r *SessionRepository) ListByWorkspace(ctx context.Context, workspaceID str
 	return sessions, nil
 }
 
+func (r *SessionRepository) ListAllRunning(ctx context.Context) ([]session.Session, error) {
+	query := `
+		SELECT id, workspace_id, status, started_at, ended_at, created_by, created_at
+		FROM workspace_sessions
+		WHERE status = 'RUNNING'
+	`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list running sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []session.Session
+	for rows.Next() {
+		var s session.Session
+		if err := rows.Scan(
+			&s.ID, &s.WorkspaceID, &s.Status, &s.StartedAt, &s.EndedAt, &s.CreatedBy, &s.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan running session: %w", err)
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, nil
+}
+
 func (r *SessionRepository) UpdateStatus(ctx context.Context, id string, status session.Status, startedAt *time.Time, endedAt *time.Time) (*session.Session, error) {
 	query := `
 		UPDATE workspace_sessions
@@ -96,6 +121,26 @@ func (r *SessionRepository) UpdateStatus(ctx context.Context, id string, status 
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update session status: %w", err)
+	}
+	return &s, nil
+}
+
+func (r *SessionRepository) TransitionStatus(ctx context.Context, id string, fromStatus session.Status, toStatus session.Status, startedAt *time.Time, endedAt *time.Time) (*session.Session, error) {
+	query := `
+		UPDATE workspace_sessions
+		SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
+		WHERE id = $4 AND status = $5
+		RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
+	`
+	var s session.Session
+	err := r.db.QueryRowContext(ctx, query, toStatus, startedAt, endedAt, id, fromStatus).Scan(
+		&s.ID, &s.WorkspaceID, &s.Status, &s.StartedAt, &s.EndedAt, &s.CreatedBy, &s.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, session.ErrInvalidTransition
+	}
+	if err != nil {
+		return nil, fmt.Errorf("transition session status: %w", err)
 	}
 	return &s, nil
 }

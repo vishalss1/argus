@@ -236,6 +236,11 @@ func Bootstrap() (*Server, error) {
 	sessionManager := session.NewManager(sessionService, usageService, redisClient)
 	sessionHandler := transporthandler.NewSessionHandler(sessionService, sessionManager)
 
+	// Recover any RUNNING sessions to Redis hot-state
+	if err := sessionManager.RecoverActiveSessions(appCtx); err != nil {
+		log.Printf("Warning: failed to recover active sessions: %v", err)
+	}
+
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
 		mqttClient, err = mqtt.New(mqtt.Config{

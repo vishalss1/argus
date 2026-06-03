@@ -1,10 +1,44 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../services/api";
 import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
 import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard } from "../components/ui";
-import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle } from "lucide-react";
-import { useAIFindings, useDevices } from "../hooks/useArgusData";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, Play } from "lucide-react";
+import { useAIFindings, useDevices, useSessions } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
+
+function SessionRequiredPrompt({ title, description }: { title: string; description: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 500, width: "100%", textAlign: "center" }}>
+        <div style={{
+          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
+          background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(245,158,11,0.1))",
+          border: "1px solid rgba(239,68,68,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <Play size={36} style={{ color: "var(--danger)" }} />
+        </div>
+
+        <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
+          {title}
+        </h2>
+        <p className="muted" style={{ fontSize: "15px", lineHeight: 1.6, margin: "0 0 28px" }}>
+          {description}
+        </p>
+
+        <Link
+          to="/workspaces"
+          className="button primary"
+          style={{ padding: "12px 24px", fontSize: "15px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "8px", textDecoration: "none" }}
+        >
+          Go to Workspaces
+          <ArrowRight size={16} />
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 const AIPage: React.FC = () => {
   const [events, setEvents] = useState<SemanticEvent[]>([]);
@@ -15,8 +49,13 @@ const AIPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [deviceID, setDeviceID] = useState("");
   
-  const { workspaceDevices } = useWorkspaceContext();
+  const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
   const { data: findings } = useAIFindings(deviceID);
+  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedWorkspaceId);
+
+  const activeSession = useMemo(() => {
+    return sessions?.find(s => s.status === "RUNNING") || null;
+  }, [sessions]);
 
   const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
 
@@ -63,7 +102,7 @@ const AIPage: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading || sessionsLoading) {
     return (
       <div className="workspace">
         <div className="empty-state">
@@ -72,6 +111,15 @@ const AIPage: React.FC = () => {
           <p>Assembling fleet intelligence from operational memory...</p>
         </div>
       </div>
+    );
+  }
+
+  if (!activeSession) {
+    return (
+      <SessionRequiredPrompt
+        title="Session Required for AI Insights"
+        description="AI insights, semantic event correlation, and natural language reasoning require an active operational session in this workspace."
+      />
     );
   }
 

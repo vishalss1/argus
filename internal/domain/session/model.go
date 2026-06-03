@@ -2,8 +2,11 @@ package session
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var ErrInvalidTransition = errors.New("invalid session state transition")
 
 type Status string
 
@@ -29,7 +32,9 @@ type Repository interface {
 	Create(ctx context.Context, s Session) (*Session, error)
 	Get(ctx context.Context, id string) (*Session, error)
 	ListByWorkspace(ctx context.Context, workspaceID string) ([]Session, error)
+	ListAllRunning(ctx context.Context) ([]Session, error)
 	UpdateStatus(ctx context.Context, id string, status Status, startedAt *time.Time, endedAt *time.Time) (*Session, error)
+	TransitionStatus(ctx context.Context, id string, fromStatus Status, toStatus Status, startedAt *time.Time, endedAt *time.Time) (*Session, error)
 	CloseStaleSessions(ctx context.Context, timeout time.Duration) (int64, error)
 	Delete(ctx context.Context, id string) error
 }

@@ -35,7 +35,11 @@ func (s *Service) Create(ctx context.Context, workspaceID string, createdBy *str
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	return s.repo.Create(ctx, sess)
+	created, err := s.repo.Create(ctx, sess)
+	if err == nil {
+		SessionsCreatedTotal.Inc()
+	}
+	return created, err
 }
 
 func (s *Service) Start(ctx context.Context, id string) (*Session, error) {
