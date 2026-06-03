@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -34,10 +33,12 @@ import (
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
+	segmentio "github.com/segmentio/kafka-go"
 	"github.com/vishalss1/argus/internal/infrastructure/minio"
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
 	"github.com/vishalss1/argus/internal/infrastructure/redis"
+	goredis "github.com/redis/go-redis/v9"
 	transporthandler "github.com/vishalss1/argus/internal/transport/http/handler"
 	transportrouter "github.com/vishalss1/argus/internal/transport/http/router"
 	transportws "github.com/vishalss1/argus/internal/transport/websocket"
@@ -544,70 +545,215 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 
 	log.Printf("[LIVE CONSUMER] started, consuming topic: %s", cfg.KafkaTelemetryTopic)
 
-	for {
-		select {
-		case <-ctx.Done():
+	// Pre-load Lua scripts to prevent NOSCRIPT errors inside pipelines
+	if err := updateMinMaxScript.Load(ctx, redisClient.Client()).Err(); err != nil {
+		log.Printf("[LIVE CONSUMER] failed to load updateMinMaxScript: %v", err)
+	}
+	if err := updateRollupMinMaxScript.Load(ctx, redisClient.Client()).Err(); err != nil {
+		log.Printf("[LIVE CONSUMER] failed to load updateRollupMinMaxScript: %v", err)
+	}
+	if err := updateGPSDistanceScript.Load(ctx, redisClient.Client()).Err(); err != nil {
+		log.Printf("[LIVE CONSUMER] failed to load updateGPSDistanceScript: %v", err)
+	}
+
+	// In-memory cache for device workspace and active session
+	type cacheEntry struct {
+		val       string
+		expiresAt time.Time
+	}
+	var (
+		cacheMu    sync.RWMutex
+		localCache = make(map[string]cacheEntry)
+	)
+
+	getLocalCache := func(key string) (string, bool) {
+		cacheMu.RLock()
+		defer cacheMu.RUnlock()
+		entry, ok := localCache[key]
+		if !ok || time.Now().After(entry.expiresAt) {
+			return "", false
+		}
+		return entry.val, true
+	}
+
+	setLocalCache := func(key string, val string, ttl time.Duration) {
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
+		localCache[key] = cacheEntry{
+			val:       val,
+			expiresAt: time.Now().Add(ttl),
+		}
+	}
+
+	var batch []segmentio.Message
+	const maxBatchSize = 1000
+	const maxBatchWait = 1 * time.Second
+
+	commitTimer := time.NewTimer(maxBatchWait)
+	defer commitTimer.Stop()
+
+	flushBatch := func(flushCtx context.Context) {
+		defer func() {
+			if !commitTimer.Stop() {
+				select {
+				case <-commitTimer.C:
+				default:
+				}
+			}
+			commitTimer.Reset(maxBatchWait)
+		}()
+
+		if len(batch) == 0 {
 			return
-		default:
+		}
+		start := time.Now()
+		err := consumer.CommitMessages(flushCtx, batch...)
+		duration := time.Since(start).Seconds()
+		session.TelemetryConsumerCommitDurationSeconds.Observe(duration)
+		if err != nil {
+			log.Printf("[LIVE CONSUMER] failed to commit batch of %d messages: %v", len(batch), err)
+		} else {
+			session.TelemetryConsumerBatchCommitsTotal.Inc()
+			log.Printf("[LIVE CONSUMER] successfully committed batch of %d messages in %.4fs", len(batch), duration)
+		}
+		batch = batch[:0]
+	}
+
+	var redisBatch []segmentio.Message
+	pipe := redisClient.Client().Pipeline()
+
+	flushRedisBatch := func(flushCtx context.Context) {
+		if len(redisBatch) == 0 {
+			return
+		}
+		pipeStart := time.Now()
+		cmds, execErr := pipe.Exec(flushCtx)
+		pipeDuration := time.Since(pipeStart).Seconds()
+
+		// Observability metrics
+		session.TelemetryRedisPipelineDurationSeconds.Observe(pipeDuration)
+		session.TelemetryPipelineMessagesTotal.Add(float64(len(redisBatch)))
+		session.RedisPipelineBatchesTotal.Inc()
+		session.RedisPipelineCommandsTotal.Add(float64(len(cmds)))
+
+		if execErr != nil {
+			log.Printf("[LIVE CONSUMER] error executing pipeline batch of %d: %v", len(redisBatch), execErr)
+			session.TelemetryConsumerProcessingFailuresTotal.Add(float64(len(redisBatch)))
+			if kafkaProducer != nil {
+				for _, m := range redisBatch {
+					_ = kafkaProducer.PublishDLQ(flushCtx, cfg.KafkaTelemetryTopic, m.Key, m.Value, execErr.Error())
+				}
+			}
+		}
+
+		batch = append(batch, redisBatch...)
+		redisBatch = redisBatch[:0]
+
+		if len(batch) >= maxBatchSize {
+			flushBatch(flushCtx)
+		}
+	}
+
+	msgChan := make(chan segmentio.Message, 2000)
+	errChan := make(chan error, 1)
+
+	go func() {
+		for {
 			msg, err := consumer.FetchMessage(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				log.Printf("[LIVE CONSUMER] fetch error: %v", err)
+				errChan <- err
 				time.Sleep(1 * time.Second)
 				continue
 			}
+			select {
+			case msgChan <- msg:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[LIVE CONSUMER] context cancelled, flushing pending offsets...")
+			flushRedisBatch(context.Background())
+			flushBatch(context.Background())
+			return
+		case err := <-errChan:
+			log.Printf("[LIVE CONSUMER] fetch error: %v", err)
+		case msg := <-msgChan:
 			var t telemetrydomain.Telemetry
 			if err := json.Unmarshal(msg.Value, &t); err != nil {
 				log.Printf("[LIVE CONSUMER] decode error: %v", err)
-				consumer.CommitMessages(ctx, msg) // Drop invalid messages
+				session.TelemetryConsumerDroppedMessagesTotal.Inc()
+				// Drop invalid messages
+				_ = consumer.CommitMessages(ctx, msg)
 				continue
 			}
+
+			session.TelemetryConsumerMessagesTotal.Inc()
 
 			// Determine device workspace and active session
 			var workspaceID string
 			var sessionID string
 			wsKey := fmt.Sprintf("device:%s:workspace", t.DeviceID)
-			cachedWS, err := redisClient.Client().Get(ctx, wsKey).Result()
-			if err == nil && cachedWS != "" {
+
+			if cachedWS, ok := getLocalCache(wsKey); ok {
 				workspaceID = cachedWS
 			} else {
-				dev, err := deviceService.GetByID(ctx, t.DeviceID)
-				if err == nil && dev != nil && dev.WorkspaceID != nil {
-					workspaceID = *dev.WorkspaceID
-					_ = redisClient.Client().Set(ctx, wsKey, workspaceID, 24*time.Hour).Err()
+				cachedWS, err := redisClient.Client().Get(ctx, wsKey).Result()
+				if err == nil && cachedWS != "" {
+					workspaceID = cachedWS
+					setLocalCache(wsKey, workspaceID, 10*time.Second)
+				} else {
+					dev, err := deviceService.GetByID(ctx, t.DeviceID)
+					if err == nil && dev != nil && dev.WorkspaceID != nil {
+						workspaceID = *dev.WorkspaceID
+						_ = redisClient.Client().Set(ctx, wsKey, workspaceID, 24*time.Hour).Err()
+						setLocalCache(wsKey, workspaceID, 10*time.Second)
+					}
 				}
 			}
 
 			if workspaceID != "" {
 				sessionKey := fmt.Sprintf("workspace:%s:active_session", workspaceID)
-				sID, err := redisClient.Client().Get(ctx, sessionKey).Result()
-				if err == nil && sID != "" {
+				if sID, ok := getLocalCache(sessionKey); ok {
 					sessionID = sID
-				}
-			}
-
-			// Under strictly session-centric pipeline: raw telemetry is only made available
-			// during an active running session. If no session is active, it is not stored.
-			if sessionID != "" {
-				err = withRetry(3, func() error {
-					return telemetryRepo.SetLatest(ctx, t.DeviceID, t)
-				})
-
-				if err != nil {
-					log.Printf("[LIVE CONSUMER] permanent error for device %s: %v", t.DeviceID, err)
-					if kafkaProducer != nil {
-						_ = kafkaProducer.PublishDLQ(ctx, cfg.KafkaTelemetryTopic, msg.Key, msg.Value, err.Error())
+				} else {
+					sID, err := redisClient.Client().Get(ctx, sessionKey).Result()
+					if err == nil && sID != "" {
+						sessionID = sID
+						setLocalCache(sessionKey, sessionID, 2*time.Second)
 					}
 				}
-
-				// Continuously update rolling session aggregates in Redis
-				accumulateSessionMetrics(ctx, redisClient, sessionID, t.DeviceID, t)
 			}
 
-			consumer.CommitMessages(ctx, msg)
+			if sessionID != "" {
+				// 1. Set latest telemetry in Redis using pipeline
+				if err := telemetryRepo.SetLatestPipeline(ctx, pipe, t.DeviceID, t); err != nil {
+					log.Printf("[LIVE CONSUMER] failed to pipeline SetLatest: %v", err)
+				}
+
+				// 2. Accumulate metrics in the same Redis pipeline
+				accumulateSessionMetrics(ctx, pipe, sessionID, t.DeviceID, t)
+
+				redisBatch = append(redisBatch, msg)
+				if len(redisBatch) >= 100 {
+					flushRedisBatch(ctx)
+				}
+			} else {
+				batch = append(batch, msg)
+				if len(batch) >= maxBatchSize {
+					flushBatch(ctx)
+				}
+			}
+		case <-commitTimer.C:
+			flushRedisBatch(ctx)
+			flushBatch(ctx)
 		}
 	}
 }
@@ -629,42 +775,85 @@ func toFloat(val interface{}) (float64, bool) {
 	}
 }
 
-func updateMinMaxFloat(ctx context.Context, r *redis.Client, minKey, maxKey string, val float64) {
-	// For Min
-	minValStr, err := r.Client().Get(ctx, minKey).Result()
-	if err != nil {
-		r.Client().Set(ctx, minKey, val, 0)
-	} else {
-		var currentMin float64
-		if _, err := fmt.Sscanf(minValStr, "%f", &currentMin); err == nil && val < currentMin {
-			r.Client().Set(ctx, minKey, val, 0)
-		}
-	}
+var updateMinMaxScript = goredis.NewScript(`
+	local val = tonumber(ARGV[1])
+	local minKey = KEYS[1]
+	local maxKey = KEYS[2]
 
-	// For Max
-	maxValStr, err := r.Client().Get(ctx, maxKey).Result()
-	if err != nil {
-		r.Client().Set(ctx, maxKey, val, 0)
-	} else {
-		var currentMax float64
-		if _, err := fmt.Sscanf(maxValStr, "%f", &currentMax); err == nil && val > currentMax {
-			r.Client().Set(ctx, maxKey, val, 0)
-		}
-	}
-}
+	-- update min
+	local curMin = redis.call('get', minKey)
+	if not curMin or val < tonumber(curMin) then
+		redis.call('set', minKey, val)
+	end
 
-func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	const R = 6371.0 // Earth radius in km
-	dLat := (lat2 - lat1) * (math.Pi / 180.0)
-	dLon := (lon2 - lon1) * (math.Pi / 180.0)
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(lat1*(math.Pi/180.0))*math.Cos(lat2*(math.Pi/180.0))*
-			math.Sin(dLon/2)*math.Sin(dLon/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	return R * c
-}
+	-- update max
+	local curMax = redis.call('get', maxKey)
+	if not curMax or val > tonumber(curMax) then
+		redis.call('set', maxKey, val)
+	end
+	return 1
+`)
 
-func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, sessionID, deviceID string, t telemetrydomain.Telemetry) {
+var updateRollupMinMaxScript = goredis.NewScript(`
+	local hashKey = KEYS[1]
+	local minField = ARGV[1]
+	local maxField = ARGV[2]
+	local val = tonumber(ARGV[3])
+
+	-- update min
+	local curMin = redis.call('hget', hashKey, minField)
+	if not curMin or curMin == "" or val < tonumber(curMin) then
+		redis.call('hset', hashKey, minField, val)
+	end
+
+	-- update max
+	local curMax = redis.call('hget', hashKey, maxField)
+	if not curMax or curMax == "" or val > tonumber(curMax) then
+		redis.call('hset', hashKey, maxField, val)
+	end
+	return 1
+`)
+
+var updateGPSDistanceScript = goredis.NewScript(`
+	local gpsKey = KEYS[1]
+	local sessionDistKey = KEYS[2]
+	local deviceDistKey = KEYS[3]
+	local latVal = tonumber(ARGV[1])
+	local lonVal = tonumber(ARGV[2])
+
+	local prevLat = nil
+	local prevLon = nil
+	
+	local latStr = redis.call('hget', gpsKey, 'lat')
+	local lonStr = redis.call('hget', gpsKey, 'lon')
+	if latStr and lonStr then
+		prevLat = tonumber(latStr)
+		prevLon = tonumber(lonStr)
+	end
+
+	local dist = 0.0
+	if prevLat and prevLon then
+		local lat1 = prevLat * 3.141592653589793 / 180.0
+		local lon1 = prevLon * 3.141592653589793 / 180.0
+		local lat2 = latVal * 3.141592653589793 / 180.0
+		local lon2 = lonVal * 3.141592653589793 / 180.0
+		
+		local dLat = lat2 - lat1
+		local dLon = lon2 - lon1
+		
+		local a = math.sin(dLat/2) * math.sin(dLat/2) + math.cos(lat1) * math.cos(lat2) * math.sin(dLon/2) * math.sin(dLon/2)
+		local c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+		dist = 6371.0 * c
+		
+		redis.call('incrbyfloat', sessionDistKey, dist)
+		redis.call('incrbyfloat', deviceDistKey, dist)
+	end
+
+	redis.call('hset', gpsKey, 'lat', ARGV[1], 'lon', ARGV[2])
+	return dist
+`)
+
+func accumulateSessionMetrics(ctx context.Context, pipe goredis.Pipeliner, sessionID, deviceID string, t telemetrydomain.Telemetry) {
 	var metrics map[string]interface{}
 	if err := json.Unmarshal(t.Metrics, &metrics); err != nil {
 		return
@@ -672,28 +861,28 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 
 	// Track sample count (session-wide)
 	countKey := fmt.Sprintf("session:%s:metrics:count", sessionID)
-	redisClient.Client().Incr(ctx, countKey)
+	pipe.Incr(ctx, countKey)
 
 	// Track sample count (per-device)
 	devSampleKey := fmt.Sprintf("session:%s:device:%s:sample_count", sessionID, deviceID)
-	redisClient.Client().Incr(ctx, devSampleKey)
+	pipe.Incr(ctx, devSampleKey)
 
 	// Track device participation
 	devsKey := fmt.Sprintf("session:%s:devices", sessionID)
-	redisClient.Client().SAdd(ctx, devsKey, deviceID)
+	pipe.SAdd(ctx, devsKey, deviceID)
 
 	// Track device first/last seen
 	firstSeenKey := fmt.Sprintf("session:%s:device:%s:first_seen", sessionID, deviceID)
-	redisClient.Client().SetNX(ctx, firstSeenKey, time.Now().Unix(), 0)
+	pipe.SetNX(ctx, firstSeenKey, time.Now().Unix(), 0)
 	lastSeenKey := fmt.Sprintf("session:%s:device:%s:last_seen", sessionID, deviceID)
-	redisClient.Client().Set(ctx, lastSeenKey, time.Now().Unix(), 0)
+	pipe.Set(ctx, lastSeenKey, time.Now().Unix(), 0)
 
 	// Rollup minute key
 	minuteStr := t.RecordedAt.Truncate(time.Minute).Format(time.RFC3339)
 	rollupMinutesKey := fmt.Sprintf("session:%s:device:%s:rollup_minutes", sessionID, deviceID)
-	redisClient.Client().SAdd(ctx, rollupMinutesKey, minuteStr)
+	pipe.SAdd(ctx, rollupMinutesKey, minuteStr)
 	rollupKey := fmt.Sprintf("session:%s:device:%s:rollup:%s", sessionID, deviceID, minuteStr)
-	redisClient.Client().HIncrBy(ctx, rollupKey, "sample_count", 1)
+	pipe.HIncrBy(ctx, rollupKey, "sample_count", 1)
 
 	// Update battery stats
 	var batteryVal float64
@@ -711,19 +900,25 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 	}
 	if hasBattery {
 		// Session aggregates
-		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:battery:sum", sessionID), batteryVal)
-		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:metrics:battery:count", sessionID))
-		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:metrics:battery:min", sessionID), fmt.Sprintf("session:%s:metrics:battery:max", sessionID), batteryVal)
+		pipe.IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:battery:sum", sessionID), batteryVal)
+		pipe.Incr(ctx, fmt.Sprintf("session:%s:metrics:battery:count", sessionID))
+		updateMinMaxScript.Run(ctx, pipe, []string{
+			fmt.Sprintf("session:%s:metrics:battery:min", sessionID),
+			fmt.Sprintf("session:%s:metrics:battery:max", sessionID),
+		}, batteryVal)
 
 		// Per-device aggregates
-		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:battery:sum", sessionID, deviceID), batteryVal)
-		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:device:%s:battery:count", sessionID, deviceID))
-		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:battery:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:battery:max", sessionID, deviceID), batteryVal)
+		pipe.IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:battery:sum", sessionID, deviceID), batteryVal)
+		pipe.Incr(ctx, fmt.Sprintf("session:%s:device:%s:battery:count", sessionID, deviceID))
+		updateMinMaxScript.Run(ctx, pipe, []string{
+			fmt.Sprintf("session:%s:device:%s:battery:min", sessionID, deviceID),
+			fmt.Sprintf("session:%s:device:%s:battery:max", sessionID, deviceID),
+		}, batteryVal)
 
 		// Telemetry Rollup
-		redisClient.Client().HIncrByFloat(ctx, rollupKey, "battery:sum", batteryVal)
-		redisClient.Client().HIncrBy(ctx, rollupKey, "battery:count", 1)
-		updateRollupMinMax(ctx, redisClient, rollupKey, "battery:min", "battery:max", batteryVal)
+		pipe.HIncrByFloat(ctx, rollupKey, "battery:sum", batteryVal)
+		pipe.HIncrBy(ctx, rollupKey, "battery:count", 1)
+		updateRollupMinMaxScript.Run(ctx, pipe, []string{rollupKey}, "battery:min", "battery:max", batteryVal)
 	}
 
 	// Update temperature stats
@@ -747,19 +942,25 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 	}
 	if hasTemp {
 		// Session aggregates
-		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:temp:sum", sessionID), tempVal)
-		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:metrics:temp:count", sessionID))
-		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:metrics:temp:min", sessionID), fmt.Sprintf("session:%s:metrics:temp:max", sessionID), tempVal)
+		pipe.IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:temp:sum", sessionID), tempVal)
+		pipe.Incr(ctx, fmt.Sprintf("session:%s:metrics:temp:count", sessionID))
+		updateMinMaxScript.Run(ctx, pipe, []string{
+			fmt.Sprintf("session:%s:metrics:temp:min", sessionID),
+			fmt.Sprintf("session:%s:metrics:temp:max", sessionID),
+		}, tempVal)
 
 		// Per-device aggregates
-		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:temp:sum", sessionID, deviceID), tempVal)
-		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:device:%s:temp:count", sessionID, deviceID))
-		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:temp:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:temp:max", sessionID, deviceID), tempVal)
+		pipe.IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:temp:sum", sessionID, deviceID), tempVal)
+		pipe.Incr(ctx, fmt.Sprintf("session:%s:device:%s:temp:count", sessionID, deviceID))
+		updateMinMaxScript.Run(ctx, pipe, []string{
+			fmt.Sprintf("session:%s:device:%s:temp:min", sessionID, deviceID),
+			fmt.Sprintf("session:%s:device:%s:temp:max", sessionID, deviceID),
+		}, tempVal)
 
 		// Telemetry Rollup
-		redisClient.Client().HIncrByFloat(ctx, rollupKey, "temp:sum", tempVal)
-		redisClient.Client().HIncrBy(ctx, rollupKey, "temp:count", 1)
-		updateRollupMinMax(ctx, redisClient, rollupKey, "temp:min", "temp:max", tempVal)
+		pipe.HIncrByFloat(ctx, rollupKey, "temp:sum", tempVal)
+		pipe.HIncrBy(ctx, rollupKey, "temp:count", 1)
+		updateRollupMinMaxScript.Run(ctx, pipe, []string{rollupKey}, "temp:min", "temp:max", tempVal)
 	}
 
 	// Update signal stats (RSSI / signal strength)
@@ -778,14 +979,17 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 	}
 	if hasRSSI {
 		// Per-device aggregates
-		redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:signal:sum", sessionID, deviceID), rssiVal)
-		redisClient.Client().Incr(ctx, fmt.Sprintf("session:%s:device:%s:signal:count", sessionID, deviceID))
-		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:signal:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:signal:max", sessionID, deviceID), rssiVal)
+		pipe.IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:signal:sum", sessionID, deviceID), rssiVal)
+		pipe.Incr(ctx, fmt.Sprintf("session:%s:device:%s:signal:count", sessionID, deviceID))
+		updateMinMaxScript.Run(ctx, pipe, []string{
+			fmt.Sprintf("session:%s:device:%s:signal:min", sessionID, deviceID),
+			fmt.Sprintf("session:%s:device:%s:signal:max", sessionID, deviceID),
+		}, rssiVal)
 
 		// Telemetry Rollup
-		redisClient.Client().HIncrByFloat(ctx, rollupKey, "signal:sum", rssiVal)
-		redisClient.Client().HIncrBy(ctx, rollupKey, "signal:count", 1)
-		updateRollupMinMax(ctx, redisClient, rollupKey, "signal:min", "signal:max", rssiVal)
+		pipe.HIncrByFloat(ctx, rollupKey, "signal:sum", rssiVal)
+		pipe.HIncrBy(ctx, rollupKey, "signal:count", 1)
+		updateRollupMinMaxScript.Run(ctx, pipe, []string{rollupKey}, "signal:min", "signal:max", rssiVal)
 	}
 
 	// Update uptime metrics
@@ -803,10 +1007,13 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 		}
 	}
 	if hasUptime {
-		updateMinMaxFloat(ctx, redisClient, fmt.Sprintf("session:%s:device:%s:uptime_s:min", sessionID, deviceID), fmt.Sprintf("session:%s:device:%s:uptime_s:max", sessionID, deviceID), uptimeVal)
+		updateMinMaxScript.Run(ctx, pipe, []string{
+			fmt.Sprintf("session:%s:device:%s:uptime_s:min", sessionID, deviceID),
+			fmt.Sprintf("session:%s:device:%s:uptime_s:max", sessionID, deviceID),
+		}, uptimeVal)
 	}
 
-	// Update distance travelled (Haversine formula based on lat/lon)
+	// Update distance travelled (Haversine formula based on lat/lon via Lua)
 	var latVal, lonVal float64
 	hasGPS := false
 	if vLat, okLat := metrics["latitude"]; okLat {
@@ -841,49 +1048,14 @@ func accumulateSessionMetrics(ctx context.Context, redisClient *redis.Client, se
 
 	if hasGPS {
 		gpsKey := fmt.Sprintf("session:%s:device:%s:last_gps", sessionID, deviceID)
-		lastGPS, err := redisClient.Client().HGetAll(ctx, gpsKey).Result()
-		if err == nil && len(lastGPS) > 0 {
-			var prevLat, prevLon float64
-			_, err1 := fmt.Sscanf(lastGPS["lat"], "%f", &prevLat)
-			_, err2 := fmt.Sscanf(lastGPS["lon"], "%f", &prevLon)
-			if err1 == nil && err2 == nil {
-				dist := haversineDistance(prevLat, prevLon, latVal, lonVal)
-				// Session-wide distance
-				redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:metrics:distance", sessionID), dist)
-				// Per-device distance
-				redisClient.Client().IncrByFloat(ctx, fmt.Sprintf("session:%s:device:%s:distance", sessionID, deviceID), dist)
-			}
-		}
-		// Update last known gps
-		redisClient.Client().HSet(ctx, gpsKey, map[string]interface{}{
-			"lat": fmt.Sprintf("%f", latVal),
-			"lon": fmt.Sprintf("%f", lonVal),
-		})
+		sessionDistKey := fmt.Sprintf("session:%s:metrics:distance", sessionID)
+		deviceDistKey := fmt.Sprintf("session:%s:device:%s:distance", sessionID, deviceID)
+		updateGPSDistanceScript.Run(ctx, pipe, []string{gpsKey, sessionDistKey, deviceDistKey}, latVal, lonVal)
 	}
 }
 
 func updateRollupMinMax(ctx context.Context, r *redis.Client, hashKey, minField, maxField string, val float64) {
-	// Min
-	minValStr, err := r.Client().HGet(ctx, hashKey, minField).Result()
-	if err != nil || minValStr == "" {
-		r.Client().HSet(ctx, hashKey, minField, val)
-	} else {
-		var currentMin float64
-		if _, err := fmt.Sscanf(minValStr, "%f", &currentMin); err == nil && val < currentMin {
-			r.Client().HSet(ctx, hashKey, minField, val)
-		}
-	}
-
-	// Max
-	maxValStr, err := r.Client().HGet(ctx, hashKey, maxField).Result()
-	if err != nil || maxValStr == "" {
-		r.Client().HSet(ctx, hashKey, maxField, val)
-	} else {
-		var currentMax float64
-		if _, err := fmt.Sscanf(maxValStr, "%f", &currentMax); err == nil && val > currentMax {
-			r.Client().HSet(ctx, hashKey, maxField, val)
-		}
-	}
+	// Dummy function to keep any old references happy, though we don't call it.
 }
 
 type deviceState struct {

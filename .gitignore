@@ -13,6 +13,8 @@ cmd/ota-keygen/*
 *.exe
 report.md
 argus_must_haves.md
+benchmark_report_1000_devices_15min.md
+benchmark_report.md
 argus_esp32.cpp
 firmware_v1.cpp
 firmware_v2.cpp
