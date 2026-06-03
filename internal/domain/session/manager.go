@@ -43,7 +43,7 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 	}
 
 	// 1. Enforce Subscription Limits
-	tenantID := "default-tenant"
+	tenantID := "00000000-0000-0000-0000-000000000000"
 	currentPlan := usage.PlanFree // Hardcoded for prototype
 
 	if err := m.usageService.CheckSessionLimit(ctx, tenantID, currentPlan); err != nil {

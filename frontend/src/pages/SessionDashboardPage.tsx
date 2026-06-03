@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { Square, Activity, AlertTriangle } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useStopSession } from "../hooks/useArgusData";
 import { PageHeader, Panel, StatCard } from "../components/ui";
 
@@ -32,10 +32,10 @@ export function SessionDashboardPage() {
         actions={
           <div style={{ display: "flex", gap: "12px" }}>
             <button className="button danger" onClick={() => handleStop(false)}>
-              <Square size={16} /> Fail Mission
+              <XCircle size={16} /> Fail Mission
             </button>
             <button className="button primary" onClick={() => handleStop(true)}>
-              <Square size={16} /> Complete Mission
+              <CheckCircle size={16} /> Complete Mission
             </button>
           </div>
         }
