@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Briefcase, Plus, Rocket, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   EmptyState,
@@ -16,8 +16,9 @@ import {
   StatCard,
   StatusChip
 } from "../components/ui";
-import { useAlerts, useAllDeployments, useDevices, useFirmware, useHealth, useOTAStats } from "../hooks/useArgusData";
+import { useAlerts, useAllDeployments, useCreateWorkspace, useDevices, useFirmware, useHealth, useOTAStats, useWorkspaces } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { countByStatus, formatDate } from "../lib/format";
 import type { JsonValue } from "../types/api";
 
@@ -100,6 +101,11 @@ function extractSignalReading(device: { metadata?: JsonValue }, liveTelemetry?: 
 }
 
 export function DashboardPage() {
+  return <FleetDashboard />;
+}
+
+function FleetDashboard() {
+  const { workspaceDevices } = useWorkspaceContext();
   const devices = useDevices({ realtime: true });
   const { telemetryByDevice } = useRealtime();
   const alerts = useAlerts();
@@ -107,10 +113,12 @@ export function DashboardPage() {
   const health = useHealth();
   const otaStats = useOTAStats();
   const deployments = useAllDeployments();
-  const deviceList = devices.data ?? [];
+  const deviceList = workspaceDevices;
   const statusCounts = countByStatus(deviceList);
   const [filter, setFilter] = useState("All");
   const [page, setPage] = useState(1);
+
+  const activeDeviceIds = useMemo(() => new Set(deviceList.map(d => d.id)), [deviceList]);
 
   const filtered = useMemo(() => {
     if (filter === "All") return deviceList;
@@ -132,28 +140,37 @@ export function DashboardPage() {
   const eventEntries = useMemo(() => {
     const entries: { time: string; type: string; detail: ReactNode }[] = [];
     if (alerts.data) {
-      alerts.data.slice(0, 6).forEach((alert) => {
-        const time = new Date(alert.created_at).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        entries.push({
-          time,
-          type: "ALERT",
-          detail: (
-            <>
-              <CopyableID id={alert.device_id} length={8} /> {alert.message}
-            </>
-          )
+      alerts.data
+        .filter((alert) => activeDeviceIds.has(alert.device_id))
+        .slice(0, 6)
+        .forEach((alert) => {
+          const time = new Date(alert.created_at).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          entries.push({
+            time,
+            type: "ALERT",
+            detail: (
+              <>
+                <CopyableID id={alert.device_id} length={8} /> {alert.message}
+              </>
+            )
+          });
         });
-      });
     }
     return entries;
-  }, [alerts.data]);
+  }, [alerts.data, activeDeviceIds]);
 
   const totalDevices = deviceList.length;
   const onlineCount = statusCounts.online ?? 0;
   const warningCount = statusCounts.warning ?? 0;
   const criticalCount = statusCounts.critical ?? 0;
   const offlineCount = statusCounts.offline ?? 0;
-  const otaCount = (deployments.data ?? []).filter((deployment) => ["pending", "available", "downloading", "flashing", "rebooting"].includes(deployment.status)).length;
+  const otaCount = (deployments.data ?? []).filter((deployment) => activeDeviceIds.has(deployment.device_id) && ["pending", "available", "downloading", "flashing", "rebooting"].includes(deployment.status)).length;
+
+  const workspaceAvgHealth = useMemo(() => {
+    if (totalDevices === 0) return 100;
+    const stableCount = onlineCount + warningCount;
+    return (stableCount / totalDevices) * 100;
+  }, [totalDevices, onlineCount, warningCount]);
 
   return (
     <>
@@ -170,24 +187,24 @@ export function DashboardPage() {
         <StatCard
           label="Total Devices"
           value={totalDevices.toLocaleString()}
-          detail="Total Devices"
+          detail="Active profile total"
         />
         <StatCard
           label="Online"
           value={onlineCount.toLocaleString()}
-          detail="Online"
+          detail="Currently connected"
           tone="success"
         />
         <StatCard
-          label="Warnings"
-          value={warningCount.toLocaleString()}
-          detail="Warnings"
-          tone="warning"
+          label="Avg Health"
+          value={`${workspaceAvgHealth.toFixed(1)}%`}
+          detail="Workspace average"
+          tone={workspaceAvgHealth < 70 ? "danger" : "success"}
         />
         <StatCard
-          label="Critical"
+          label="High Risk"
           value={criticalCount.toLocaleString()}
-          detail="Critical"
+          detail="Critical devices"
           tone="danger"
         />
         <StatCard

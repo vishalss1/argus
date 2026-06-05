@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -15,6 +16,10 @@ type Config struct {
 
 type Client struct {
 	client *goredis.Client
+}
+
+func (c *Client) Client() *goredis.Client {
+	return c.client
 }
 
 func New(ctx context.Context, cfg Config) (*Client, error) {
@@ -38,4 +43,14 @@ func (c *Client) Close() error {
 	}
 
 	return c.client.Close()
+}
+
+func (c *Client) SetDeviceWorkspace(ctx context.Context, deviceID string, workspaceID string) error {
+	wsKey := fmt.Sprintf("device:%s:workspace", deviceID)
+	return c.client.Set(ctx, wsKey, workspaceID, 24*time.Hour).Err()
+}
+
+func (c *Client) DeleteDeviceWorkspace(ctx context.Context, deviceID string) error {
+	wsKey := fmt.Sprintf("device:%s:workspace", deviceID)
+	return c.client.Del(ctx, wsKey).Err()
 }

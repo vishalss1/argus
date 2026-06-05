@@ -10,7 +10,6 @@ import (
 
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	"github.com/vishalss1/argus/internal/domain/event"
-	"github.com/vishalss1/argus/internal/domain/incident"
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
@@ -19,10 +18,9 @@ import (
 type Engine struct {
 	embeddingProvider embedding.Provider
 	aiProvider        ai.Provider
-	vectorStore      *postgres.VectorStore
-	eventRepo        *postgres.EventRepository
-	incidentRepo     *postgres.IncidentRepository
-	contextRepo      *postgres.ContextRepository
+	vectorStore       *postgres.VectorStore
+	eventRepo         *postgres.EventRepository
+	contextRepo       *postgres.ContextRepository
 }
 
 func NewEngine(
@@ -30,16 +28,14 @@ func NewEngine(
 	aiProvider ai.Provider,
 	vectorStore *postgres.VectorStore,
 	eventRepo *postgres.EventRepository,
-	incidentRepo *postgres.IncidentRepository,
 	contextRepo *postgres.ContextRepository,
 ) *Engine {
 	return &Engine{
 		embeddingProvider: embeddingProvider,
 		aiProvider:        aiProvider,
-		vectorStore:      vectorStore,
-		eventRepo:        eventRepo,
-		incidentRepo:     incidentRepo,
-		contextRepo:      contextRepo,
+		vectorStore:       vectorStore,
+		eventRepo:         eventRepo,
+		contextRepo:       contextRepo,
 	}
 }
 
@@ -89,11 +85,6 @@ func (e *Engine) formatContext(c *Context) string {
 		buf.WriteString(fmt.Sprintf("- Title: %s | Summary: %s (Time: %s)\n", ev.Title, ev.Summary, ev.CreatedAt.Format(time.RFC3339)))
 	}
 
-	buf.WriteString("\n--- RELEVANT INCIDENTS ---\n")
-	for _, inc := range c.Incidents {
-		buf.WriteString(fmt.Sprintf("- Title: %s | Summary: %s (Status: %s, Severity: %s)\n", inc.Title, inc.Summary, inc.Status, inc.Severity))
-	}
-
 	buf.WriteString("\n--- OPERATIONAL MEMORY ---\n")
 	for _, mem := range c.Memories {
 		buf.WriteString(fmt.Sprintf("- Type: %s | Summary: %s\n", mem.Type, mem.Summary))
@@ -103,9 +94,8 @@ func (e *Engine) formatContext(c *Context) string {
 }
 
 type Context struct {
-	Events    []event.Event
-	Incidents []incident.Incident
-	Memories  []ctxdomain.OperationalMemory
+	Events   []event.Event
+	Memories []ctxdomain.OperationalMemory
 }
 
 func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Context, error) {
@@ -123,11 +113,6 @@ func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Cont
 		if ev, err := e.eventRepo.GetByID(ctx, id); err == nil {
 			retrievedContext.Events = append(retrievedContext.Events, *ev)
 			seenIDs[ev.ID] = true
-		}
-		// Try incident lookup
-		if inc, err := e.incidentRepo.GetByID(ctx, id); err == nil {
-			retrievedContext.Incidents = append(retrievedContext.Incidents, *inc)
-			seenIDs[inc.ID] = true
 		}
 	}
 
@@ -157,23 +142,7 @@ func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Cont
 		log.Printf("[QUERY ENGINE] event vector search failed: %v", err)
 	}
 
-	// 2.2 Search incidents
-	incidentResults, err := e.vectorStore.Search(ctx, "incidents", queryVector, 3)
-	if err == nil {
-		log.Printf("[QUERY ENGINE] found %d semantic incident matches", len(incidentResults))
-		for _, res := range incidentResults {
-			if seenIDs[res.ID] {
-				continue
-			}
-			inc, err := e.incidentRepo.GetByID(ctx, res.ID)
-			if err == nil {
-				retrievedContext.Incidents = append(retrievedContext.Incidents, *inc)
-				seenIDs[inc.ID] = true
-			}
-		}
-	}
-
-	// 2.3 Search operational memory
+	// 2.2 Search operational memory
 	memoryResults, err := e.vectorStore.Search(ctx, "operational_memory", queryVector, 3)
 	if err == nil {
 		log.Printf("[QUERY ENGINE] found %d semantic memory matches", len(memoryResults))

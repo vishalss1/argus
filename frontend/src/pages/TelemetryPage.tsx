@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -11,23 +12,55 @@ import {
   Wifi,
   Workflow,
   AlertTriangle,
-  ArrowRight,
-  Database,
-  Play,
-  X,
   Info,
   Server,
   Code,
-  LineChart,
   Terminal,
-  Layers
+  Database,
+  X,
+  Play,
+  ArrowRight
 } from "lucide-react";
-import { CopyableID, EmptyState, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
-import { useDevices, useAlerts, useCommands, useDeployments } from "../hooks/useArgusData";
+import { CopyableID, EmptyState, PageHeader, Panel, StatusChip } from "../components/ui";
+import { useDevices, useAlerts, useCommands, useDeployments, useSessions } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { api } from "../services/api";
 import { safeJsonParse, stringifyJson, compactID } from "../lib/format";
-import type { Telemetry, Device, Command, Deployment } from "../types/api";
+import type { Telemetry } from "../types/api";
+
+function SessionRequiredPrompt({ title, description }: { title: string; description: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 500, width: "100%", textAlign: "center" }}>
+        <div style={{
+          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
+          background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(245,158,11,0.1))",
+          border: "1px solid rgba(239,68,68,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <Play size={36} style={{ color: "var(--danger)" }} />
+        </div>
+
+        <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
+          {title}
+        </h2>
+        <p className="muted" style={{ fontSize: "15px", lineHeight: 1.6, margin: "0 0 28px" }}>
+          {description}
+        </p>
+
+        <Link
+          to="/workspaces"
+          className="button primary"
+          style={{ padding: "12px 24px", fontSize: "15px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "8px", textDecoration: "none" }}
+        >
+          Go to Workspaces
+          <ArrowRight size={16} />
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 interface ChartProps {
   data: Telemetry[];
@@ -247,9 +280,15 @@ function formatMetricLabel(key: string): string {
 }
 
 export function TelemetryPage() {
+  const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
   const devices = useDevices();
   const alerts = useAlerts();
   const realtime = useRealtime();
+  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedWorkspaceId);
+
+  const activeSession = useMemo(() => {
+    return sessions?.find(s => s.status === "RUNNING") || null;
+  }, [sessions]);
 
   const [deviceID, setDeviceID] = useState("");
   const [timeframe, setTimeframe] = useState<"15m" | "1h" | "24h" | "7d">("1h");
@@ -273,47 +312,63 @@ export function TelemetryPage() {
     enabled: Boolean(deviceID)
   });
 
-  // Fleet stats computation
-  const totalFleetCount = devices.data?.length ?? 0;
-  const onlineCount = devices.data?.filter(d => d.status === "online").length ?? 0;
-  const offlineCount = devices.data?.filter(d => d.status === "offline").length ?? 0;
+  // Reset selected device ID when active workspace switches
+  useEffect(() => {
+    setDeviceID("");
+    setShowSimulation(false);
+    setShowRawPayload(false);
+  }, [selectedWorkspaceId]);
+
+  // Workspace-scoped Fleet stats computation
+  const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
+  const totalFleetCount = workspaceDevices.length;
+  const onlineCount = workspaceDevices.filter(d => d.status === "online").length;
+  const offlineCount = workspaceDevices.filter(d => d.status === "offline").length;
   
-  const activeAlertsCount = alerts.data?.length ?? 0;
+  const activeAlertsCount = useMemo(() => {
+    if (!alerts.data) return 0;
+    return alerts.data.filter(a => activeDeviceIds.has(a.device_id)).length;
+  }, [alerts.data, activeDeviceIds]);
 
   const totalMessageCount = useMemo(() => {
-    return Object.values(realtime.telemetryByDevice).reduce((acc, curr) => acc + curr.length, 0);
-  }, [realtime.telemetryByDevice]);
+    return Object.keys(realtime.telemetryByDevice)
+      .filter(id => activeDeviceIds.has(id))
+      .reduce((acc, curr) => acc + (realtime.telemetryByDevice[curr]?.length ?? 0), 0);
+  }, [realtime.telemetryByDevice, activeDeviceIds]);
 
   const avgRSSI = useMemo(() => {
     let sum = 0;
     let count = 0;
-    Object.values(realtime.telemetryByDevice).forEach(packets => {
-      if (packets.length > 0) {
-        const last = packets[0];
-        const val = Number((last.metrics as any)?.rssi_dbm ?? (last.metrics as any)?.rssi);
-        if (Number.isFinite(val)) {
-          sum += val;
-          count++;
+    Object.keys(realtime.telemetryByDevice)
+      .filter(id => activeDeviceIds.has(id))
+      .forEach(id => {
+        const packets = realtime.telemetryByDevice[id] || [];
+        if (packets.length > 0) {
+          const last = packets[0];
+          const val = Number((last.metrics as any)?.rssi_dbm ?? (last.metrics as any)?.rssi);
+          if (Number.isFinite(val)) {
+            sum += val;
+            count++;
+          }
         }
-      }
-    });
+      });
     return count > 0 ? Math.round(sum / count) : -65;
-  }, [realtime.telemetryByDevice]);
+  }, [realtime.telemetryByDevice, activeDeviceIds]);
 
   const firmwareDistribution = useMemo(() => {
     const counts: Record<string, number> = {};
-    devices.data?.forEach(d => {
+    workspaceDevices.forEach(d => {
       const v = d.firmware_version || "Unknown";
       counts[v] = (counts[v] || 0) + 1;
     });
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     if (sorted.length === 0) return "N/A";
     return `${sorted[0][0]} (${sorted[0][1]} dev)`;
-  }, [devices.data]);
+  }, [workspaceDevices]);
 
   // Selected device scoping
   const liveTelemetry = deviceID ? realtime.telemetryByDevice[deviceID] || [] : [];
-  const selectedDevice = devices.data?.find(d => d.id === deviceID);
+  const selectedDevice = workspaceDevices.find(d => d.id === deviceID);
 
   const latestTelemetry = liveTelemetry[0];
   const latestMetrics = (latestTelemetry?.metrics as any) || {};
@@ -508,6 +563,27 @@ export function TelemetryPage() {
     }
   }
 
+  if (devices.isLoading || alerts.isLoading || sessionsLoading) {
+    return (
+      <div className="workspace">
+        <div className="empty-state">
+          <Clock className="animate-spin" size={24} />
+          <h3>Initializing Context</h3>
+          <p>Assembling fleet intelligence from operational memory...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!activeSession) {
+    return (
+      <SessionRequiredPrompt
+        title="Session Required for Telemetry Observability"
+        description="Real-time telemetry streams, system metric graphs, and simulated payload events require an active operational session in this workspace."
+      />
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -558,7 +634,7 @@ export function TelemetryPage() {
           <span>Monitor Device</span>
           <select value={deviceID} onChange={(event) => setDeviceID(event.target.value)}>
             <option value="">Select monitored device</option>
-            {devices.data?.map((device) => (
+            {workspaceDevices.map((device) => (
               <option key={device.id} value={device.id}>
                 {device.name} · {compactID(device.id)} ({device.status})
               </option>
