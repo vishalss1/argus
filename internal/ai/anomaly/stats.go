@@ -67,3 +67,101 @@ func (z *ZScore) Push(val float64) float64 {
 
 	return (val - mean) / stdDev
 }
+
+// RollingStats tracks statistics for a single metric of a device dynamically.
+type RollingStats struct {
+	window  []float64
+	size    int
+	count   int64
+	min     float64
+	max     float64
+	varying bool
+}
+
+func NewRollingStats(size int) *RollingStats {
+	return &RollingStats{
+		size: size,
+	}
+}
+
+func (s *RollingStats) Push(val float64) (mean, variance, stdDev, zScore float64, outlier, stuck bool) {
+	nBefore := len(s.window)
+	if nBefore > 0 && val != s.window[nBefore-1] {
+		s.varying = true
+	}
+
+	s.window = append(s.window, val)
+	if len(s.window) > s.size {
+		s.window = s.window[1:]
+	}
+
+	if s.count == 0 {
+		s.min = val
+		s.max = val
+	} else {
+		if val < s.min {
+			s.min = val
+		}
+		if val > s.max {
+			s.max = val
+		}
+	}
+	s.count++
+
+	n := len(s.window)
+	if n == 0 {
+		return 0, 0, 0, 0, false, false
+	}
+
+	// Calculate Mean
+	sum := 0.0
+	for _, v := range s.window {
+		sum += v
+	}
+	mean = sum / float64(n)
+
+	// Calculate Variance and StdDev
+	varianceSum := 0.0
+	for _, v := range s.window {
+		varianceSum += (v - mean) * (v - mean)
+	}
+	variance = varianceSum / float64(n)
+	stdDev = math.Sqrt(variance)
+
+	// Calculate Z-Score
+	if stdDev > 0 {
+		zScore = (val - mean) / stdDev
+	}
+
+	// Detect Outlier (only if we have enough samples to avoid false positives on startup)
+	if n >= 5 && stdDev > 0 {
+		outlier = math.Abs(zScore) > 3.0
+	}
+
+	// Detect Stuck Sensor: check if last 10 samples are identical AND metric has previously varied
+	if s.varying && n >= 10 {
+		stuck = true
+		lastVal := s.window[n-1]
+		for i := n - 10; i < n; i++ {
+			if s.window[i] != lastVal {
+				stuck = false
+				break
+			}
+		}
+	}
+
+	return mean, variance, stdDev, zScore, outlier, stuck
+}
+
+func (s *RollingStats) Min() float64 {
+	return s.min
+}
+
+func (s *RollingStats) Max() float64 {
+	return s.max
+}
+
+func (s *RollingStats) Count() int64 {
+	return s.count
+}
+

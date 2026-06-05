@@ -20,6 +20,8 @@ func New(
 	otaHandler *handler.OTAHandler,
 	ruleHandler *handler.RuleHandler,
 	aiHandler *handler.AIHandler,
+	workspaceHandler *handler.WorkspaceHandler,
+	sessionHandler *handler.SessionHandler,
 	websocketHandler *transportws.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -38,19 +40,38 @@ func New(
 	apiRouter := chi.NewRouter()
 
 	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
-	apiRouter.Post("/provision", deviceHandler.ProvisionDevice)
+	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
 	apiRouter.Get("/alerts", ruleHandler.ListAlerts)
+
+	apiRouter.Get("/fleet/incidents", aiHandler.ListFleetIncidents)
+
+	apiRouter.Route("/workspaces", func(r chi.Router) {
+		r.Get("/", workspaceHandler.List)
+		r.Post("/", workspaceHandler.Create)
+		r.Route("/{workspaceID}", func(r chi.Router) {
+			r.Get("/", workspaceHandler.Get)
+			r.Get("/devices", workspaceHandler.ListDevices)
+			r.Post("/devices", workspaceHandler.AssignDevice)
+			r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
+			r.Post("/sessions", sessionHandler.Create)
+			r.Get("/sessions", sessionHandler.List)
+		})
+	})
+
+	apiRouter.Route("/sessions/{sessionID}", func(r chi.Router) {
+		r.Get("/", sessionHandler.Get)
+		r.Post("/start", sessionHandler.Start)
+		r.Post("/stop", sessionHandler.Stop)
+		r.Get("/statistics", sessionHandler.GetStatistics)
+		r.Get("/artifact", sessionHandler.GetArtifact)
+		r.Get("/active-incidents", aiHandler.ListSessionActiveIncidents)
+	})
 
 	apiRouter.Route("/ai", func(r chi.Router) {
 		r.Post("/query", aiHandler.Ask)
 		r.Get("/events", aiHandler.ListEvents)
-		r.Get("/incidents", aiHandler.ListIncidents)
 		r.Get("/actions", aiHandler.ListActions)
 		r.Post("/actions/{actionID}/approve", aiHandler.ApproveAction)
-		r.Route("/incidents/{incidentID}", func(r chi.Router) {
-			r.Get("/", aiHandler.GetIncident)
-			r.Post("/resolve", aiHandler.ResolveIncident)
-		})
 	})
 
 	apiRouter.Route("/rules", func(r chi.Router) {
@@ -102,6 +123,9 @@ func New(
 			r.Post("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 				telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
 			})
+			r.Get("/telemetry/latest", func(w http.ResponseWriter, r *http.Request) {
+				telemetryHandler.GetLatestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+			})
 			r.Get("/commands", func(w http.ResponseWriter, r *http.Request) {
 				commandHandler.ListCommands(w, r, chi.URLParam(r, "deviceID"))
 			})
@@ -137,6 +161,7 @@ func New(
 			})
 			r.Get("/ai/events", aiHandler.ListDeviceEvents)
 			r.Get("/ai/history", aiHandler.GetDeviceHistory)
+			r.Get("/status", aiHandler.GetDeviceStatus)
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
 			})

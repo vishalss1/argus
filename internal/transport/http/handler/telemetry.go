@@ -7,16 +7,38 @@ import (
 
 	"github.com/vishalss1/argus/internal/domain/device"
 	"github.com/vishalss1/argus/internal/domain/telemetry"
+	"github.com/vishalss1/argus/internal/infrastructure/redis"
 	"github.com/vishalss1/argus/internal/transport/http/dto"
 )
 
 type TelemetryHandler struct {
-	service *telemetry.Service
+	service   *telemetry.Service
+	redisRepo *redis.TelemetryRepository
 }
 
-func NewTelemetryHandler(service *telemetry.Service) *TelemetryHandler {
-	return &TelemetryHandler{service: service}
+func NewTelemetryHandler(service *telemetry.Service, redisRepo *redis.TelemetryRepository) *TelemetryHandler {
+	return &TelemetryHandler{
+		service:   service,
+		redisRepo: redisRepo,
+	}
 }
+
+func (h *TelemetryHandler) GetLatestTelemetry(w http.ResponseWriter, r *http.Request, deviceID string) {
+	if h.redisRepo == nil {
+		writeError(w, http.StatusServiceUnavailable, "live telemetry not available")
+		return
+	}
+
+	entity, err := h.redisRepo.GetLatest(r.Context(), deviceID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no live telemetry found for device")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, entity)
+}
+
+
 
 // IngestTelemetry godoc
 // @Summary Ingest telemetry

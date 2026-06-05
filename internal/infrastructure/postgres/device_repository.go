@@ -35,7 +35,7 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 			status = EXCLUDED.status,
 			metadata = EXCLUDED.metadata,
 			updated_at = NOW()
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
 
 	created, err := scanDevice(r.db.QueryRowContext(
 		ctx,
@@ -56,7 +56,7 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 
 func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
 		FROM devices
 		ORDER BY created_at DESC`
 
@@ -84,7 +84,7 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 
 func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Device, error) {
 	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
 		FROM devices
 		WHERE id = $1::uuid`
 
@@ -101,7 +101,7 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Devi
 
 func (r *DeviceRepository) GetByHardwareID(ctx context.Context, hardwareID string) (*device.Device, error) {
 	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
 		FROM devices
 		WHERE metadata->>'hardware_id' = $1
 		ORDER BY created_at ASC
@@ -149,7 +149,7 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 			metadata = $6::jsonb,
 			updated_at = NOW()
 		WHERE id = $1::uuid
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
 
 	updated, err := scanDevice(r.db.QueryRowContext(
 		ctx,
@@ -178,7 +178,7 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 			last_seen = NOW(),
 			updated_at = NOW()
 		WHERE id = $1::uuid
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
 
 	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -198,7 +198,7 @@ func (r *DeviceRepository) UpdatePresence(ctx context.Context, id string, status
 			last_seen = $3,
 			updated_at = NOW()
 		WHERE id = $1::uuid
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
 
 	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status, timestamp.UTC()))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -219,7 +219,7 @@ func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Du
 		WHERE status <> 'offline'
 			AND last_seen IS NOT NULL
 			AND last_seen < NOW() - ($1::bigint * INTERVAL '1 second')
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, created_at, updated_at`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
 
 	rows, err := r.db.QueryContext(ctx, query, int64(timeout.Seconds()))
 	if err != nil {
@@ -274,6 +274,7 @@ func scanDevice(scanner deviceScanner) (*device.Device, error) {
 		&entity.Status,
 		&entity.Metadata,
 		&entity.LastSeen,
+		&entity.WorkspaceID,
 		&entity.CreatedAt,
 		&entity.UpdatedAt,
 	)

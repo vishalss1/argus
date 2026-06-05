@@ -7,17 +7,37 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/vishalss1/argus/internal/domain/telemetry"
 )
 
 type Service struct {
-	repo Repository
+	repo      Repository
+	publisher AlertPublisher
+	limiter   AlertLimiter
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+type AlertPublisher interface {
+	PublishAlert(ctx context.Context, alert any) error
+}
+
+type AlertLimiter interface {
+	Allow(ctx context.Context, ruleID string, deviceID string) bool
+}
+
+func (s *Service) SetPublisher(publisher AlertPublisher) {
+	s.publisher = publisher
+}
+
+func (s *Service) SetLimiter(limiter AlertLimiter) {
+	s.limiter = limiter
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*Rule, error) {
@@ -109,26 +129,40 @@ func (s *Service) EvaluateTelemetry(ctx context.Context, event telemetry.Telemet
 			continue
 		}
 
+		if s.limiter != nil && !s.limiter.Allow(ctx, rule.ID, event.DeviceID) {
+			continue // Alert is in cooldown
+		}
+
 		id, err := newID()
 		if err != nil {
 			return nil, err
 		}
 
-		alert, err := s.repo.CreateAlert(ctx, Alert{
+		alert := Alert{
 			ID:            id,
 			RuleID:        rule.ID,
 			DeviceID:      event.DeviceID,
-			TelemetryID:   event.ID,
+			TelemetryID:   &event.ID,
 			Metric:        rule.Metric,
 			Operator:      rule.Operator,
 			Threshold:     rule.Threshold,
 			ObservedValue: observed,
+			Severity:      "warning",
 			Message:       fmt.Sprintf("%s: %s %s %.4g matched observed %.4g", rule.Name, rule.Metric, rule.Operator, rule.Threshold, observed),
-		})
-		if err != nil {
-			return nil, err
+			CreatedAt:     time.Now().UTC(),
 		}
-		alerts = append(alerts, *alert)
+
+		if s.publisher != nil {
+			if err := s.publisher.PublishAlert(ctx, alert); err != nil {
+				log.Printf("[RULE SERVICE] failed to publish alert: %v", err)
+			}
+		} else {
+			if _, err := s.repo.CreateAlert(ctx, alert); err != nil {
+				log.Printf("[RULE SERVICE] failed to persist alert fallback: %v", err)
+			}
+		}
+
+		alerts = append(alerts, alert)
 	}
 
 	return alerts, nil

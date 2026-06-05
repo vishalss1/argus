@@ -384,3 +384,29 @@ export function CardTitle({ children, className = "" }: { children: ReactNode; c
 export function CardContent({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={className}>{children}</div>;
 }
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+      <div className="modal-content panel" onClick={e => e.stopPropagation()} style={{ minWidth: "400px", maxWidth: "90vw", padding: "24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+          <h2 style={{ margin: 0 }}>{title}</h2>
+          <button type="button" onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "18px", color: "var(--faint)" }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}

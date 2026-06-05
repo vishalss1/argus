@@ -15,6 +15,7 @@ export interface Device {
   firmware_version: string;
   status: DeviceStatus;
   metadata?: JsonValue;
+  workspace_id?: string;
   last_seen?: string;
   created_at: string;
   updated_at: string;
@@ -214,4 +215,152 @@ export interface ReasoningResponse {
   confidence: number;
   evidence: string[];
   suggested_actions: string[];
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  device_count: number;
+  created_at: string;
+}
+
+export interface DeviceSummary {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  firmware_version: string;
+  last_seen?: string;
+}
+
+export type SessionStatus = "CREATED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+
+export interface Session {
+  id: string;
+  workspace_id: string;
+  status: SessionStatus;
+  started_at?: string;
+  ended_at?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface SessionEvent {
+  id: string;
+  session_id: string;
+  device_id: string;
+  event_type: string;
+  severity: string;
+  payload: JsonValue;
+  created_at: string;
+}
+
+export interface SessionAlert {
+  id: string;
+  session_id: string;
+  device_id: string;
+  severity: string;
+  message: string;
+  resolved: boolean;
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface SessionCommand {
+  id: string;
+  session_id: string;
+  device_id: string;
+  command: string;
+  issued_by?: string;
+  status: string;
+  issued_at: string;
+  completed_at?: string;
+}
+
+export interface SessionStatistics {
+  session_id: string;
+  duration_seconds: number;
+  messages_processed: number;
+  alerts_count: number;
+  critical_events: number;
+  uptime_percentage: number;
+  average_latency_ms: number;
+  average_battery?: number;
+  minimum_battery?: number;
+  maximum_battery?: number;
+  average_temperature?: number;
+  minimum_temperature?: number;
+  maximum_temperature?: number;
+  distance_travelled?: number;
+  device_participation_count?: number;
+  command_count?: number;
+  anomaly_count?: number;
+  updated_at: string;
+}
+
+
+export interface DeviceStatusInfo {
+  device_id: string;
+  status: string;
+  severity: string;
+  active_incidents: number;
+  open_incidents: {
+    metric: string;
+    incident_type: string;
+    severity: string;
+  }[];
+}
+
+export interface ActiveIncident {
+  device_id: string;
+  metric: string;
+  incident_type: string;
+  severity: string;
+  start_time: string;
+  last_seen: string;
+  occurrences: number;
+  peak_score: number;
+  summary: string;
+}
+
+export interface DeviceSummaryArtifact {
+  device_id: string;
+  first_seen: string;
+  last_seen: string;
+  sample_count: number;
+  warning_incidents_count: number;
+  critical_incidents_count: number;
+  active_at_end: boolean;
+}
+
+export interface ArtifactIncident {
+  device_id: string;
+  metric: string;
+  incident_type: string;
+  severity: string;
+  start_time: string;
+  resolved_at?: string;
+  occurrences: number;
+  peak_score: number;
+  summary: string;
+}
+
+export interface MetricAggregate {
+  count: number;
+  min: number;
+  max: number;
+  average: number;
+  variance: number;
+}
+
+export interface SessionArtifact {
+  session_id: string;
+  generated_at: string;
+  report_version: string;
+  workspace_id: string;
+  session_summary: string;
+  device_summaries: Record<string, DeviceSummaryArtifact>;
+  incidents_archive: ArtifactIncident[];
+  metrics_aggregates: Record<string, Record<string, MetricAggregate>>;
 }

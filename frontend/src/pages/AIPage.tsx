@@ -1,16 +1,77 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../services/api";
 import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
-import { Panel, PageHeader, StatusChip, CopyableID, EmptyState } from "../components/ui";
-import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap } from "lucide-react";
+import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard } from "../components/ui";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, Play } from "lucide-react";
+import { useDeviceStatus, useSessionActiveIncidents, useDevices, useSessions } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
+
+function SessionRequiredPrompt({ title, description }: { title: string; description: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 500, width: "100%", textAlign: "center" }}>
+        <div style={{
+          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
+          background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(245,158,11,0.1))",
+          border: "1px solid rgba(239,68,68,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <Play size={36} style={{ color: "var(--danger)" }} />
+        </div>
+
+        <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
+          {title}
+        </h2>
+        <p className="muted" style={{ fontSize: "15px", lineHeight: 1.6, margin: "0 0 28px" }}>
+          {description}
+        </p>
+
+        <Link
+          to="/workspaces"
+          className="button primary"
+          style={{ padding: "12px 24px", fontSize: "15px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "8px", textDecoration: "none" }}
+        >
+          Go to Workspaces
+          <ArrowRight size={16} />
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 const AIPage: React.FC = () => {
   const [events, setEvents] = useState<SemanticEvent[]>([]);
-  const [incidents, setIncidents] = useState<Incident[]>([]);
+
   const [query, setQuery] = useState("");
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deviceID, setDeviceID] = useState("");
+  
+  const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
+  const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedWorkspaceId);
+
+  const activeSession = useMemo(() => {
+    return sessions?.find(s => s.status === "RUNNING") || null;
+  }, [sessions]);
+
+  const { data: statusInfo } = useDeviceStatus(deviceID);
+  const { data: activeIncidents } = useSessionActiveIncidents(activeSession?.id);
+
+  const filteredActiveIncidents = useMemo(() => {
+    if (!activeIncidents) return [];
+    if (!deviceID) return activeIncidents;
+    return activeIncidents.filter(inc => inc.device_id === deviceID);
+  }, [activeIncidents, deviceID]);
+
+  const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
+
+  const filteredEvents = useMemo<SemanticEvent[]>(() => {
+    return events.filter((ev: SemanticEvent) => activeDeviceIds.has(ev.device_id));
+  }, [events, activeDeviceIds]);
+
+
 
   useEffect(() => {
     fetchBaseData();
@@ -18,12 +79,8 @@ const AIPage: React.FC = () => {
 
   const fetchBaseData = async () => {
     try {
-      const [evs, incs] = await Promise.all([
-        api.ai.listEvents(),
-        api.ai.listIncidents()
-      ]);
+      const evs = await api.ai.listEvents();
       setEvents(evs);
-      setIncidents(incs);
     } catch (err) {
       console.error("Failed to fetch AI data", err);
     } finally {
@@ -47,7 +104,7 @@ const AIPage: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading || sessionsLoading) {
     return (
       <div className="workspace">
         <div className="empty-state">
@@ -59,13 +116,75 @@ const AIPage: React.FC = () => {
     );
   }
 
+  if (!activeSession) {
+    return (
+      <SessionRequiredPrompt
+        title="Session Required for AI Insights"
+        description="AI insights, semantic event correlation, and natural language reasoning require an active operational session in this workspace."
+      />
+    );
+  }
+
   return (
     <>
       <PageHeader 
         title="AI Operational Intelligence" 
         description="Real-time semantic reasoning, statistical anomaly detection, and incident correlation."
-        actions={<div className="live-badge online"><span className="live-dot" />LOCAL INFERENCE ACTIVE</div>}
+        actions={
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <select 
+              value={deviceID} 
+              onChange={(e) => setDeviceID(e.target.value)}
+              className="button secondary compact"
+              style={{ minWidth: 180, background: "var(--surface-2)" }}
+            >
+              <option value="">All Devices</option>
+              {workspaceDevices.map(d => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+            <div className="live-badge online"><span className="live-dot" />LOCAL INFERENCE ACTIVE</div>
+          </div>
+        }
       />
+
+      <div className="stat-grid four" style={{ marginBottom: 18 }}>
+        <StatCard
+          label={deviceID ? "Device Status" : "Active Devices"}
+          value={deviceID ? (statusInfo?.status.toUpperCase() || "OFFLINE") : workspaceDevices.length}
+          detail={deviceID ? "Current device connection state" : "Monitored devices in session"}
+          tone={deviceID ? (statusInfo?.status === "online" ? "success" : "neutral") : "neutral"}
+        />
+        <StatCard
+          label="Worst Severity"
+          value={
+            deviceID 
+              ? (statusInfo?.severity.toUpperCase() || "HEALTHY")
+              : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "CRITICAL" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "WARNING" : "HEALTHY"))
+          }
+          detail="Highest active anomaly level"
+          tone={
+            (deviceID ? statusInfo?.severity : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "critical" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "warning" : "healthy"))) === "critical" 
+              ? "danger" 
+              : ((deviceID ? statusInfo?.severity : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "critical" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "warning" : "healthy"))) === "warning" ? "warning" : "success")
+          }
+        />
+        <StatCard
+          label="Active Incidents"
+          value={deviceID ? (statusInfo?.active_incidents ?? 0) : (activeIncidents?.length ?? 0)}
+          detail="Currently open anomaly streams"
+          tone={(deviceID ? (statusInfo?.active_incidents ?? 0) : (activeIncidents?.length ?? 0)) > 0 ? "warning" : "success"}
+        />
+        <StatCard
+          label="Warning / Critical Counts"
+          value={
+            deviceID
+              ? `${statusInfo?.open_incidents.filter(inc => inc.severity === "warning").length ?? 0} / ${statusInfo?.open_incidents.filter(inc => inc.severity === "critical").length ?? 0}`
+              : `${activeIncidents?.filter(i => i.severity === "warning").length ?? 0} / ${activeIncidents?.filter(i => i.severity === "critical").length ?? 0}`
+          }
+          detail="Warning vs Critical alerts"
+        />
+      </div>
 
       <div className="split">
         <div className="grid">
@@ -161,7 +280,7 @@ const AIPage: React.FC = () => {
                 <Zap size={16} style={{ color: "var(--warning)" }} /> Semantic Operational Feed
               </span>
             }
-            subtitle={`${events.length} events detected`}
+            subtitle={`${filteredEvents.length} events detected`}
           >
             <div className="table-wrap">
               <table className="ai-table">
@@ -174,7 +293,7 @@ const AIPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {events.length === 0 ? (
+                  {filteredEvents.length === 0 ? (
                     <tr>
                       <td colSpan={4}>
                         <EmptyState
@@ -184,7 +303,7 @@ const AIPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    events.slice(0, 12).map(ev => (
+                    filteredEvents.slice(0, 12).map((ev: SemanticEvent) => (
                       <tr key={ev.id}>
                         <td>
                           <strong>{ev.type.replace('_', ' ')}</strong>
@@ -221,28 +340,29 @@ const AIPage: React.FC = () => {
                 <AlertCircle size={14} className="text-danger" /> Active Incidents
               </span>
             }
-            subtitle={`${incidents.filter(i => i.status === "open").length} open incidents`}
+            subtitle={`${filteredActiveIncidents.length} open incidents`}
           >
             <div className="grid" style={{ gap: 12 }}>
-              {incidents.filter(i => i.status === "open").map(inc => (
-                <div key={inc.id} className="incident-card">
+              {filteredActiveIncidents.map((inc, index) => (
+                <div key={`${inc.device_id}-${inc.metric}-${index}`} className="incident-card">
                   <div className="incident-card-header">
                     <StatusChip value={inc.severity} />
                     <time className="incident-time">
                       <Clock size={10} />
-                      {new Date(inc.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(inc.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </time>
                   </div>
-                  <h4 className="incident-title">{inc.title}</h4>
+                  <h4 className="incident-title">{inc.metric} ({inc.incident_type})</h4>
                   <p className="incident-summary">{inc.summary}</p>
                   <div className="incident-devices">
-                    {inc.device_ids.map(d => (
-                      <CopyableID key={d} id={d} length={6} />
-                    ))}
+                    <CopyableID id={inc.device_id} length={6} />
+                    <span className="mono" style={{ fontSize: "11px", color: "var(--muted)", marginLeft: "auto" }}>
+                      Seen: {inc.occurrences}x | Peak: {inc.peak_score.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               ))}
-              {incidents.filter(i => i.status === "open").length === 0 && (
+              {filteredActiveIncidents.length === 0 && (
                 <div className="empty-incidents">
                   No active incidents detected
                 </div>

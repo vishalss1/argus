@@ -43,6 +43,11 @@ type Config struct {
 	GroqBaseURL          string
 	OllamaBaseURL        string
 	OllamaEmbedModel     string
+	WorkerProfiles       string
+	AlertCooldownSeconds int
+	SessionStaleTimeoutHours int
+	KafkaDLQTopic        string
+	KafkaIncidentTopic   string
 }
 
 func Load() *Config {
@@ -60,6 +65,8 @@ func Load() *Config {
 		KafkaBrokers:         splitCSV(os.Getenv("KAFKA_BROKERS")),
 		KafkaTelemetryTopic:  os.Getenv("KAFKA_TELEMETRY_TOPIC"),
 		KafkaCommandTopic:    os.Getenv("KAFKA_COMMAND_TOPIC"),
+		KafkaDLQTopic:        os.Getenv("KAFKA_DLQ_TOPIC"),
+		KafkaIncidentTopic:   os.Getenv("KAFKA_INCIDENT_TOPIC"),
 		RedisAddr:            os.Getenv("REDIS_ADDR"),
 		RedisPassword:        os.Getenv("REDIS_PASSWORD"),
 		MinIOEndpoint:        os.Getenv("MINIO_ENDPOINT"),
@@ -76,6 +83,7 @@ func Load() *Config {
 		GroqBaseURL:          os.Getenv("GROQ_BASE_URL"),
 		OllamaBaseURL:        os.Getenv("OLLAMA_BASE_URL"),
 		OllamaEmbedModel:     os.Getenv("OLLAMA_EMBED_MODEL"),
+		WorkerProfiles:       os.Getenv("WORKER_PROFILES"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -100,10 +108,41 @@ func Load() *Config {
 	if cfg.KafkaCommandTopic == "" {
 		cfg.KafkaCommandTopic = "argus.commands"
 	}
+	if cfg.KafkaDLQTopic == "" {
+		cfg.KafkaDLQTopic = "argus.dlq"
+	}
+	if cfg.KafkaIncidentTopic == "" {
+		cfg.KafkaIncidentTopic = "telemetry.incidents"
+	}
 	cfg.KafkaAIWorkerGroupID = os.Getenv("KAFKA_AI_WORKER_GROUP_ID")
 	if cfg.KafkaAIWorkerGroupID == "" {
 		cfg.KafkaAIWorkerGroupID = "argus-ai-worker"
 	}
+
+	if cfg.WorkerProfiles == "" {
+		cfg.WorkerProfiles = "all"
+	}
+
+	cooldownStr := os.Getenv("ALERT_COOLDOWN_SECONDS")
+	if cooldownStr != "" {
+		parsed, err := strconv.Atoi(cooldownStr)
+		if err == nil && parsed >= 0 {
+			cfg.AlertCooldownSeconds = parsed
+		}
+	} else {
+		cfg.AlertCooldownSeconds = 900 // 15 minutes default
+	}
+
+	staleStr := os.Getenv("SESSION_STALE_TIMEOUT_HOURS")
+	if staleStr != "" {
+		parsed, err := strconv.Atoi(staleStr)
+		if err == nil && parsed > 0 {
+			cfg.SessionStaleTimeoutHours = parsed
+		}
+	} else {
+		cfg.SessionStaleTimeoutHours = 24 // 24 hours default
+	}
+
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "localhost:6379"
 	}

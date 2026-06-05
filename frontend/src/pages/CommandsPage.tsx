@@ -2,18 +2,19 @@ import { FormEvent, useEffect, useState } from "react";
 import { Send } from "lucide-react";
 import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, SelectField, StatusChip } from "../components/ui";
 import { useCommands, useDevices } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
 import { api } from "../services/api";
 
 export function CommandsPage() {
-  const devices = useDevices();
+  const { workspaceDevices } = useWorkspaceContext();
   const [deviceID, setDeviceID] = useState("");
   const commands = useCommands(deviceID);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!deviceID && devices.data?.[0]) setDeviceID(devices.data[0].id);
-  }, [deviceID, devices.data]);
+    if (!deviceID && workspaceDevices[0]) setDeviceID(workspaceDevices[0].id);
+  }, [deviceID, workspaceDevices]);
 
   async function sendCommand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,7 +41,7 @@ export function CommandsPage() {
           <div className="field" style={{ marginBottom: 14 }}>
             <SelectField label="Device" value={deviceID} onChange={setDeviceID}>
               <option value="">Select a device</option>
-              {devices.data?.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+              {workspaceDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
             </SelectField>
           </div>
           {!deviceID ? (
