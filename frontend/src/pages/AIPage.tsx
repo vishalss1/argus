@@ -4,7 +4,7 @@ import { api } from "../services/api";
 import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
 import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard } from "../components/ui";
 import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, Play } from "lucide-react";
-import { useAIFindings, useDevices, useSessions } from "../hooks/useArgusData";
+import { useDeviceStatus, useSessionActiveIncidents, useDevices, useSessions } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 
 function SessionRequiredPrompt({ title, description }: { title: string; description: string }) {
@@ -42,7 +42,7 @@ function SessionRequiredPrompt({ title, description }: { title: string; descript
 
 const AIPage: React.FC = () => {
   const [events, setEvents] = useState<SemanticEvent[]>([]);
-  const [incidents, setIncidents] = useState<Incident[]>([]);
+
   const [query, setQuery] = useState("");
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
@@ -50,12 +50,20 @@ const AIPage: React.FC = () => {
   const [deviceID, setDeviceID] = useState("");
   
   const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
-  const { data: findings } = useAIFindings(deviceID);
   const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedWorkspaceId);
 
   const activeSession = useMemo(() => {
     return sessions?.find(s => s.status === "RUNNING") || null;
   }, [sessions]);
+
+  const { data: statusInfo } = useDeviceStatus(deviceID);
+  const { data: activeIncidents } = useSessionActiveIncidents(activeSession?.id);
+
+  const filteredActiveIncidents = useMemo(() => {
+    if (!activeIncidents) return [];
+    if (!deviceID) return activeIncidents;
+    return activeIncidents.filter(inc => inc.device_id === deviceID);
+  }, [activeIncidents, deviceID]);
 
   const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
 
@@ -63,9 +71,7 @@ const AIPage: React.FC = () => {
     return events.filter((ev: SemanticEvent) => activeDeviceIds.has(ev.device_id));
   }, [events, activeDeviceIds]);
 
-  const filteredIncidents = useMemo<Incident[]>(() => {
-    return incidents.filter((inc: Incident) => inc.device_ids.some((id: string) => activeDeviceIds.has(id)));
-  }, [incidents, activeDeviceIds]);
+
 
   useEffect(() => {
     fetchBaseData();
@@ -73,12 +79,8 @@ const AIPage: React.FC = () => {
 
   const fetchBaseData = async () => {
     try {
-      const [evs, incs] = await Promise.all([
-        api.ai.listEvents(),
-        api.ai.listIncidents()
-      ]);
+      const evs = await api.ai.listEvents();
       setEvents(evs);
-      setIncidents(incs);
     } catch (err) {
       console.error("Failed to fetch AI data", err);
     } finally {
@@ -123,8 +125,6 @@ const AIPage: React.FC = () => {
     );
   }
 
-  const latestFinding = findings && findings.length > 0 ? findings[0] : null;
-
   return (
     <>
       <PageHeader 
@@ -148,33 +148,43 @@ const AIPage: React.FC = () => {
         }
       />
 
-      {deviceID && latestFinding && (
-        <div className="stat-grid four" style={{ marginBottom: 18 }}>
-          <StatCard
-            label="Health Score"
-            value={`${latestFinding.health_score}%`}
-            detail="Overall system health"
-            tone={latestFinding.health_score < 70 ? "danger" : "success"}
-          />
-          <StatCard
-            label="Risk Score"
-            value={latestFinding.risk_score.toFixed(2)}
-            detail="Probability of failure"
-            tone={latestFinding.risk_score > 0.5 ? "danger" : "neutral"}
-          />
-          <StatCard
-            label="AI Summary"
-            value={latestFinding.severity.toUpperCase()}
-            detail={latestFinding.summary}
-            tone={latestFinding.severity === "critical" ? "danger" : "warning"}
-          />
-          <StatCard
-            label="Last Analyzed"
-            value={new Date(latestFinding.created_at).toLocaleTimeString()}
-            detail="Recent inference window"
-          />
-        </div>
-      )}
+      <div className="stat-grid four" style={{ marginBottom: 18 }}>
+        <StatCard
+          label={deviceID ? "Device Status" : "Active Devices"}
+          value={deviceID ? (statusInfo?.status.toUpperCase() || "OFFLINE") : workspaceDevices.length}
+          detail={deviceID ? "Current device connection state" : "Monitored devices in session"}
+          tone={deviceID ? (statusInfo?.status === "online" ? "success" : "neutral") : "neutral"}
+        />
+        <StatCard
+          label="Worst Severity"
+          value={
+            deviceID 
+              ? (statusInfo?.severity.toUpperCase() || "HEALTHY")
+              : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "CRITICAL" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "WARNING" : "HEALTHY"))
+          }
+          detail="Highest active anomaly level"
+          tone={
+            (deviceID ? statusInfo?.severity : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "critical" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "warning" : "healthy"))) === "critical" 
+              ? "danger" 
+              : ((deviceID ? statusInfo?.severity : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "critical" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "warning" : "healthy"))) === "warning" ? "warning" : "success")
+          }
+        />
+        <StatCard
+          label="Active Incidents"
+          value={deviceID ? (statusInfo?.active_incidents ?? 0) : (activeIncidents?.length ?? 0)}
+          detail="Currently open anomaly streams"
+          tone={(deviceID ? (statusInfo?.active_incidents ?? 0) : (activeIncidents?.length ?? 0)) > 0 ? "warning" : "success"}
+        />
+        <StatCard
+          label="Warning / Critical Counts"
+          value={
+            deviceID
+              ? `${statusInfo?.open_incidents.filter(inc => inc.severity === "warning").length ?? 0} / ${statusInfo?.open_incidents.filter(inc => inc.severity === "critical").length ?? 0}`
+              : `${activeIncidents?.filter(i => i.severity === "warning").length ?? 0} / ${activeIncidents?.filter(i => i.severity === "critical").length ?? 0}`
+          }
+          detail="Warning vs Critical alerts"
+        />
+      </div>
 
       <div className="split">
         <div className="grid">
@@ -330,28 +340,29 @@ const AIPage: React.FC = () => {
                 <AlertCircle size={14} className="text-danger" /> Active Incidents
               </span>
             }
-            subtitle={`${filteredIncidents.filter((i: Incident) => i.status === "open").length} open incidents`}
+            subtitle={`${filteredActiveIncidents.length} open incidents`}
           >
             <div className="grid" style={{ gap: 12 }}>
-              {filteredIncidents.filter((i: Incident) => i.status === "open").map((inc: Incident) => (
-                <div key={inc.id} className="incident-card">
+              {filteredActiveIncidents.map((inc, index) => (
+                <div key={`${inc.device_id}-${inc.metric}-${index}`} className="incident-card">
                   <div className="incident-card-header">
                     <StatusChip value={inc.severity} />
                     <time className="incident-time">
                       <Clock size={10} />
-                      {new Date(inc.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(inc.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </time>
                   </div>
-                  <h4 className="incident-title">{inc.title}</h4>
+                  <h4 className="incident-title">{inc.metric} ({inc.incident_type})</h4>
                   <p className="incident-summary">{inc.summary}</p>
                   <div className="incident-devices">
-                    {inc.device_ids.map((d: string) => (
-                      <CopyableID key={d} id={d} length={6} />
-                    ))}
+                    <CopyableID id={inc.device_id} length={6} />
+                    <span className="mono" style={{ fontSize: "11px", color: "var(--muted)", marginLeft: "auto" }}>
+                      Seen: {inc.occurrences}x | Peak: {inc.peak_score.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               ))}
-              {filteredIncidents.filter((i: Incident) => i.status === "open").length === 0 && (
+              {filteredActiveIncidents.length === 0 && (
                 <div className="empty-incidents">
                   No active incidents detected
                 </div>

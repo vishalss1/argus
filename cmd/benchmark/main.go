@@ -86,7 +86,7 @@ func main() {
 	fmt.Printf("Using API Endpoint: %s\n", baseURL)
 
 	// Clean up previous runs
-	cleanupDB(db)
+	cleanupDB(db, cfg)
 
 	// Setup Redis Client for Info collection and flush
 	rdb := goredis.NewClient(&goredis.Options{
@@ -403,7 +403,7 @@ func main() {
 		}
 
 		// D. Kafka Consumer Group Lag Description
-		totLag, peakLag, _, err := getKafkaConsumerLag("argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
+		totLag, peakLag, _, _, err := getKafkaConsumerLag("argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
 		if err == nil {
 			totalLagSeries = append(totalLagSeries, float64(totLag))
 			peakLagSeries = append(peakLagSeries, float64(peakLag))
@@ -476,13 +476,20 @@ func main() {
 	fmt.Println("Waiting for consumer lag to drain to 0...")
 	drainStart := time.Now()
 	for {
-		lag, _, _, err := getKafkaConsumerLag("argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
-		if err == nil && lag == 0 {
-			fmt.Println("Consumer lag successfully drained to 0.")
+		liveLag, _, _, liveMembers, errLive := getKafkaConsumerLag("argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
+		aiLag, _, _, aiMembers, errAI := getKafkaConsumerLag(cfg.KafkaAIWorkerGroupID, cfg.KafkaTelemetryTopic)
+
+		waitingForLive := errLive == nil && (liveMembers > 0 && liveLag > 0)
+		waitingForAI := errAI == nil && (aiMembers > 0 && aiLag > 0)
+
+		if !waitingForLive && !waitingForAI {
+			fmt.Println("All active consumer lags successfully drained to 0.")
 			break
 		}
-		if time.Since(drainStart) > 10*time.Second {
-			fmt.Printf("Timeout waiting for consumer lag to drain. Current lag: %d\n", lag)
+
+		if time.Since(drainStart) > 30*time.Second {
+			fmt.Printf("Timeout waiting for consumer lag to drain. Live lag: %d (members: %d), AI lag: %d (members: %d)\n",
+				liveLag, liveMembers, aiLag, aiMembers)
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -557,7 +564,7 @@ func main() {
 	successfullyProcessed := totalConsumed - totalFailures - totalDropped
 
 	// Wait, we also check final Kafka Lag
-	finalLag, _, partitionLag, err := getKafkaConsumerLag("argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
+	finalLag, _, partitionLag, _, err := getKafkaConsumerLag("argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
 
 	// Enqueue Latency Aggregation
 	var allLatencies []time.Duration
@@ -807,10 +814,10 @@ func main() {
 		}
 	}
 
-	cleanupDB(db)
+	cleanupDB(db, cfg)
 }
 
-func cleanupDB(db *sql.DB) {
+func cleanupDB(db *sql.DB, cfg *config.Config) {
 	_, _ = db.Exec("DELETE FROM tenant_usage")
 	_, _ = db.Exec("DELETE FROM workspace_artifacts WHERE workspace_id = '00000000-0000-0000-0000-000000000001'")
 	_, _ = db.Exec("DELETE FROM workspace_reports WHERE session_id IN (SELECT id FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001')")
@@ -818,6 +825,13 @@ func cleanupDB(db *sql.DB) {
 	_, _ = db.Exec("DELETE FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001'")
 	_, _ = db.Exec("DELETE FROM devices WHERE workspace_id = '00000000-0000-0000-0000-000000000001'")
 	_, _ = db.Exec("DELETE FROM workspaces WHERE id = '00000000-0000-0000-0000-000000000001'")
+
+	// Try to delete the AI worker consumer group to clear its stale offsets if it is not running
+	if cfg.KafkaAIWorkerGroupID != "" {
+		fmt.Printf("Attempting to delete consumer group %s to reset offsets...\n", cfg.KafkaAIWorkerGroupID)
+		groupDelCmd := exec.Command("docker", "exec", "argus-redpanda", "rpk", "group", "delete", cfg.KafkaAIWorkerGroupID)
+		_ = groupDelCmd.Run()
+	}
 
 	// Check if topic exists and has 16 partitions
 	descCmdInit := exec.Command("docker", "exec", "argus-redpanda", "rpk", "topic", "describe", "telemetry.raw")
@@ -1076,17 +1090,18 @@ func parseDockerStats(containerName string) (float64, float64, error) {
 	return cpu, mem * multiplier, nil
 }
 
-func getKafkaConsumerLag(groupName string, topicName string) (int64, int64, map[int32]int64, error) {
+func getKafkaConsumerLag(groupName string, topicName string) (int64, int64, map[int32]int64, int64, error) {
 	cmd := exec.Command("docker", "exec", "argus-redpanda", "rpk", "group", "describe", groupName)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, nil, 0, err
 	}
 	lines := strings.Split(out.String(), "\n")
 	var totalLag int64
 	var peakLag int64
+	var members int64
 	partitionLag := make(map[int32]int64)
 
 	for _, line := range lines {
@@ -1096,6 +1111,15 @@ func getKafkaConsumerLag(groupName string, topicName string) (int64, int64, map[
 			if len(fields) >= 2 {
 				if val, err := strconv.ParseInt(fields[1], 10, 64); err == nil {
 					totalLag = val
+				}
+			}
+		}
+
+		if strings.HasPrefix(line, "MEMBERS") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				if val, err := strconv.ParseInt(fields[1], 10, 64); err == nil {
+					members = val
 				}
 			}
 		}
@@ -1123,7 +1147,7 @@ func getKafkaConsumerLag(groupName string, topicName string) (int64, int64, map[
 		totalLag = sum
 	}
 
-	return totalLag, peakLag, partitionLag, nil
+	return totalLag, peakLag, partitionLag, members, nil
 }
 
 func validateArtifact(httpClient *http.Client, baseURL string, sessionID string, expectedDevices int, durationSeconds int) (bool, string, error) {

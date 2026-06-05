@@ -15,17 +15,16 @@ export const queryKeys = {
   deployments: (deviceID: string) => ["deployments", deviceID] as const,
   deploymentEvents: (deploymentID: string) => ["deployment-events", deploymentID] as const,
   shadow: (deviceID: string) => ["shadow", deviceID] as const,
-  fleetSummary: ["fleet", "summary"] as const,
-  fleetHistory: ["fleet", "history"] as const,
   latestTelemetry: (deviceID: string) => ["telemetry", "latest", deviceID] as const,
-  aiFindings: (deviceID: string) => ["ai", "findings", deviceID] as const,
+  deviceStatus: (deviceID: string) => ["ai", "device-status", deviceID] as const,
+  sessionActiveIncidents: (sessionID: string) => ["ai", "session-active-incidents", sessionID] as const,
+  fleetIncidents: ["ai", "fleet-incidents"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   workspaceDevices: (id: string) => ["workspaces", id, "devices"] as const,
   sessions: (workspaceID: string) => ["sessions", workspaceID] as const,
   session: (id: string) => ["session", id] as const,
   sessionStats: (id: string) => ["session", id, "stats"] as const,
-  sessionReport: (id: string) => ["session", id, "report"] as const,
   sessionArtifact: (id: string) => ["session", id, "artifact"] as const
 };
 
@@ -133,13 +132,6 @@ export function useSessionStatistics(sessionID: string) {
   });
 }
 
-export function useSessionReport(sessionID: string) {
-  return useQuery({
-    queryKey: queryKeys.sessionReport(sessionID),
-    queryFn: () => api.sessions.getReport(sessionID),
-    enabled: Boolean(sessionID)
-  });
-}
 
 export function useSessionArtifact(sessionID: string) {
   return useQuery({
@@ -147,14 +139,6 @@ export function useSessionArtifact(sessionID: string) {
     queryFn: () => api.sessions.getArtifact(sessionID),
     enabled: Boolean(sessionID)
   });
-}
-
-export function useFleetSummary() {
-  return useQuery({ queryKey: queryKeys.fleetSummary, queryFn: api.fleet.summary, refetchInterval: 60_000 });
-}
-
-export function useFleetHistory() {
-  return useQuery({ queryKey: queryKeys.fleetHistory, queryFn: api.fleet.history });
 }
 
 export function useLatestTelemetry(deviceID?: string) {
@@ -166,11 +150,29 @@ export function useLatestTelemetry(deviceID?: string) {
   });
 }
 
-export function useAIFindings(deviceID?: string) {
+export function useDeviceStatus(deviceID?: string) {
   return useQuery({
-    queryKey: queryKeys.aiFindings(deviceID ?? ""),
-    queryFn: () => api.ai.getFindings(deviceID!),
-    enabled: Boolean(deviceID)
+    queryKey: queryKeys.deviceStatus(deviceID ?? ""),
+    queryFn: () => api.ai.getDeviceStatus(deviceID!),
+    enabled: Boolean(deviceID),
+    refetchInterval: 5_000
+  });
+}
+
+export function useSessionActiveIncidents(sessionID?: string) {
+  return useQuery({
+    queryKey: queryKeys.sessionActiveIncidents(sessionID ?? ""),
+    queryFn: () => api.ai.getSessionActiveIncidents(sessionID!),
+    enabled: Boolean(sessionID),
+    refetchInterval: 5_000
+  });
+}
+
+export function useFleetIncidents() {
+  return useQuery({
+    queryKey: queryKeys.fleetIncidents,
+    queryFn: api.ai.getFleetIncidents,
+    refetchInterval: 5_000
   });
 }
 

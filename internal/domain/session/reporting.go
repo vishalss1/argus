@@ -27,21 +27,9 @@ type Statistics struct {
 	UpdatedAt                time.Time `json:"updated_at"`
 }
 
-type Report struct {
-	ID          string          `json:"id"`
-	SessionID   string          `json:"session_id"`
-	ReportJSON  json.RawMessage `json:"report_json"`
-	GeneratedAt time.Time       `json:"generated_at"`
-}
-
 type StatisticsRepository interface {
 	Upsert(ctx context.Context, s Statistics) error
 	Get(ctx context.Context, sessionID string) (*Statistics, error)
-}
-
-type ReportRepository interface {
-	Create(ctx context.Context, r Report) (*Report, error)
-	GetBySession(ctx context.Context, sessionID string) (*Report, error)
 }
 
 type Artifact struct {
@@ -53,91 +41,67 @@ type Artifact struct {
 }
 
 type SessionArtifactPayload struct {
-	SessionID        string                         `json:"session_id"`
-	GeneratedAt      string                         `json:"generated_at"`
-	ReportVersion    string                         `json:"report_version"`
-	WorkspaceID      string                         `json:"workspace_id"`
-	SessionSummary   string                         `json:"session_summary"`
-	DeviceSummaries  map[string]DeviceSummaryReport `json:"device_summaries"`
-	Alerts           []AlertArchive                 `json:"alerts"`
-	Commands         []CommandArchive               `json:"commands"`
-	AIFindings       []AIFindingsArchive            `json:"ai_findings"`
-	Timeline         []TimelineEntry                `json:"timeline"`
-	TelemetryRollups map[string][]TelemetryRollup  `json:"telemetry_rollups"`
+	SessionID         string                               `json:"session_id"`
+	GeneratedAt       string                               `json:"generated_at"`
+	ReportVersion     string                               `json:"report_version"`
+	WorkspaceID       string                               `json:"workspace_id"`
+	SessionSummary    string                               `json:"session_summary"`
+	DeviceSummaries   map[string]DeviceSummaryArtifact     `json:"device_summaries"`
+	IncidentsArchive  []ArtifactIncident                   `json:"incidents_archive"`
+	MetricsAggregates map[string]map[string]MetricAggregate `json:"metrics_aggregates"`
 }
 
-type DeviceSummaryReport struct {
-	DeviceID         string  `json:"device_id"`
-	FirstSeen        string  `json:"first_seen"`
-	LastSeen         string  `json:"last_seen"`
-	UptimePercentage float64 `json:"uptime_percentage"`
-	SampleCount      int     `json:"sample_count"`
-
-	BatteryAverage float64 `json:"battery_average"`
-	BatteryMin     float64 `json:"battery_min"`
-	BatteryMax     float64 `json:"battery_max"`
-
-	TemperatureAverage float64 `json:"temperature_average"`
-	TemperatureMin     float64 `json:"temperature_min"`
-	TemperatureMax     float64 `json:"temperature_max"`
-
-	SignalAverage float64 `json:"signal_average"`
-	SignalMin     float64 `json:"signal_min"`
-	SignalMax     float64 `json:"signal_max"`
-
-	DistanceTravelled float64 `json:"distance_travelled"`
-
-	WarningCount  int `json:"warning_count"`
-	CriticalCount int `json:"critical_count"`
-
-	CommandsReceived  int `json:"commands_received"`
-	AnomaliesDetected int `json:"anomalies_detected"`
+type DeviceSummaryArtifact struct {
+	DeviceID              string `json:"device_id"`
+	FirstSeen             string `json:"first_seen"`
+	LastSeen              string `json:"last_seen"`
+	SampleCount           int    `json:"sample_count"`
+	WarningIncidentsCount int    `json:"warning_incidents_count"`
+	CriticalIncidentsCount int   `json:"critical_incidents_count"`
+	ActiveAtEnd           bool   `json:"active_at_end"`
 }
 
-type AlertArchive struct {
-	Timestamp       string `json:"timestamp"`
-	Severity        string `json:"severity"`
-	SourceDevice    string `json:"source_device"`
-	AlertType       string `json:"alert_type"`
-	Message         string `json:"message"`
-	ResolutionState string `json:"resolution_state"`
+type ArtifactIncident struct {
+	DeviceID     string    `json:"device_id"`
+	Metric       string    `json:"metric"`
+	IncidentType string    `json:"incident_type"`
+	Severity     string    `json:"severity"`
+	StartTime    time.Time `json:"start_time"`
+	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
+	Occurrences  int       `json:"occurrences"`
+	PeakScore    float64   `json:"peak_score"`
+	Summary      string    `json:"summary"`
 }
 
-type CommandArchive struct {
-	Timestamp           string  `json:"timestamp"`
-	TargetDevice        string  `json:"target_device"`
-	Command             string  `json:"command"`
-	Status              string  `json:"status"`
-	AcknowledgementTime *string `json:"acknowledgement_time,omitempty"`
+type MetricAggregate struct {
+	Count    int     `json:"count"`
+	Min      float64 `json:"min"`
+	Max      float64 `json:"max"`
+	Average  float64 `json:"average"`
+	Variance float64 `json:"variance"`
 }
 
-type AIFindingsArchive struct {
-	Timestamp       string  `json:"timestamp"`
-	DeviceID        string  `json:"device_id"`
-	FindingType     string  `json:"finding_type"`
-	Severity        string  `json:"severity"`
-	Recommendation  string  `json:"recommendation"`
-	ConfidenceScore float64 `json:"confidence_score"`
+func ParseArtifactPayload(data []byte) (*SessionArtifactPayload, error) {
+	var payload SessionArtifactPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+
+	// Apply defaults / compatibility behavior
+	if payload.ReportVersion == "" {
+		payload.ReportVersion = "1.0" // Default for older versions lacking a report version field
+	}
+	if payload.DeviceSummaries == nil {
+		payload.DeviceSummaries = make(map[string]DeviceSummaryArtifact)
+	}
+	if payload.IncidentsArchive == nil {
+		payload.IncidentsArchive = []ArtifactIncident{}
+	}
+	if payload.MetricsAggregates == nil {
+		payload.MetricsAggregates = make(map[string]map[string]MetricAggregate)
+	}
+
+	return &payload, nil
 }
 
-type TimelineEntry struct {
-	Timestamp string  `json:"timestamp"`
-	Type      string  `json:"type"`
-	DeviceID  *string `json:"device_id,omitempty"`
-	Message   string  `json:"message"`
-}
-
-type TelemetryRollup struct {
-	Timestamp      string  `json:"timestamp"`
-	BatteryAvg     float64 `json:"battery_avg"`
-	BatteryMin     float64 `json:"battery_min"`
-	BatteryMax     float64 `json:"battery_max"`
-	TemperatureAvg float64 `json:"temperature_avg"`
-	TemperatureMin float64 `json:"temperature_min"`
-	TemperatureMax float64 `json:"temperature_max"`
-	SignalAvg      float64 `json:"signal_avg"`
-	SignalMin      float64 `json:"signal_min"`
-	SignalMax      float64 `json:"signal_max"`
-	SampleCount    int     `json:"sample_count"`
-}
 

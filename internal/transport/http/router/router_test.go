@@ -15,7 +15,7 @@ func TestWebSocketRouteUpgradesThroughMiddleware(t *testing.T) {
 	defer cancel()
 	go hub.Run(ctx)
 
-	server := httptest.NewServer(New(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, transportws.NewHandler(hub)))
+	server := httptest.NewServer(New(nil, nil, nil, nil, nil, nil, nil, nil, nil, transportws.NewHandler(hub)))
 	defer server.Close()
 
 	url := "ws" + server.URL[len("http"):] + "/ws"

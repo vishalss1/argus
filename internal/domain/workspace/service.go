@@ -10,12 +10,21 @@ import (
 	"time"
 )
 
-type Service struct {
-	repo Repository
+type DeviceWorkspaceCache interface {
+	SetDeviceWorkspace(ctx context.Context, deviceID string, workspaceID string) error
+	DeleteDeviceWorkspace(ctx context.Context, deviceID string) error
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+type Service struct {
+	repo  Repository
+	cache DeviceWorkspaceCache
+}
+
+func NewService(repo Repository, cache DeviceWorkspaceCache) *Service {
+	return &Service{
+		repo:  repo,
+		cache: cache,
+	}
 }
 
 func (s *Service) Create(ctx context.Context, name string, description string) (*Workspace, error) {
@@ -68,14 +77,28 @@ func (s *Service) AssignDevice(ctx context.Context, workspaceID string, deviceID
 	if workspaceID == "" || deviceID == "" {
 		return errors.New("workspace id and device id are required")
 	}
-	return s.repo.AssignDevice(ctx, workspaceID, deviceID)
+	err := s.repo.AssignDevice(ctx, workspaceID, deviceID)
+	if err != nil {
+		return err
+	}
+	if s.cache != nil {
+		_ = s.cache.SetDeviceWorkspace(ctx, deviceID, workspaceID)
+	}
+	return nil
 }
 
 func (s *Service) UnassignDevice(ctx context.Context, workspaceID string, deviceID string) error {
 	if workspaceID == "" || deviceID == "" {
 		return errors.New("workspace id and device id are required")
 	}
-	return s.repo.UnassignDevice(ctx, workspaceID, deviceID)
+	err := s.repo.UnassignDevice(ctx, workspaceID, deviceID)
+	if err != nil {
+		return err
+	}
+	if s.cache != nil {
+		_ = s.cache.DeleteDeviceWorkspace(ctx, deviceID)
+	}
+	return nil
 }
 
 func (s *Service) ListDevices(ctx context.Context, workspaceID string) ([]DeviceSummary, error) {

@@ -24,9 +24,9 @@ import type {
   SessionAlert,
   SessionCommand,
   SessionStatistics,
-  SessionReport,
-  SessionAIReport,
-  SessionArtifact
+  SessionArtifact,
+  DeviceStatusInfo,
+  ActiveIncident
 } from "../types/api";
 import { request } from "./http";
 
@@ -66,10 +66,6 @@ export const api = {
     latest: (deviceID: string) => request<any>(`/devices/${deviceID}/telemetry/latest`)
   },
 
-  fleet: {
-    summary: () => request<any>("/fleet/summary"),
-    history: () => request<any[]>("/fleet/history")
-  },
 
   workspaces: {
     list: () => request<Workspace[]>("/workspaces"),
@@ -97,17 +93,11 @@ export const api = {
     list: (workspaceID: string) => request<Session[]>(`/workspaces/${workspaceID}/sessions`),
     get: (id: string) => request<Session>(`/sessions/${id}`),
     getStatistics: (id: string) => request<SessionStatistics>(`/sessions/${id}/statistics`),
-    getReport: (id: string) => request<SessionReport>(`/sessions/${id}/report`),
     start: (id: string) => request<Session>(`/sessions/${id}/start`, { method: "POST" }),
     stop: (id: string, success: boolean) =>
       request<Session>(`/sessions/${id}/stop`, {
         method: "POST",
         body: JSON.stringify({ success })
-      }),
-    export: (id: string, format: "json" | "csv") =>
-      request<{ download_url: string; expires_at: string }>(`/sessions/${id}/export`, {
-        method: "POST",
-        body: JSON.stringify({ format })
       }),
     getArtifact: (id: string) => request<SessionArtifact>(`/sessions/${id}/artifact`)
   },
@@ -190,11 +180,10 @@ export const api = {
   ai: {
     listEvents: () => request<SemanticEvent[]>("/ai/events"),
     listDeviceEvents: (deviceID: string) => request<SemanticEvent[]>(`/devices/${deviceID}/ai/events`),
-    listIncidents: () => request<Incident[]>("/ai/incidents"),
-    getIncident: (id: string) => request<Incident>(`/ai/incidents/${id}`),
-    resolveIncident: (id: string) => request<void>(`/ai/incidents/${id}/resolve`, { method: "POST" }),
     getDeviceHistory: (deviceID: string) => request<OperationalMemory[]>(`/devices/${deviceID}/ai/history`),
-    getFindings: (deviceID: string) => request<any[]>(`/devices/${deviceID}/ai/findings`),
+    getDeviceStatus: (deviceID: string) => request<DeviceStatusInfo>(`/devices/${deviceID}/status`),
+    getSessionActiveIncidents: (sessionID: string) => request<ActiveIncident[]>(`/sessions/${sessionID}/active-incidents`),
+    getFleetIncidents: () => request<ActiveIncident[]>("/fleet/incidents"),
     query: (query: string) => request<ReasoningResponse>("/ai/query", {
       method: "POST",
       body: JSON.stringify({ query })

@@ -146,87 +146,23 @@ func (r *SessionRepository) TransitionStatus(ctx context.Context, id string, fro
 }
 
 func (r *SessionRepository) CreateEvent(ctx context.Context, e session.Event) (*session.Event, error) {
-	query := `
-		INSERT INTO session_events (id, session_id, device_id, event_type, severity, payload, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, session_id, device_id, event_type, severity, payload, created_at
-	`
-	var created session.Event
-	err := r.db.QueryRowContext(
-		ctx, query,
-		e.ID, e.SessionID, e.DeviceID, e.Type, e.Severity, e.Payload, e.CreatedAt,
-	).Scan(&created.ID, &created.SessionID, &created.DeviceID, &created.Type, &created.Severity, &created.Payload, &created.CreatedAt)
-
-	if err != nil {
-		return nil, fmt.Errorf("create session event: %w", err)
-	}
-	return &created, nil
+	return &e, nil
 }
 
 func (r *SessionRepository) ListEventsBySession(ctx context.Context, sessionID string) ([]session.Event, error) {
-	query := `SELECT id, session_id, device_id, event_type, severity, payload, created_at FROM session_events WHERE session_id = $1 ORDER BY created_at ASC`
-	rows, err := r.db.QueryContext(ctx, query, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("list session events: %w", err)
-	}
-	defer rows.Close()
-
-	var events []session.Event
-	for rows.Next() {
-		var e session.Event
-		if err := rows.Scan(&e.ID, &e.SessionID, &e.DeviceID, &e.Type, &e.Severity, &e.Payload, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan session event: %w", err)
-		}
-		events = append(events, e)
-	}
-	return events, nil
+	return []session.Event{}, nil
 }
 
 func (r *SessionRepository) CreateAlert(ctx context.Context, a session.Alert) (*session.Alert, error) {
-	query := `
-		INSERT INTO session_alerts (id, session_id, device_id, severity, message, resolved, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, session_id, device_id, severity, message, resolved, created_at, resolved_at
-	`
-	var created session.Alert
-	err := r.db.QueryRowContext(
-		ctx, query,
-		a.ID, a.SessionID, a.DeviceID, a.Severity, a.Message, a.Resolved, a.CreatedAt,
-	).Scan(&created.ID, &created.SessionID, &created.DeviceID, &created.Severity, &created.Message, &created.Resolved, &created.CreatedAt, &created.ResolvedAt)
-
-	if err != nil {
-		return nil, fmt.Errorf("create session alert: %w", err)
-	}
-	return &created, nil
+	return &a, nil
 }
 
 func (r *SessionRepository) ResolveAlert(ctx context.Context, id string) error {
-	now := time.Now().UTC()
-	query := `UPDATE session_alerts SET resolved = TRUE, resolved_at = $1 WHERE id = $2`
-	_, err := r.db.ExecContext(ctx, query, now, id)
-	if err != nil {
-		return fmt.Errorf("resolve session alert: %w", err)
-	}
 	return nil
 }
 
 func (r *SessionRepository) ListAlertsBySession(ctx context.Context, sessionID string) ([]session.Alert, error) {
-	query := `SELECT id, session_id, device_id, severity, message, resolved, created_at, resolved_at FROM session_alerts WHERE session_id = $1 ORDER BY created_at ASC`
-	rows, err := r.db.QueryContext(ctx, query, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("list session alerts: %w", err)
-	}
-	defer rows.Close()
-
-	var alerts []session.Alert
-	for rows.Next() {
-		var a session.Alert
-		if err := rows.Scan(&a.ID, &a.SessionID, &a.DeviceID, &a.Severity, &a.Message, &a.Resolved, &a.CreatedAt, &a.ResolvedAt); err != nil {
-			return nil, fmt.Errorf("scan session alert: %w", err)
-		}
-		alerts = append(alerts, a)
-	}
-	return alerts, nil
+	return []session.Alert{}, nil
 }
 
 func (r *SessionRepository) CreateCommand(ctx context.Context, c session.Command) (*session.Command, error) {
@@ -335,67 +271,6 @@ func (r *SessionRepository) GetStatistics(ctx context.Context, sessionID string)
 	return &s, nil
 }
 
-func (r *SessionRepository) CreateReport(ctx context.Context, rp session.Report) (*session.Report, error) {
-	query := `
-		INSERT INTO session_reports (id, session_id, report_json, generated_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, session_id, report_json, generated_at
-	`
-	var created session.Report
-	err := r.db.QueryRowContext(
-		ctx, query,
-		rp.ID, rp.SessionID, rp.ReportJSON, rp.GeneratedAt,
-	).Scan(&created.ID, &created.SessionID, &created.ReportJSON, &created.GeneratedAt)
-
-	if err != nil {
-		return nil, fmt.Errorf("create session report: %w", err)
-	}
-	return &created, nil
-}
-
-func (r *SessionRepository) GetReportBySession(ctx context.Context, sessionID string) (*session.Report, error) {
-	query := `SELECT id, session_id, report_json, generated_at FROM session_reports WHERE session_id = $1`
-	var rp session.Report
-	err := r.db.QueryRowContext(ctx, query, sessionID).Scan(&rp.ID, &rp.SessionID, &rp.ReportJSON, &rp.GeneratedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get session report: %w", err)
-	}
-	return &rp, nil
-}
-
-func (r *SessionRepository) CreateAIReport(ctx context.Context, ar session.AIReport) (*session.AIReport, error) {
-	query := `
-		INSERT INTO session_ai_reports (id, session_id, summary_text, metadata, generated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, session_id, summary_text, metadata, generated_at
-	`
-	var created session.AIReport
-	err := r.db.QueryRowContext(
-		ctx, query,
-		ar.ID, ar.SessionID, ar.SummaryText, ar.Metadata, ar.GeneratedAt,
-	).Scan(&created.ID, &created.SessionID, &created.SummaryText, &created.Metadata, &created.GeneratedAt)
-
-	if err != nil {
-		return nil, fmt.Errorf("create ai report: %w", err)
-	}
-	return &created, nil
-}
-
-func (r *SessionRepository) GetAIReportBySession(ctx context.Context, sessionID string) (*session.AIReport, error) {
-	query := `SELECT id, session_id, summary_text, metadata, generated_at FROM session_ai_reports WHERE session_id = $1`
-	var ar session.AIReport
-	err := r.db.QueryRowContext(ctx, query, sessionID).Scan(&ar.ID, &ar.SessionID, &ar.SummaryText, &ar.Metadata, &ar.GeneratedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get ai report: %w", err)
-	}
-	return &ar, nil
-}
 
 func (r *SessionRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM workspace_sessions WHERE id = $1`
@@ -424,18 +299,16 @@ func (r *SessionRepository) CreateArtifact(ctx context.Context, a session.Artifa
 	query := `
 		INSERT INTO session_artifacts (session_id, workspace_id, generated_at, report_version, artifact_json)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING session_id, workspace_id, generated_at, report_version, artifact_json
 	`
-	var created session.Artifact
-	err := r.db.QueryRowContext(
+	_, err := r.db.ExecContext(
 		ctx, query,
 		a.SessionID, a.WorkspaceID, a.GeneratedAt, a.ReportVersion, a.ArtifactJSON,
-	).Scan(&created.SessionID, &created.WorkspaceID, &created.GeneratedAt, &created.ReportVersion, &created.ArtifactJSON)
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("create session artifact: %w", err)
 	}
-	return &created, nil
+	return &a, nil
 }
 
 func (r *SessionRepository) GetArtifactBySession(ctx context.Context, sessionID string) (*session.Artifact, error) {

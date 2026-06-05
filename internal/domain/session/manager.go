@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/vishalss1/argus/internal/domain/finding"
 	"github.com/vishalss1/argus/internal/domain/usage"
 	"github.com/vishalss1/argus/internal/domain/workspace"
 	"github.com/vishalss1/argus/internal/infrastructure/redis"
@@ -24,7 +22,6 @@ type Manager struct {
 	usageService   *usage.Service
 	redisClient    *redis.Client
 	workspaceRepo  workspace.Repository
-	findingRepo    finding.Repository
 }
 
 func NewManager(
@@ -32,14 +29,12 @@ func NewManager(
 	usageService *usage.Service,
 	redisClient *redis.Client,
 	workspaceRepo workspace.Repository,
-	findingRepo finding.Repository,
 ) *Manager {
 	return &Manager{
 		sessionService: sessionService,
 		usageService:   usageService,
 		redisClient:    redisClient,
 		workspaceRepo:  workspaceRepo,
-		findingRepo:    findingRepo,
 	}
 }
 
@@ -105,6 +100,19 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 	wsActiveKey := fmt.Sprintf("workspace:%s:active_session", started.WorkspaceID)
 	_ = m.redisClient.Client().Set(ctx, wsActiveKey, started.ID, 0).Err()
 
+	// Seed Redis device-to-workspace cache for all devices in the workspace
+	devices, err := m.workspaceRepo.ListDevices(ctx, started.WorkspaceID)
+	if err == nil {
+		pipe := m.redisClient.Client().Pipeline()
+		for _, dev := range devices {
+			wsKey := fmt.Sprintf("device:%s:workspace", dev.ID)
+			pipe.Set(ctx, wsKey, started.WorkspaceID, 24*time.Hour)
+		}
+		_, _ = pipe.Exec(ctx)
+	} else {
+		fmt.Printf("[SESSION MANAGER] Warning: failed to list workspace devices to seed Redis: %v\n", err)
+	}
+
 	return started, nil
 }
 
@@ -151,7 +159,212 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		return nil, err
 	}
 
-	// 2. Fetch rolling aggregates from Redis & compute metrics
+	// 2. Read runtime state from Redis
+	rdb := m.redisClient.Client()
+
+	// Fetch all participating devices
+	devices, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
+	deviceCount := len(devices)
+
+	// Fetch all metric keys recorded for this session from Redis
+	metricKeys, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:metrics", id)).Result()
+
+	// Gather Device Summaries using Pipelined HGetAll
+	deviceSummaries := make(map[string]DeviceSummaryArtifact)
+	var sampleCountTotal int
+
+	if len(devices) > 0 {
+		statePipe := rdb.Pipeline()
+		stateCmds := make(map[string]*goredis.MapStringStringCmd)
+		for _, devID := range devices {
+			devStateKey := fmt.Sprintf("session:%s:device:%s:state", id, devID)
+			stateCmds[devID] = statePipe.HGetAll(ctx, devStateKey)
+		}
+		_, _ = statePipe.Exec(ctx)
+
+		for _, devID := range devices {
+			state, err := stateCmds[devID].Result()
+			if err == nil && len(state) > 0 {
+				firstSeenVal := state["first_seen"]
+				lastSeenVal := state["last_seen"]
+				samples, _ := strconv.Atoi(state["sample_count"])
+				warnCount, _ := strconv.Atoi(state["warning_incidents_count"])
+				critCount, _ := strconv.Atoi(state["critical_incidents_count"])
+				worstSev := state["worst_severity"]
+
+				sampleCountTotal += samples
+
+				firstSeenStr := ""
+				if fUnix, err := strconv.ParseInt(firstSeenVal, 10, 64); err == nil {
+					firstSeenStr = time.Unix(fUnix, 0).UTC().Format(time.RFC3339)
+				}
+				lastSeenStr := ""
+				if lUnix, err := strconv.ParseInt(lastSeenVal, 10, 64); err == nil {
+					lastSeenStr = time.Unix(lUnix, 0).UTC().Format(time.RFC3339)
+				}
+
+				activeAtEnd := worstSev != "healthy" && (warnCount+critCount > 0)
+
+				deviceSummaries[devID] = DeviceSummaryArtifact{
+					DeviceID:              devID,
+					FirstSeen:             firstSeenStr,
+					LastSeen:              lastSeenStr,
+					SampleCount:           samples,
+					WarningIncidentsCount:  warnCount,
+					CriticalIncidentsCount: critCount,
+					ActiveAtEnd:           activeAtEnd,
+				}
+			}
+		}
+	}
+
+	// Fetch Closed Incidents from Redis artifact buffer
+	var incidentsArchive []ArtifactIncident
+	bufferKey := fmt.Sprintf("session:%s:artifact_buffer", id)
+	closedIncidentsStr, _ := rdb.LRange(ctx, bufferKey, 0, -1).Result()
+	for _, incStr := range closedIncidentsStr {
+		var closed struct {
+			DeviceID     string    `json:"device_id"`
+			Metric       string    `json:"metric"`
+			IncidentType string    `json:"incident_type"`
+			Severity     string    `json:"severity"`
+			StartTime    time.Time `json:"start_time"`
+			ResolvedAt   time.Time `json:"resolved_at"`
+			Occurrences  int       `json:"occurrences"`
+			PeakScore    float64   `json:"peak_score"`
+			Summary      string    `json:"summary"`
+		}
+		if err := json.Unmarshal([]byte(incStr), &closed); err == nil {
+			incidentsArchive = append(incidentsArchive, ArtifactIncident{
+				DeviceID:     closed.DeviceID,
+				Metric:       closed.Metric,
+				IncidentType: closed.IncidentType,
+				Severity:     closed.Severity,
+				StartTime:    closed.StartTime,
+				ResolvedAt:   &closed.ResolvedAt,
+				Occurrences:  closed.Occurrences,
+				PeakScore:    closed.PeakScore,
+				Summary:      closed.Summary,
+			})
+		}
+	}
+
+	// Fetch Active Incidents (still open) from Redis
+	incidentsSetKey := fmt.Sprintf("session:%s:incidents", id)
+	activeIncidentKeys, _ := rdb.SMembers(ctx, incidentsSetKey).Result()
+	if len(activeIncidentKeys) > 0 {
+		vals, err := rdb.MGet(ctx, activeIncidentKeys...).Result()
+		if err == nil {
+			for _, v := range vals {
+				if vStr, ok := v.(string); ok && vStr != "" {
+					var open struct {
+						DeviceID     string    `json:"device_id"`
+						Metric       string    `json:"metric"`
+						IncidentType string    `json:"incident_type"`
+						Severity     string    `json:"severity"`
+						StartTime    time.Time `json:"start_time"`
+						LastSeen     time.Time `json:"last_seen"`
+						Occurrences  int       `json:"occurrences"`
+						PeakScore    float64   `json:"peak_score"`
+						Summary      string    `json:"summary"`
+					}
+					if err := json.Unmarshal([]byte(vStr), &open); err == nil {
+						incidentsArchive = append(incidentsArchive, ArtifactIncident{
+							DeviceID:     open.DeviceID,
+							Metric:       open.Metric,
+							IncidentType: open.IncidentType,
+							Severity:     open.Severity,
+							StartTime:    open.StartTime,
+							ResolvedAt:   nil, // still open
+							Occurrences:  open.Occurrences,
+							PeakScore:    open.PeakScore,
+							Summary:      open.Summary,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Append Capacity Suppression synthetic entry if suppressed > 0
+	suppressedCountStr, _ := rdb.Get(ctx, fmt.Sprintf("session:%s:incidents:suppressed", id)).Result()
+	if suppressedCountStr != "" {
+		if count, err := strconv.Atoi(suppressedCountStr); err == nil && count > 0 {
+			incidentsArchive = append(incidentsArchive, ArtifactIncident{
+				DeviceID:     "system",
+				Metric:       "multiple",
+				IncidentType: "capacity_exceeded",
+				Severity:     "warning",
+				StartTime:    now,
+				ResolvedAt:   &now,
+				Occurrences:  count,
+				PeakScore:    0.0,
+				Summary:      fmt.Sprintf("%d additional closed incidents were suppressed to protect artifact capacity.", count),
+			})
+		}
+	}
+
+	// Fetch Running Aggregates (Welford) from Redis using pipelined batches of 1000
+	metricsAggregates := make(map[string]map[string]MetricAggregate)
+	if len(devices) > 0 && len(metricKeys) > 0 {
+		type aggCmdKey struct {
+			devID string
+			mKey  string
+		}
+		aggCmds := make(map[aggCmdKey]*goredis.MapStringStringCmd)
+		aggPipe := rdb.Pipeline()
+
+		count := 0
+		for _, devID := range devices {
+			for _, mKey := range metricKeys {
+				welfordKey := fmt.Sprintf("session:%s:device:%s:metric:%s", id, devID, mKey)
+				aggCmds[aggCmdKey{devID, mKey}] = aggPipe.HGetAll(ctx, welfordKey)
+				count++
+				if count%1000 == 0 {
+					_, _ = aggPipe.Exec(ctx)
+					aggPipe = rdb.Pipeline()
+				}
+			}
+		}
+		if count%1000 != 0 {
+			_, _ = aggPipe.Exec(ctx)
+		}
+
+		for _, devID := range devices {
+			devAggs := make(map[string]MetricAggregate)
+			for _, mKey := range metricKeys {
+				data, err := aggCmds[aggCmdKey{devID, mKey}].Result()
+				if err == nil && len(data) > 0 {
+					cnt, _ := strconv.Atoi(data["count"])
+					if cnt > 0 {
+						sumVal, _ := strconv.ParseFloat(data["sum"], 64)
+						minVal, _ := strconv.ParseFloat(data["min"], 64)
+						maxVal, _ := strconv.ParseFloat(data["max"], 64)
+						m2Val, _ := strconv.ParseFloat(data["m2"], 64)
+
+						avg := sumVal / float64(cnt)
+						variance := m2Val / float64(cnt)
+						if math.IsNaN(variance) || math.IsInf(variance, 0) {
+							variance = 0.0
+						}
+
+						devAggs[mKey] = MetricAggregate{
+							Count:    cnt,
+							Min:      minVal,
+							Max:      maxVal,
+							Average:  avg,
+							Variance: variance,
+						}
+					}
+				}
+			}
+			if len(devAggs) > 0 {
+				metricsAggregates[devID] = devAggs
+			}
+		}
+	}
+
+	// 3. Save Statistics
 	durationSec := 0
 	if sess.StartedAt != nil {
 		durationSec = int(now.Sub(*sess.StartedAt).Seconds())
@@ -160,582 +373,103 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		durationSec = 0
 	}
 
-	artifactGenStart := time.Now()
-
-	// Fetch all participating devices first
-	devices, _ := m.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
-	deviceCount := len(devices)
-
-	// Build Pipeline 1: Fetch all device and session top-level metrics in 1 RTT
-	pipe := m.redisClient.Client().Pipeline()
-
-	// Session-wide metrics
-	sessCountCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:count", id))
-	sessBatCountCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:count", id))
-	sessBatSumCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:sum", id))
-	sessBatMinCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:min", id))
-	sessBatMaxCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:battery:max", id))
-	sessTempCountCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:count", id))
-	sessTempSumCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:sum", id))
-	sessTempMinCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:min", id))
-	sessTempMaxCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:temp:max", id))
-	sessDistCmd := pipe.Get(ctx, fmt.Sprintf("session:%s:metrics:distance", id))
-
-	// Device-specific metrics mapping
-	type devCmds struct {
-		firstSeen   *goredis.StringCmd
-		lastSeen    *goredis.StringCmd
-		sampleCount *goredis.StringCmd
-		batSum      *goredis.StringCmd
-		batCount    *goredis.StringCmd
-		batMin      *goredis.StringCmd
-		batMax      *goredis.StringCmd
-		tempSum     *goredis.StringCmd
-		tempCount   *goredis.StringCmd
-		tempMin     *goredis.StringCmd
-		tempMax     *goredis.StringCmd
-		sigSum      *goredis.StringCmd
-		sigCount    *goredis.StringCmd
-		sigMin      *goredis.StringCmd
-		sigMax      *goredis.StringCmd
-		dist        *goredis.StringCmd
-		rollupMins  *goredis.StringSliceCmd
-	}
-
-	devCmdMap := make(map[string]devCmds)
-	for _, devID := range devices {
-		devCmdMap[devID] = devCmds{
-			firstSeen:   pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:first_seen", id, devID)),
-			lastSeen:    pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:last_seen", id, devID)),
-			sampleCount: pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:sample_count", id, devID)),
-			batSum:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:sum", id, devID)),
-			batCount:    pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:count", id, devID)),
-			batMin:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:min", id, devID)),
-			batMax:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:battery:max", id, devID)),
-			tempSum:     pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:sum", id, devID)),
-			tempCount:   pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:count", id, devID)),
-			tempMin:     pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:min", id, devID)),
-			tempMax:     pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:temp:max", id, devID)),
-			sigSum:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:sum", id, devID)),
-			sigCount:    pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:count", id, devID)),
-			sigMin:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:min", id, devID)),
-			sigMax:      pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:signal:max", id, devID)),
-			dist:        pipe.Get(ctx, fmt.Sprintf("session:%s:device:%s:distance", id, devID)),
-			rollupMins:  pipe.SMembers(ctx, fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID)),
-		}
-	}
-
-	_, _ = pipe.Exec(ctx)
-
-	cmdFloatVal := func(c *goredis.StringCmd) float64 {
-		val, err := c.Result()
-		if err != nil {
-			return 0.0
-		}
-		f, _ := strconv.ParseFloat(val, 64)
-		return f
-	}
-
-	cmdIntVal := func(c *goredis.StringCmd) int {
-		val, err := c.Result()
-		if err != nil {
-			return 0
-		}
-		i, _ := strconv.Atoi(val)
-		return i
-	}
-
-	msgCount := cmdIntVal(sessCountCmd)
-	batteryCount := cmdFloatVal(sessBatCountCmd)
-	batterySum := cmdFloatVal(sessBatSumCmd)
-	avgBattery := 0.0
-	if batteryCount > 0 {
-		avgBattery = batterySum / batteryCount
-	}
-	minBattery := cmdFloatVal(sessBatMinCmd)
-	maxBattery := cmdFloatVal(sessBatMaxCmd)
-
-	tempCount := cmdFloatVal(sessTempCountCmd)
-	tempSum := cmdFloatVal(sessTempSumCmd)
-	avgTemp := 0.0
-	if tempCount > 0 {
-		avgTemp = tempSum / tempCount
-	}
-	minTemp := cmdFloatVal(sessTempMinCmd)
-	maxTemp := cmdFloatVal(sessTempMaxCmd)
-	distance := cmdFloatVal(sessDistCmd)
-
-	// Fetch database counts for alerts, commands, anomalies
+	// Calculate alert and command counts from DB
 	alerts, _ := m.sessionService.repo.ListAlertsBySession(ctx, id)
 	commands, _ := m.sessionService.repo.ListCommandsBySession(ctx, id)
-	events, _ := m.sessionService.repo.ListEventsBySession(ctx, id)
-
 	alertCount := len(alerts)
 	commandCount := len(commands)
-	anomalyCount := len(events)
 
-	deviceSummaries := make(map[string]DeviceSummaryReport)
-	
-	// Format Alerts
-	var alertArchives []AlertArchive
-	for _, a := range alerts {
-		resState := "Active"
-		if a.Resolved {
-			resState = "Resolved"
-		}
-		alertArchives = append(alertArchives, AlertArchive{
-			Timestamp:       a.CreatedAt.Format(time.RFC3339),
-			Severity:        a.Severity,
-			SourceDevice:    a.DeviceID,
-			AlertType:       "Rule Violation",
-			Message:         a.Message,
-			ResolutionState: resState,
-		})
-	}
-
-	// Format Commands
-	var commandArchives []CommandArchive
-	for _, c := range commands {
-		var ackTime *string
-		if c.CompletedAt != nil {
-			tStr := c.CompletedAt.Format(time.RFC3339)
-			ackTime = &tStr
-		}
-		commandArchives = append(commandArchives, CommandArchive{
-			Timestamp:           c.IssuedAt.Format(time.RFC3339),
-			TargetDevice:        c.DeviceID,
-			Command:             c.Command,
-			Status:              c.Status,
-			AcknowledgementTime: ackTime,
-		})
-	}
-
-	// AI Findings
-	var findingArchives []AIFindingsArchive
-	for _, devID := range devices {
-		findings, _ := m.findingRepo.ListByDevice(ctx, devID)
-		for _, f := range findings {
-			if (sess.StartedAt != nil && (f.CreatedAt.After(*sess.StartedAt) || f.CreatedAt.Equal(*sess.StartedAt))) && f.CreatedAt.Before(now) {
-				findingArchives = append(findingArchives, AIFindingsArchive{
-					Timestamp:       f.CreatedAt.Format(time.RFC3339),
-					DeviceID:        f.DeviceID,
-					FindingType:     "AI Anomaly Insight",
-					Severity:        f.Severity,
-					Recommendation:  f.Summary,
-					ConfidenceScore: 1.0 - f.RiskScore,
-				})
-			}
-		}
-	}
-
-	// Timeline construction
-	var timeline []TimelineEntry
-	startedAtStr := ""
-	if sess.StartedAt != nil {
-		startedAtStr = sess.StartedAt.Format(time.RFC3339)
-	}
-	timeline = append(timeline, TimelineEntry{
-		Timestamp: startedAtStr,
-		Type:      "Session Started",
-		Message:   fmt.Sprintf("Operational session %s started in workspace %s.", id, sess.WorkspaceID),
-	})
-
-	for _, devID := range devices {
-		cmds := devCmdMap[devID]
-		firstSeen := cmdIntVal(cmds.firstSeen)
-		lastSeen := cmdIntVal(cmds.lastSeen)
-		sampleCount := cmdIntVal(cmds.sampleCount)
-
-		uptimePercentage := 100.0
-		if durationSec > 0 && lastSeen >= firstSeen {
-			uptimePercentage = float64(lastSeen-firstSeen) / float64(durationSec) * 100.0
-			if uptimePercentage > 100.0 {
-				uptimePercentage = 100.0
-			}
-		}
-
-		batSum := cmdFloatVal(cmds.batSum)
-		batCount := cmdFloatVal(cmds.batCount)
-		batMin := cmdFloatVal(cmds.batMin)
-		batMax := cmdFloatVal(cmds.batMax)
-		batAvg := 0.0
-		if batCount > 0 {
-			batAvg = batSum / batCount
-		}
-
-		tempSum := cmdFloatVal(cmds.tempSum)
-		tempCount := cmdFloatVal(cmds.tempCount)
-		tempMin := cmdFloatVal(cmds.tempMin)
-		tempMax := cmdFloatVal(cmds.tempMax)
-		tempAvg := 0.0
-		if tempCount > 0 {
-			tempAvg = tempSum / tempCount
-		}
-
-		sigSum := cmdFloatVal(cmds.sigSum)
-		sigCount := cmdFloatVal(cmds.sigCount)
-		sigMin := cmdFloatVal(cmds.sigMin)
-		sigMax := cmdFloatVal(cmds.sigMax)
-		sigAvg := 0.0
-		if sigCount > 0 {
-			sigAvg = sigSum / sigCount
-		}
-
-		devDistance := cmdFloatVal(cmds.dist)
-
-		warningCount := 0
-		criticalCount := 0
-		for _, a := range alerts {
-			if a.DeviceID == devID {
-				if a.Severity == "WARNING" || a.Severity == "warning" {
-					warningCount++
-				} else if a.Severity == "CRITICAL" || a.Severity == "critical" {
-					criticalCount++
-				}
-			}
-		}
-
-		devCommandCount := 0
-		for _, c := range commands {
-			if c.DeviceID == devID {
-				devCommandCount++
-			}
-		}
-
-		devAnomalyCount := 0
-		for _, e := range events {
-			if e.DeviceID == devID {
-				devAnomalyCount++
-			}
-		}
-
-		if firstSeen > 0 {
-			timeline = append(timeline, TimelineEntry{
-				Timestamp: time.Unix(int64(firstSeen), 0).UTC().Format(time.RFC3339),
-				Type:      "Device Joined",
-				DeviceID:  &devID,
-				Message:   fmt.Sprintf("Device %s joined the active session.", devID),
-			})
-		}
-
-		deviceSummaries[devID] = DeviceSummaryReport{
-			DeviceID:           devID,
-			FirstSeen:          time.Unix(int64(firstSeen), 0).UTC().Format(time.RFC3339),
-			LastSeen:           time.Unix(int64(lastSeen), 0).UTC().Format(time.RFC3339),
-			UptimePercentage:   uptimePercentage,
-			SampleCount:        sampleCount,
-			BatteryAverage:     batAvg,
-			BatteryMin:         batMin,
-			BatteryMax:         batMax,
-			TemperatureAverage: tempAvg,
-			TemperatureMin:     tempMin,
-			TemperatureMax:     tempMax,
-			SignalAverage:      sigAvg,
-			SignalMin:          sigMin,
-			SignalMax:          sigMax,
-			DistanceTravelled:  devDistance,
-			WarningCount:       warningCount,
-			CriticalCount:      criticalCount,
-			CommandsReceived:   devCommandCount,
-			AnomaliesDetected:  devAnomalyCount,
-		}
-	}
-
-	// Add alerts, commands, findings, anomalies to timeline
-	for _, a := range alerts {
-		timeline = append(timeline, TimelineEntry{
-			Timestamp: a.CreatedAt.Format(time.RFC3339),
-			Type:      "Alert Triggered",
-			DeviceID:  &a.DeviceID,
-			Message:   fmt.Sprintf("Alert Triggered (%s): %s", a.Severity, a.Message),
-		})
-		if a.Resolved && a.ResolvedAt != nil {
-			timeline = append(timeline, TimelineEntry{
-				Timestamp: a.ResolvedAt.Format(time.RFC3339),
-				Type:      "Alert Cleared",
-				DeviceID:  &a.DeviceID,
-				Message:   fmt.Sprintf("Alert cleared: %s", a.Message),
-			})
-		}
-	}
-
-	for _, c := range commands {
-		issuedByVal := "-"
-		if c.IssuedBy != nil {
-			issuedByVal = *c.IssuedBy
-		}
-		timeline = append(timeline, TimelineEntry{
-			Timestamp: c.IssuedAt.Format(time.RFC3339),
-			Type:      "Command Sent",
-			DeviceID:  &c.DeviceID,
-			Message:   fmt.Sprintf("Command dispatched: %s (Issued by: %s)", c.Command, issuedByVal),
-		})
-		if c.CompletedAt != nil {
-			timeline = append(timeline, TimelineEntry{
-				Timestamp: c.CompletedAt.Format(time.RFC3339),
-				Type:      "Command Acknowledged",
-				DeviceID:  &c.DeviceID,
-				Message:   fmt.Sprintf("Command acknowledged status: %s", c.Status),
-			})
-		}
-	}
-
-	for _, f := range findingArchives {
-		devIDCopy := f.DeviceID
-		timeline = append(timeline, TimelineEntry{
-			Timestamp: f.Timestamp,
-			Type:      "AI Finding Generated",
-			DeviceID:  &devIDCopy,
-			Message:   fmt.Sprintf("AI Finding (%s): %s", f.Severity, f.Recommendation),
-		})
-	}
-
-	for _, e := range events {
-		timeline = append(timeline, TimelineEntry{
-			Timestamp: e.CreatedAt.Format(time.RFC3339),
-			Type:      "Anomaly Detected",
-			DeviceID:  &e.DeviceID,
-			Message:   fmt.Sprintf("Anomaly detected (%s): %s", e.Severity, e.Type),
-		})
-	}
-
-	timeline = append(timeline, TimelineEntry{
-		Timestamp: now.Format(time.RFC3339),
-		Type:      "Session Completed",
-		Message:   fmt.Sprintf("Operational session %s stopped with status %s.", id, status),
-	})
-
-	sort.Slice(timeline, func(i, j int) bool {
-		return timeline[i].Timestamp < timeline[j].Timestamp
-	})
-
-	// Build Pipeline 2: Fetch all Minute Rollups in 1 RTT
-	rollupPipe := m.redisClient.Client().Pipeline()
-	type rollupKeyCmd struct {
-		devID     string
-		minuteStr string
-		cmd       *goredis.MapStringStringCmd
-	}
-	var rollupCmds []rollupKeyCmd
-
-	for _, devID := range devices {
-		minutes, _ := devCmdMap[devID].rollupMins.Result()
-		for _, minute := range minutes {
-			rKey := fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute)
-			rollupCmds = append(rollupCmds, rollupKeyCmd{
-				devID:     devID,
-				minuteStr: minute,
-				cmd:       rollupPipe.HGetAll(ctx, rKey),
-			})
-		}
-	}
-
-	_, _ = rollupPipe.Exec(ctx)
-
-	rollupsMap := make(map[string][]TelemetryRollup)
-	for _, rc := range rollupCmds {
-		rollupData, err := rc.cmd.Result()
-		if err != nil || len(rollupData) == 0 {
-			continue
-		}
-
-		getFloat := func(field string) float64 {
-			v, _ := strconv.ParseFloat(rollupData[field], 64)
-			return v
-		}
-		getInt := func(field string) int {
-			v, _ := strconv.Atoi(rollupData[field])
-			return v
-		}
-
-		sampleCount := getInt("sample_count")
-		if sampleCount == 0 {
-			continue
-		}
-
-		batSum := getFloat("battery:sum")
-		batCount := getFloat("battery:count")
-		batMin := getFloat("battery:min")
-		batMax := getFloat("battery:max")
-		batAvg := 0.0
-		if batCount > 0 {
-			batAvg = batSum / batCount
-		}
-
-		tempSum := getFloat("temp:sum")
-		tempCount := getFloat("temp:count")
-		tempMin := getFloat("temp:min")
-		tempMax := getFloat("temp:max")
-		tempAvg := 0.0
-		if tempCount > 0 {
-			tempAvg = tempSum / tempCount
-		}
-
-		sigSum := getFloat("signal:sum")
-		sigCount := getFloat("signal:count")
-		sigMin := getFloat("signal:min")
-		sigMax := getFloat("signal:max")
-		sigAvg := 0.0
-		if sigCount > 0 {
-			sigAvg = sigSum / sigCount
-		}
-
-		rollupsMap[rc.devID] = append(rollupsMap[rc.devID], TelemetryRollup{
-			Timestamp:      rc.minuteStr,
-			BatteryAvg:     batAvg,
-			BatteryMin:     batMin,
-			BatteryMax:     batMax,
-			TemperatureAvg: tempAvg,
-			TemperatureMin: tempMin,
-			TemperatureMax: tempMax,
-			SignalAvg:      sigAvg,
-			SignalMin:      sigMin,
-			SignalMax:      sigMax,
-			SampleCount:    sampleCount,
-		})
-	}
-
-	for devID := range rollupsMap {
-		sort.Slice(rollupsMap[devID], func(i, j int) bool {
-			return rollupsMap[devID][i].Timestamp < rollupsMap[devID][j].Timestamp
-		})
-	}
-
-	// 3. Save Statistics
 	stats := Statistics{
 		SessionID:                id,
 		DurationSeconds:          durationSec,
-		MessagesProcessed:        msgCount,
+		MessagesProcessed:        sampleCountTotal,
 		AlertsCount:              alertCount,
-		CriticalEvents:           anomalyCount,
+		CriticalEvents:           0,
 		UptimePercentage:         100.0,
 		AvgLatencyMS:             0.0,
-		AvgBattery:               avgBattery,
-		MinBattery:               minBattery,
-		MaxBattery:               maxBattery,
-		AvgTemperature:           avgTemp,
-		MinTemperature:           minTemp,
-		MaxTemperature:           maxTemp,
-		DistanceTravelled:        distance,
 		DeviceParticipationCount: deviceCount,
 		CommandCount:             commandCount,
-		AnomalyCount:             anomalyCount,
+		AnomalyCount:             len(incidentsArchive),
 		UpdatedAt:                now,
 	}
 	_ = m.sessionService.repo.UpsertStatistics(ctx, stats)
 
-	// 4. Save Report (extensible JSONB representation)
-	reportJSONData := map[string]interface{}{
-		"session_id":        id,
-		"generated_at":      now.Format(time.RFC3339),
-		"duration":          durationSec,
-		"report_version":    "1.0",
-		"summary":           fmt.Sprintf("Session completed with %d device(s) participating, processing %d total telemetry samples.", deviceCount, msgCount),
-		"aggregated_metrics": map[string]interface{}{
-			"messages_processed":         msgCount,
-			"device_participation_count": deviceCount,
-			"battery_average":            avgBattery,
-			"battery_min":                minBattery,
-			"battery_max":                maxBattery,
-			"temperature_average":        avgTemp,
-			"temperature_min":            minTemp,
-			"temperature_max":            maxTemp,
-			"distance_travelled_km":      distance,
-			"alert_count":                alertCount,
-			"command_count":              commandCount,
-			"anomaly_count":              anomalyCount,
-		},
+	// Create AI Session Summary
+	var sessionSummary string
+	if len(incidentsArchive) == 0 {
+		sessionSummary = fmt.Sprintf("AI Session Summary\n\nAnalyzed %d metrics across %d devices. Observed stable behavior with 0 incidents.", len(metricKeys), deviceCount)
+	} else {
+		var summaries []string
+		for _, inc := range incidentsArchive {
+			statusStr := "resolved"
+			if inc.ResolvedAt == nil {
+				statusStr = "active"
+			}
+			summaries = append(summaries, fmt.Sprintf("- %s on %s (%s)", inc.Summary, inc.DeviceID, statusStr))
+		}
+		sessionSummary = fmt.Sprintf("AI Session Summary\n\nAnalyzed %d metrics across %d devices. Detected %d incidents:\n\n%s",
+			len(metricKeys), deviceCount, len(incidentsArchive), strings.Join(summaries, "\n"))
 	}
-	reportJSONBytes, _ := json.Marshal(reportJSONData)
-	report := Report{
-		ID:          uuid.New().String(),
-		SessionID:   id,
-		ReportJSON:  json.RawMessage(reportJSONBytes),
-		GeneratedAt: now,
-	}
-	_, _ = m.sessionService.repo.CreateReport(ctx, report)
 
-	// 4b. Save v2 Artifact
+	// Save v3 Artifact (Postgres sole persistence)
 	artifactPayload := SessionArtifactPayload{
-		SessionID:        id,
-		GeneratedAt:      now.Format(time.RFC3339),
-		ReportVersion:    "2.0",
-		WorkspaceID:      stopped.WorkspaceID,
-		SessionSummary:   fmt.Sprintf("Session completed with %d device(s) participating, processing %d total telemetry samples.", deviceCount, msgCount),
-		DeviceSummaries:  deviceSummaries,
-		Alerts:           alertArchives,
-		Commands:         commandArchives,
-		AIFindings:       findingArchives,
-		Timeline:         timeline,
-		TelemetryRollups: rollupsMap,
+		SessionID:         id,
+		GeneratedAt:       now.Format(time.RFC3339),
+		ReportVersion:     "3.0",
+		WorkspaceID:       stopped.WorkspaceID,
+		SessionSummary:    sessionSummary,
+		DeviceSummaries:   deviceSummaries,
+		IncidentsArchive:  incidentsArchive,
+		MetricsAggregates: metricsAggregates,
 	}
 	artifactBytes, _ := json.Marshal(artifactPayload)
 	artifact := Artifact{
 		SessionID:     id,
 		WorkspaceID:   stopped.WorkspaceID,
 		GeneratedAt:   now,
-		ReportVersion: "2.0",
+		ReportVersion: "3.0",
 		ArtifactJSON:  json.RawMessage(artifactBytes),
 	}
 	_, _ = m.sessionService.repo.CreateArtifact(ctx, artifact)
 
 	// Record observability metrics
-	SessionArtifactGenerationDurationSeconds.Observe(time.Since(artifactGenStart).Seconds())
+	SessionArtifactGenerationDurationSeconds.Observe(time.Since(stopStart).Seconds())
 	SessionArtifactSizeBytes.Observe(float64(len(artifactBytes)))
 
-	// 5. Cleanup Redis State (Gather all keys to delete in a single batch)
+	// 5. Cleanup Redis State
 	var keysToDelete []string
 	keysToDelete = append(keysToDelete,
 		fmt.Sprintf("session:%s:active", id),
 		fmt.Sprintf("workspace:%s:active_session", stopped.WorkspaceID),
-		fmt.Sprintf("session:%s:metrics:count", id),
-		fmt.Sprintf("session:%s:metrics:battery:count", id),
-		fmt.Sprintf("session:%s:metrics:battery:sum", id),
-		fmt.Sprintf("session:%s:metrics:battery:min", id),
-		fmt.Sprintf("session:%s:metrics:battery:max", id),
-		fmt.Sprintf("session:%s:metrics:temp:count", id),
-		fmt.Sprintf("session:%s:metrics:temp:sum", id),
-		fmt.Sprintf("session:%s:metrics:temp:min", id),
-		fmt.Sprintf("session:%s:metrics:temp:max", id),
-		fmt.Sprintf("session:%s:metrics:distance", id),
 		fmt.Sprintf("session:%s:devices", id),
+		fmt.Sprintf("session:%s:metrics", id),
+		fmt.Sprintf("session:%s:incidents", id),
+		fmt.Sprintf("session:%s:artifact_buffer", id),
+		fmt.Sprintf("session:%s:incidents:suppressed", id),
 	)
 
 	for _, devID := range devices {
 		keysToDelete = append(keysToDelete,
-			fmt.Sprintf("session:%s:device:%s:first_seen", id, devID),
-			fmt.Sprintf("session:%s:device:%s:last_seen", id, devID),
-			fmt.Sprintf("session:%s:device:%s:uptime_s:min", id, devID),
-			fmt.Sprintf("session:%s:device:%s:uptime_s:max", id, devID),
-			fmt.Sprintf("session:%s:device:%s:last_gps", id, devID),
-			fmt.Sprintf("session:%s:device:%s:sample_count", id, devID),
-			fmt.Sprintf("session:%s:device:%s:battery:sum", id, devID),
-			fmt.Sprintf("session:%s:device:%s:battery:count", id, devID),
-			fmt.Sprintf("session:%s:device:%s:battery:min", id, devID),
-			fmt.Sprintf("session:%s:device:%s:battery:max", id, devID),
-			fmt.Sprintf("session:%s:device:%s:temp:sum", id, devID),
-			fmt.Sprintf("session:%s:device:%s:temp:count", id, devID),
-			fmt.Sprintf("session:%s:device:%s:temp:min", id, devID),
-			fmt.Sprintf("session:%s:device:%s:temp:max", id, devID),
-			fmt.Sprintf("session:%s:device:%s:signal:sum", id, devID),
-			fmt.Sprintf("session:%s:device:%s:signal:count", id, devID),
-			fmt.Sprintf("session:%s:device:%s:signal:min", id, devID),
-			fmt.Sprintf("session:%s:device:%s:signal:max", id, devID),
-			fmt.Sprintf("session:%s:device:%s:distance", id, devID),
-			fmt.Sprintf("session:%s:device:%s:rollup_minutes", id, devID),
+			fmt.Sprintf("session:%s:device:%s:state", id, devID),
 		)
-		minutes, _ := devCmdMap[devID].rollupMins.Result()
-		for _, minute := range minutes {
-			keysToDelete = append(keysToDelete, fmt.Sprintf("session:%s:device:%s:rollup:%s", id, devID, minute))
+		for _, mKey := range metricKeys {
+			keysToDelete = append(keysToDelete,
+				fmt.Sprintf("session:%s:device:%s:metric:%s", id, devID, mKey),
+				fmt.Sprintf("session:%s:device:%s:metric:%s:last", id, devID, mKey),
+				fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_spike", id, devID, mKey),
+				fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_drop", id, devID, mKey),
+				fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_stuck", id, devID, mKey),
+				fmt.Sprintf("session:%s:device:%s:incident:%s:binary_toggle", id, devID, mKey),
+				fmt.Sprintf("session:%s:device:%s:incident:%s:categorical_change", id, devID, mKey),
+			)
 		}
 	}
 
-	// Bulk delete cached device:*:latest hot keys
 	var latestKeys []string
 	keysPattern := "device:*:latest"
 	var cursor uint64
 	for {
-		keys, nextCursor, err := m.redisClient.Client().Scan(ctx, cursor, keysPattern, 100).Result()
+		keys, nextCursor, err := rdb.Scan(ctx, cursor, keysPattern, 100).Result()
 		if err != nil {
 			break
 		}
@@ -747,7 +481,7 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	}
 
 	if len(latestKeys) > 0 {
-		wsPipe := m.redisClient.Client().Pipeline()
+		wsPipe := rdb.Pipeline()
 		wsCmds := make(map[string]*goredis.StringCmd)
 		for _, k := range latestKeys {
 			if strings.HasPrefix(k, "device:") && strings.HasSuffix(k, ":latest") {
@@ -766,9 +500,39 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		}
 	}
 
-	// Delete everything in batches of 1000 using a single pipeline
+	// Scan for any other keys matching session:{id}:* to ensure a complete cleanup (no leaks)
+	var sessionKeys []string
+	var sessionCursor uint64
+	sessionPattern := fmt.Sprintf("session:%s:*", id)
+	for {
+		keys, nextCursor, err := rdb.Scan(ctx, sessionCursor, sessionPattern, 250).Result()
+		if err == nil && len(keys) > 0 {
+			sessionKeys = append(sessionKeys, keys...)
+		}
+		sessionCursor = nextCursor
+		if sessionCursor == 0 {
+			break
+		}
+	}
+	keysToDelete = append(keysToDelete, sessionKeys...)
+
+	// Deduplicate keysToDelete
+	uniqueKeys := make(map[string]struct{})
+	var dedupedKeys []string
+	for _, k := range keysToDelete {
+		if _, exists := uniqueKeys[k]; !exists {
+			uniqueKeys[k] = struct{}{}
+			dedupedKeys = append(dedupedKeys, k)
+		}
+	}
+	keysToDelete = dedupedKeys
+
+	// Remove session from active sessions set
+	rdb.SRem(ctx, "sessions:active", id)
+
+	// Delete all session keys in batches of 1000 using a single pipeline
 	if len(keysToDelete) > 0 {
-		delPipe := m.redisClient.Client().Pipeline()
+		delPipe := rdb.Pipeline()
 		const batchSize = 1000
 		for i := 0; i < len(keysToDelete); i += batchSize {
 			end := i + batchSize

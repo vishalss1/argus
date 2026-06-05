@@ -299,88 +299,59 @@ export interface SessionStatistics {
   updated_at: string;
 }
 
-export interface SessionReport {
-  id: string;
-  session_id: string;
-  report_json: JsonValue;
-  generated_at: string;
+
+export interface DeviceStatusInfo {
+  device_id: string;
+  status: string;
+  severity: string;
+  active_incidents: number;
+  open_incidents: {
+    metric: string;
+    incident_type: string;
+    severity: string;
+  }[];
 }
 
-export interface SessionAIReport {
-  id: string;
-  session_id: string;
-  summary_text: string;
-  metadata: JsonValue;
-  generated_at: string;
+export interface ActiveIncident {
+  device_id: string;
+  metric: string;
+  incident_type: string;
+  severity: string;
+  start_time: string;
+  last_seen: string;
+  occurrences: number;
+  peak_score: number;
+  summary: string;
 }
 
-export interface DeviceSummaryReport {
+export interface DeviceSummaryArtifact {
   device_id: string;
   first_seen: string;
   last_seen: string;
-  uptime_percentage: number;
   sample_count: number;
-  battery_average: number;
-  battery_min: number;
-  battery_max: number;
-  temperature_average: number;
-  temperature_min: number;
-  temperature_max: number;
-  signal_average: number;
-  signal_min: number;
-  signal_max: number;
-  distance_travelled: number;
-  warning_count: number;
-  critical_count: number;
-  commands_received: number;
-  anomalies_detected: number;
+  warning_incidents_count: number;
+  critical_incidents_count: number;
+  active_at_end: boolean;
 }
 
-export interface AlertArchive {
-  timestamp: string;
-  severity: string;
-  source_device: string;
-  alert_type: string;
-  message: string;
-  resolution_state: string;
-}
-
-export interface CommandArchive {
-  timestamp: string;
-  target_device: string;
-  command: string;
-  status: string;
-  acknowledgement_time?: string;
-}
-
-export interface AIFindingsArchive {
-  timestamp: string;
+export interface ArtifactIncident {
   device_id: string;
-  finding_type: string;
+  metric: string;
+  incident_type: string;
   severity: string;
-  recommendation: string;
-  confidence_score: number;
+  start_time: string;
+  resolved_at?: string;
+  occurrences: number;
+  peak_score: number;
+  summary: string;
 }
 
-export interface TimelineEntry {
-  timestamp: string;
-  type: string;
-  device_id?: string;
-  message: string;
-}
-
-export interface TelemetryRollup {
-  timestamp: string;
-  battery_avg: number;
-  battery_min: number;
-  battery_max: number;
-  temperature_avg: number;
-  temperature_min: number;
-  temperature_max: number;
-  signal_avg: number;
-  signal_min: number;
-  signal_max: number;
-  sample_count: number;
+export interface MetricAggregate {
+  count: number;
+  min: number;
+  max: number;
+  average: number;
+  variance: number;
 }
 
 export interface SessionArtifact {
@@ -389,10 +360,7 @@ export interface SessionArtifact {
   report_version: string;
   workspace_id: string;
   session_summary: string;
-  device_summaries: Record<string, DeviceSummaryReport>;
-  alerts: AlertArchive[];
-  commands: CommandArchive[];
-  ai_findings: AIFindingsArchive[];
-  timeline: TimelineEntry[];
-  telemetry_rollups: Record<string, TelemetryRollup[]>;
+  device_summaries: Record<string, DeviceSummaryArtifact>;
+  incidents_archive: ArtifactIncident[];
+  metrics_aggregates: Record<string, Record<string, MetricAggregate>>;
 }

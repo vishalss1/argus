@@ -20,8 +20,6 @@ func New(
 	otaHandler *handler.OTAHandler,
 	ruleHandler *handler.RuleHandler,
 	aiHandler *handler.AIHandler,
-	findingHandler *handler.FindingHandler,
-	fleetHandler *handler.FleetHandler,
 	workspaceHandler *handler.WorkspaceHandler,
 	sessionHandler *handler.SessionHandler,
 	websocketHandler *transportws.Handler,
@@ -44,11 +42,8 @@ func New(
 	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
 	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
 	apiRouter.Get("/alerts", ruleHandler.ListAlerts)
-	apiRouter.Get("/telemetry/exports/{fileName}", func(w http.ResponseWriter, r *http.Request) {
-		telemetryHandler.DownloadExport(w, r, chi.URLParam(r, "fileName"))
-	})
-	apiRouter.Get("/fleet/summary", fleetHandler.GetLatestSummary)
-	apiRouter.Get("/fleet/history", fleetHandler.ListSummaries)
+
+	apiRouter.Get("/fleet/incidents", aiHandler.ListFleetIncidents)
 
 	apiRouter.Route("/workspaces", func(r chi.Router) {
 		r.Get("/", workspaceHandler.List)
@@ -67,22 +62,16 @@ func New(
 		r.Get("/", sessionHandler.Get)
 		r.Post("/start", sessionHandler.Start)
 		r.Post("/stop", sessionHandler.Stop)
-		r.Post("/export", sessionHandler.Export)
 		r.Get("/statistics", sessionHandler.GetStatistics)
-		r.Get("/report", sessionHandler.GetReport)
 		r.Get("/artifact", sessionHandler.GetArtifact)
+		r.Get("/active-incidents", aiHandler.ListSessionActiveIncidents)
 	})
 
 	apiRouter.Route("/ai", func(r chi.Router) {
 		r.Post("/query", aiHandler.Ask)
 		r.Get("/events", aiHandler.ListEvents)
-		r.Get("/incidents", aiHandler.ListIncidents)
 		r.Get("/actions", aiHandler.ListActions)
 		r.Post("/actions/{actionID}/approve", aiHandler.ApproveAction)
-		r.Route("/incidents/{incidentID}", func(r chi.Router) {
-			r.Get("/", aiHandler.GetIncident)
-			r.Post("/resolve", aiHandler.ResolveIncident)
-		})
 	})
 
 	apiRouter.Route("/rules", func(r chi.Router) {
@@ -172,9 +161,7 @@ func New(
 			})
 			r.Get("/ai/events", aiHandler.ListDeviceEvents)
 			r.Get("/ai/history", aiHandler.GetDeviceHistory)
-			r.Get("/ai/findings", func(w http.ResponseWriter, r *http.Request) {
-				findingHandler.ListByDevice(w, r, chi.URLParam(r, "deviceID"))
-			})
+			r.Get("/status", aiHandler.GetDeviceStatus)
 			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
 			})

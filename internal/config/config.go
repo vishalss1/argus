@@ -47,6 +47,7 @@ type Config struct {
 	AlertCooldownSeconds int
 	SessionStaleTimeoutHours int
 	KafkaDLQTopic        string
+	KafkaIncidentTopic   string
 }
 
 func Load() *Config {
@@ -65,6 +66,7 @@ func Load() *Config {
 		KafkaTelemetryTopic:  os.Getenv("KAFKA_TELEMETRY_TOPIC"),
 		KafkaCommandTopic:    os.Getenv("KAFKA_COMMAND_TOPIC"),
 		KafkaDLQTopic:        os.Getenv("KAFKA_DLQ_TOPIC"),
+		KafkaIncidentTopic:   os.Getenv("KAFKA_INCIDENT_TOPIC"),
 		RedisAddr:            os.Getenv("REDIS_ADDR"),
 		RedisPassword:        os.Getenv("REDIS_PASSWORD"),
 		MinIOEndpoint:        os.Getenv("MINIO_ENDPOINT"),
@@ -108,6 +110,9 @@ func Load() *Config {
 	}
 	if cfg.KafkaDLQTopic == "" {
 		cfg.KafkaDLQTopic = "argus.dlq"
+	}
+	if cfg.KafkaIncidentTopic == "" {
+		cfg.KafkaIncidentTopic = "telemetry.incidents"
 	}
 	cfg.KafkaAIWorkerGroupID = os.Getenv("KAFKA_AI_WORKER_GROUP_ID")
 	if cfg.KafkaAIWorkerGroupID == "" {
