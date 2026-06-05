@@ -250,3 +250,70 @@ func scanAlert(scanner ruleScanner) (*rule.Alert, error) {
 
 	return &entity, nil
 }
+
+func (r *RuleRepository) CreateAlertsBatch(ctx context.Context, entities []rule.Alert) error {
+	if len(entities) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx for alerts batch: %w", err)
+	}
+	defer tx.Rollback()
+
+	const placeholdersPerAlert = 11
+	chunkSize := 100
+
+	for i := 0; i < len(entities); i += chunkSize {
+		end := i + chunkSize
+		if end > len(entities) {
+			end = len(entities)
+		}
+		chunk := entities[i:end]
+
+		query := "INSERT INTO alerts (id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, severity, message, created_at) VALUES "
+		vals := make([]any, 0, len(chunk)*placeholdersPerAlert)
+
+		for idx, entity := range chunk {
+			pStart := idx * placeholdersPerAlert
+			query += fmt.Sprintf(
+				"($%d::uuid, $%d::uuid, $%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d),",
+				pStart+1, pStart+2, pStart+3, pStart+4, pStart+5, pStart+6, pStart+7, pStart+8, pStart+9, pStart+10, pStart+11,
+			)
+
+			var telemetryIDVal *string
+			if entity.TelemetryID != nil && *entity.TelemetryID != "" {
+				telemetryIDVal = entity.TelemetryID
+			}
+
+			vals = append(vals,
+				entity.ID,
+				entity.RuleID,
+				entity.DeviceID,
+				telemetryIDVal,
+				entity.Metric,
+				entity.Operator,
+				entity.Threshold,
+				entity.ObservedValue,
+				entity.Severity,
+				entity.Message,
+				entity.CreatedAt,
+			)
+		}
+
+		query = query[:len(query)-1] // trim trailing comma
+
+		_, err = tx.ExecContext(ctx, query, vals...)
+		if err != nil {
+			return fmt.Errorf("execute alerts batch chunk: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit alerts batch: %w", err)
+	}
+
+	return nil
+}
+

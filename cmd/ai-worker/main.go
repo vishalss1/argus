@@ -7,96 +7,49 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	segmentio "github.com/segmentio/kafka-go"
 	"github.com/vishalss1/argus/internal/ai/analytics"
-	"github.com/vishalss1/argus/internal/ai/anomaly"
-	"github.com/vishalss1/argus/internal/ai/correlation"
-	"github.com/vishalss1/argus/internal/ai/memory"
-	"github.com/vishalss1/argus/internal/ai/semantic"
 	"github.com/vishalss1/argus/internal/config"
-	anomalydomain "github.com/vishalss1/argus/internal/domain/anomaly"
-	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
-	eventdomain "github.com/vishalss1/argus/internal/domain/event"
-	findingdomain "github.com/vishalss1/argus/internal/domain/finding"
-	incidentdomain "github.com/vishalss1/argus/internal/domain/incident"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
-	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
-	"github.com/vishalss1/argus/internal/infrastructure/postgres"
+	"github.com/vishalss1/argus/internal/infrastructure/redis"
 )
 
 func main() {
 	cfg := config.Load()
 
-	db, err := postgres.InitDB(cfg.DatabaseURL)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize Redis Client
+	redisClient, err := redis.New(ctx, redis.Config{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
 	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err)
+		log.Fatalf("failed to connect to Redis: %v", err)
 	}
-	defer db.Close()
+	defer redisClient.Close()
 
-	embeddingProvider := embedding.NewOllamaProvider(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
-	vectorStore := postgres.NewVectorStore(db)
-	semanticEmbedding := semantic.NewEmbeddingService(embeddingProvider, vectorStore)
-	correlationEmbedding := correlation.NewEmbeddingService(embeddingProvider, vectorStore)
-	memoryEmbedding := memory.NewEmbeddingService(embeddingProvider, vectorStore)
-
-	eventRepo := postgres.NewEventRepository(db)
-	semanticEngine := semantic.NewEngine(eventRepo)
-
-	anomalyEngine := anomaly.NewEngine(func(ctx context.Context, a anomalydomain.Anomaly) {
-		// Convert anomaly to semantic event
-		ev := eventdomain.Event{
-			ID:              a.ID,
-			DeviceID:        a.DeviceID,
-			Type:            string(a.Type),
-			Severity:        eventdomain.Severity(a.Severity),
-			Title:           a.Title,
-			Summary:         a.Summary,
-			Source:          "anomaly_engine",
-			ConfidenceScore: a.ConfidenceScore,
-			Metadata:        a.Metadata,
-			CreatedAt:       a.CreatedAt,
-		}
-		if _, err := eventRepo.Create(ctx, ev); err == nil {
-			if err := semanticEmbedding.EmbedEvent(ctx, ev); err != nil {
-				log.Printf("[AI WORKER] failed to embed anomaly event: %v", err)
-			}
-		} else {
-			log.Printf("[AI WORKER] failed to persist anomaly event: %v", err)
-		}
+	// Initialize Kafka Producer
+	kafkaProducer, err := kafka.NewProducer(kafka.Config{
+		Brokers:        cfg.KafkaBrokers,
+		TelemetryTopic: cfg.KafkaTelemetryTopic,
+		CommandTopic:   cfg.KafkaCommandTopic,
+		IncidentTopic:  cfg.KafkaIncidentTopic,
 	})
-
-	contextRepo := postgres.NewContextRepository(db)
-	contextService := ctxdomain.NewService(contextRepo)
-	contextService.OnRecord = func(ctx context.Context, mem ctxdomain.OperationalMemory) {
-		if err := memoryEmbedding.EmbedMemory(ctx, mem); err != nil {
-			log.Printf("failed to embed operational memory: %v", err)
-		}
+	if err != nil {
+		log.Fatalf("failed to initialize Kafka producer: %v", err)
 	}
-	memoryManager := memory.NewManager(contextService)
+	defer kafkaProducer.Close()
 
-	incidentRepo := postgres.NewIncidentRepository(db)
-	incidentService := incidentdomain.NewService(incidentRepo)
-	incidentService.OnCreated = func(ctx context.Context, inc incidentdomain.Incident) {
-		if err := correlationEmbedding.EmbedIncident(ctx, inc); err != nil {
-			log.Printf("failed to embed incident: %v", err)
-		}
-	}
-	incidentService.OnResolved = func(ctx context.Context, inc incidentdomain.Incident) {
-		if err := memoryManager.SummarizeIncident(ctx, inc); err != nil {
-			log.Printf("failed to summarize incident: %v", err)
-		}
-	}
+	// Initialize AI Analytics Engine with Redis and Kafka
+	analyticsEngine := analytics.NewEngine(redisClient.Client(), kafkaProducer)
 
-	correlationEngine := correlation.NewEngine(incidentService, eventRepo)
-
-	findingRepo := postgres.NewFindingRepository(db)
-	analyticsEngine := analytics.NewEngine(func(ctx context.Context, f findingdomain.Finding) {
-		if _, err := findingRepo.Create(ctx, f); err != nil {
-			log.Printf("[AI WORKER] failed to persist ai finding: %v", err)
-		}
-	})
-
+	// Initialize Kafka Consumer for raw telemetry
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   cfg.KafkaTelemetryTopic,
@@ -105,9 +58,6 @@ func main() {
 	defer consumer.Close()
 
 	log.Printf("AI Worker started, consuming topic: %s", cfg.KafkaTelemetryTopic)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -118,52 +68,99 @@ func main() {
 		cancel()
 	}()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
+	// Worker pool size
+	const numWorkers = 16
+	
+	// Channels
+	msgChan := make(chan segmentio.Message, 2000)
+	commitChan := make(chan segmentio.Message, 2000)
+	errChan := make(chan error, 1)
+
+	// Spawn Workers
+	for w := 1; w <= numWorkers; w++ {
+		go func(workerID int) {
+			for msg := range msgChan {
+				var t telemetrydomain.Telemetry
+				if err := json.Unmarshal(msg.Value, &t); err != nil {
+					log.Printf("[AI WORKER-%d] decode error: %v", workerID, err)
+					// Commit directly since it's invalid
+					_ = consumer.CommitMessages(ctx, msg)
+					continue
+				}
+
+				if err := analyticsEngine.Analyze(ctx, t); err != nil {
+					log.Printf("[AI WORKER-%d] analytics error: %v", workerID, err)
+				}
+
+				select {
+				case commitChan <- msg:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}(w)
+	}
+
+	// Fetcher Goroutine
+	go func() {
+		for {
 			msg, err := consumer.FetchMessage(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				log.Printf("failed to fetch message: %v", err)
+				errChan <- err
+				time.Sleep(1 * time.Second)
 				continue
 			}
+			select {
+			case msgChan <- msg:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
-			var t telemetrydomain.Telemetry
-			if err := json.Unmarshal(msg.Value, &t); err != nil {
-				log.Printf("failed to unmarshal telemetry: %v", err)
-				consumer.CommitMessages(ctx, msg)
-				continue
+	// Committer/Reporter Loop
+	var batch []segmentio.Message
+	const maxBatchSize = 100
+	commitInterval := 100 * time.Millisecond
+	commitTimer := time.NewTicker(commitInterval)
+	defer commitTimer.Stop()
+
+	flushBatch := func(flushCtx context.Context) {
+		if len(batch) == 0 {
+			return
+		}
+		if err := consumer.CommitMessages(flushCtx, batch...); err != nil {
+			log.Printf("[AI WORKER] failed to commit batch of %d messages: %v", len(batch), err)
+		}
+		batch = batch[:0]
+	}
+
+	var msgCount int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[AI WORKER] context cancelled, flushing pending offsets...")
+			close(msgChan)
+			flushBatch(context.Background())
+			return
+		case err := <-errChan:
+			log.Printf("[AI WORKER] fetch error: %v", err)
+		case msg := <-commitChan:
+			msgCount++
+			if msgCount%500 == 0 {
+				log.Printf("[AI WORKER] processed %d messages, pending commit: %d", msgCount, len(batch))
 			}
 
-			if err := anomalyEngine.Analyze(ctx, t); err != nil {
-				log.Printf("failed to run anomaly detection: %v", err)
+			batch = append(batch, msg)
+			if len(batch) >= maxBatchSize {
+				flushBatch(ctx)
 			}
-
-			if err := analyticsEngine.Analyze(ctx, t); err != nil {
-				log.Printf("failed to run analytics engine: %v", err)
-			}
-
-			events, err := semanticEngine.AnalyzeTelemetry(ctx, t)
-			if err != nil {
-				log.Printf("[AI WORKER] failed to analyze telemetry: %v", err)
-			} else if len(events) > 0 {
-				for _, ev := range events {
-					if err := semanticEmbedding.EmbedEvent(ctx, ev); err != nil {
-						log.Printf("[AI WORKER] failed to embed semantic event: %v", err)
-					}
-					if err := correlationEngine.Correlate(ctx, ev); err != nil {
-						log.Printf("[AI WORKER] failed to correlate event: %v", err)
-					}
-				}
-			}
-
-			if err := consumer.CommitMessages(ctx, msg); err != nil {
-				log.Printf("failed to commit message: %v", err)
-			}
+		case <-commitTimer.C:
+			flushBatch(ctx)
 		}
 	}
 }

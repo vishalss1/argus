@@ -9,13 +9,11 @@ import (
 )
 
 type TelemetryRepository struct {
-	next     telemetry.Repository
 	producer *Producer
 }
 
-func NewTelemetryRepository(next telemetry.Repository, producer *Producer) *TelemetryRepository {
+func NewTelemetryRepository(producer *Producer) *TelemetryRepository {
 	return &TelemetryRepository{
-		next:     next,
 		producer: producer,
 	}
 }

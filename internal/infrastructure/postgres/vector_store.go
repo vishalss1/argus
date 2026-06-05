@@ -38,7 +38,7 @@ func (s *VectorStore) verifyExtension() {
 	}
 
 	// Verify columns exist
-	tables := []string{"events", "incidents", "operational_memory"}
+	tables := []string{"events", "operational_memory"}
 	for _, table := range tables {
 		var exists bool
 		query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='%s' AND column_name='embedding')", table)
@@ -61,7 +61,6 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 	// Sanitize table name
 	allowedTables := map[string]bool{
 		"events":             true,
-		"incidents":          true,
 		"operational_memory": true,
 	}
 	if !allowedTables[table] {
@@ -105,7 +104,6 @@ func (s *VectorStore) UpdateEmbedding(ctx context.Context, table string, id stri
 
 	allowedTables := map[string]bool{
 		"events":             true,
-		"incidents":          true,
 		"operational_memory": true,
 	}
 	if !allowedTables[table] {

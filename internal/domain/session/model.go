@@ -40,8 +40,6 @@ type Repository interface {
 
 	UpsertStatistics(ctx context.Context, s Statistics) error
 	GetStatistics(ctx context.Context, sessionID string) (*Statistics, error)
-	CreateReport(ctx context.Context, r Report) (*Report, error)
-	GetReportBySession(ctx context.Context, sessionID string) (*Report, error)
 	ListEventsBySession(ctx context.Context, sessionID string) ([]Event, error)
 	ListAlertsBySession(ctx context.Context, sessionID string) ([]Alert, error)
 	ListCommandsBySession(ctx context.Context, sessionID string) ([]Command, error)

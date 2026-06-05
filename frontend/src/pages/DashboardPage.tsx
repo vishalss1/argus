@@ -16,7 +16,7 @@ import {
   StatCard,
   StatusChip
 } from "../components/ui";
-import { useAlerts, useAllDeployments, useCreateWorkspace, useDevices, useFirmware, useFleetSummary, useHealth, useOTAStats, useWorkspaces } from "../hooks/useArgusData";
+import { useAlerts, useAllDeployments, useCreateWorkspace, useDevices, useFirmware, useHealth, useOTAStats, useWorkspaces } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { countByStatus, formatDate } from "../lib/format";
@@ -107,7 +107,6 @@ export function DashboardPage() {
 function FleetDashboard() {
   const { workspaceDevices } = useWorkspaceContext();
   const devices = useDevices({ realtime: true });
-  const fleetSummary = useFleetSummary();
   const { telemetryByDevice } = useRealtime();
   const alerts = useAlerts();
   const firmware = useFirmware();
@@ -178,7 +177,7 @@ function FleetDashboard() {
       <PageHeader
         title="Fleet Overview"
         actions={
-          <button className="button secondary" type="button" onClick={() => { refresh(); void fleetSummary.refetch(); }}>
+          <button className="button secondary" type="button" onClick={refresh}>
             <RefreshCw size={15} aria-hidden />
             Refresh
           </button>
