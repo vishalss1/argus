@@ -469,9 +469,9 @@ func (r *OTARepository) Stats(ctx context.Context) (*ota.FleetStats, error) {
 		query = `
 			SELECT
 				COUNT(*)::int,
-				COUNT(*) FILTER (WHERE status = 'acked')::int,
-				COUNT(*) FILTER (WHERE status IN ('nacked', 'timeout'))::int,
-				COUNT(DISTINCT device_id) FILTER (WHERE status IN ('pending', 'available', 'downloading', 'flashing', 'rebooting'))::int
+				COUNT(*) FILTER (WHERE od.status = 'acked')::int,
+				COUNT(*) FILTER (WHERE od.status IN ('nacked', 'timeout'))::int,
+				COUNT(DISTINCT od.device_id) FILTER (WHERE od.status IN ('pending', 'available', 'downloading', 'flashing', 'rebooting'))::int
 			FROM ota_deployments od
 			JOIN devices d ON od.device_id = d.id
 			WHERE d.workspace_id = $1::uuid`

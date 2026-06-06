@@ -169,12 +169,12 @@ var _ auth.RefreshTokenRepository = (*RefreshTokenRepository)(nil)
 
 func (r *RefreshTokenRepository) Create(ctx context.Context, t *auth.RefreshToken) error {
 	query := `
-		INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, revoked, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, revoked, revoked_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 	_, err := r.db.ExecContext(
 		ctx, query,
-		t.ID, t.UserID, t.TokenHash, t.ExpiresAt, t.Revoked, t.CreatedAt,
+		t.ID, t.UserID, t.TokenHash, t.ExpiresAt, t.Revoked, t.RevokedAt, t.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create refresh token: %w", err)
@@ -184,13 +184,13 @@ func (r *RefreshTokenRepository) Create(ctx context.Context, t *auth.RefreshToke
 
 func (r *RefreshTokenRepository) GetByHash(ctx context.Context, hash string) (*auth.RefreshToken, error) {
 	query := `
-		SELECT id, user_id, token_hash, expires_at, revoked, created_at
+		SELECT id, user_id, token_hash, expires_at, revoked, revoked_at, created_at
 		FROM refresh_tokens
 		WHERE token_hash = $1
 	`
 	var t auth.RefreshToken
 	err := r.db.QueryRowContext(ctx, query, hash).Scan(
-		&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.Revoked, &t.CreatedAt,
+		&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.Revoked, &t.RevokedAt, &t.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -204,7 +204,7 @@ func (r *RefreshTokenRepository) GetByHash(ctx context.Context, hash string) (*a
 func (r *RefreshTokenRepository) Revoke(ctx context.Context, id string) error {
 	query := `
 		UPDATE refresh_tokens
-		SET revoked = TRUE
+		SET revoked = TRUE, revoked_at = NOW()
 		WHERE id = $1
 	`
 	_, err := r.db.ExecContext(ctx, query, id)
@@ -217,7 +217,7 @@ func (r *RefreshTokenRepository) Revoke(ctx context.Context, id string) error {
 func (r *RefreshTokenRepository) RevokeAllForUser(ctx context.Context, userID string) error {
 	query := `
 		UPDATE refresh_tokens
-		SET revoked = TRUE
+		SET revoked = TRUE, revoked_at = NOW()
 		WHERE user_id = $1
 	`
 	_, err := r.db.ExecContext(ctx, query, userID)

@@ -29,6 +29,7 @@ type Service struct {
 	jwtSecret         []byte
 	accessExpiration  time.Duration
 	refreshExpiration time.Duration
+	rotationGrace     time.Duration
 }
 
 func NewService(
@@ -46,7 +47,19 @@ func NewService(
 		jwtSecret:         []byte(jwtSecret),
 		accessExpiration:  accessExpiration,
 		refreshExpiration: refreshExpiration,
+		rotationGrace:     30 * time.Second,
 	}
+}
+
+func (s *Service) SetRotationGrace(d time.Duration) {
+	s.rotationGrace = d
+}
+
+func (s *Service) RefreshExpiration() time.Duration {
+	if s.refreshExpiration == 0 {
+		return 30 * 24 * time.Hour
+	}
+	return s.refreshExpiration
 }
 
 type TokenClaims struct {
@@ -155,9 +168,18 @@ func (s *Service) Refresh(ctx context.Context, rawRefreshToken string, ipAddress
 		return "", "", err
 	}
 
-	if tokenRecord == nil || tokenRecord.Revoked || time.Now().UTC().After(tokenRecord.ExpiresAt) {
+	if tokenRecord == nil || time.Now().UTC().After(tokenRecord.ExpiresAt) {
 		s.logAudit(ctx, nil, "token_refresh", ipAddress, userAgent, false)
 		return "", "", ErrInvalidToken
+	}
+
+	if tokenRecord.Revoked {
+		// Implement a grace period for token rotation to prevent page-reload/concurrency lockouts
+		gracePeriod := s.rotationGrace
+		if gracePeriod == 0 || tokenRecord.RevokedAt == nil || time.Now().UTC().After(tokenRecord.RevokedAt.Add(gracePeriod)) {
+			s.logAudit(ctx, nil, "token_refresh", ipAddress, userAgent, false)
+			return "", "", ErrInvalidToken
+		}
 	}
 
 	user, err := s.userRepo.GetByID(ctx, tokenRecord.UserID)

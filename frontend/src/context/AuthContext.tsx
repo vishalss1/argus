@@ -21,7 +21,7 @@ interface AuthContextType {
   setActiveWorkspaceId: (id: string) => void;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (accessToken: string, refreshToken: string) => Promise<void>;
+  login: (accessToken: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 }
@@ -78,34 +78,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspaces([]);
       setIsAuthenticated(false);
       localStorage.removeItem("argus_access_token");
-      localStorage.removeItem("argus_refresh_token");
       localStorage.removeItem("argus_active_workspace_id");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const login = async (accessToken: string, refreshToken: string) => {
+  const login = async (accessToken: string) => {
     localStorage.setItem("argus_access_token", accessToken);
-    localStorage.setItem("argus_refresh_token", refreshToken);
     setIsLoading(true);
     await refreshMe();
   };
 
   const logout = async () => {
     try {
-      const refreshToken = localStorage.getItem("argus_refresh_token");
-      if (refreshToken) {
-        await request("/auth/logout", {
-          method: "POST",
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-      }
+      await request("/auth/logout", {
+        method: "POST",
+      });
     } catch {
       // Ignore logout errors
     } finally {
       localStorage.removeItem("argus_access_token");
-      localStorage.removeItem("argus_refresh_token");
       localStorage.removeItem("argus_active_workspace_id");
       startTransition(() => {
         setUser(null);

@@ -116,10 +116,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setRefreshTokenCookie(w, refreshToken, h.authService.RefreshExpiration())
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":          user,
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
+		"user":         user,
+		"access_token": accessToken,
 	})
 }
 
@@ -130,68 +131,80 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit request body to 4 KB
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
+	var refreshToken string
+	cookie, err := r.Cookie("refresh_token")
+	if err == nil && cookie != nil {
+		refreshToken = cookie.Value
 	}
 
-	if req.RefreshToken == "" {
+	// Fallback to request body if cookie is not present
+	if refreshToken == "" {
+		// Limit request body to 4 KB
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		refreshToken = req.RefreshToken
+	}
+
+	if refreshToken == "" {
 		writeError(w, http.StatusBadRequest, "refresh token is required")
 		return
 	}
 
 	ip, ua := getIPAndUA(r)
-	accessToken, newRefreshToken, err := h.authService.Refresh(r.Context(), req.RefreshToken, ip, ua)
+	accessToken, newRefreshToken, err := h.authService.Refresh(r.Context(), refreshToken, ip, ua)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
 
+	setRefreshTokenCookie(w, newRefreshToken, h.authService.RefreshExpiration())
+
 	writeJSON(w, http.StatusOK, map[string]string{
-		"access_token":  accessToken,
-		"refresh_token": newRefreshToken,
+		"access_token": accessToken,
 	})
 }
 
 // POST /auth/logout
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	// Limit request body to 4 KB
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
+	var refreshToken string
+	cookie, err := r.Cookie("refresh_token")
+	if err == nil && cookie != nil {
+		refreshToken = cookie.Value
 	}
 
-	if req.RefreshToken != "" {
+	// Fallback to request body if cookie is not present
+	if refreshToken == "" {
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		refreshToken = req.RefreshToken
+	}
+
+	if refreshToken != "" {
 		ip, ua := getIPAndUA(r)
-		_ = h.authService.Logout(r.Context(), req.RefreshToken, ip, ua)
+		_ = h.authService.Logout(r.Context(), refreshToken, ip, ua)
 	}
 
+	clearRefreshTokenCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
-
 
 // GET /auth/me
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.GetUserID(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized: user context missing")
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	user, workspaces, err := h.authService.GetMe(r.Context(), userID)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized: user not found")
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -211,4 +224,31 @@ func getIPAndUA(r *http.Request) (string, string) {
 		}
 	}
 	return ip, r.UserAgent()
+}
+
+func setRefreshTokenCookie(w http.ResponseWriter, token string, duration time.Duration) {
+	if duration == 0 {
+		duration = 30 * 24 * time.Hour
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    token,
+		Path:     "/",
+		Expires:  time.Now().Add(duration),
+		HttpOnly: true,
+		Secure:   false, // Set to false to allow local dev over HTTP/HTTPS proxy without SSL errors
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearRefreshTokenCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

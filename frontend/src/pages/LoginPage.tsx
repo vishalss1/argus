@@ -20,11 +20,11 @@ export function LoginPage() {
     setError(null);
 
     try {
-      const data = await request<{ user: any; access_token: string; refresh_token: string }>("/auth/login", {
+      const data = await request<{ user: any; access_token: string }>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: email.trim(), password: password.trim() }),
       });
-      await login(data.access_token, data.refresh_token);
+      await login(data.access_token);
       navigate("/dashboard");
     } catch (err: any) {
       setError(err.message || "Invalid email or password");
