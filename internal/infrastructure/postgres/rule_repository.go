@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/rule"
 )
 
@@ -156,12 +157,25 @@ func (r *RuleRepository) CreateAlert(ctx context.Context, entity rule.Alert) (*r
 }
 
 func (r *RuleRepository) ListAlerts(ctx context.Context) ([]rule.Alert, error) {
-	const query = `
-		SELECT id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, message, created_at
-		FROM alerts
-		ORDER BY created_at DESC`
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		const query = `
+			SELECT a.id, a.rule_id, a.device_id, a.telemetry_id, a.metric, a.operator, a.threshold, a.observed_value, a.severity, a.message, a.created_at
+			FROM alerts a
+			JOIN devices d ON a.device_id = d.id
+			WHERE d.workspace_id = $1::uuid
+			ORDER BY a.created_at DESC`
+		rows, err = r.db.QueryContext(ctx, query, wID)
+	} else {
+		const query = `
+			SELECT id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, severity, message, created_at
+			FROM alerts
+			ORDER BY created_at DESC`
+		rows, err = r.db.QueryContext(ctx, query)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list alerts: %w", err)
 	}

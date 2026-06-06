@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/device"
 )
 
@@ -55,12 +56,24 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 }
 
 func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
-	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
-		FROM devices
-		ORDER BY created_at DESC`
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE workspace_id = $1::uuid
+			ORDER BY created_at DESC`
+		rows, err = r.db.QueryContext(ctx, query, wID)
+	} else {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			ORDER BY created_at DESC`
+		rows, err = r.db.QueryContext(ctx, query)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list devices: %w", err)
 	}
@@ -83,12 +96,23 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 }
 
 func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Device, error) {
-	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
-		FROM devices
-		WHERE id = $1::uuid`
+	var row *sql.Row
 
-	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id))
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE id = $1::uuid AND workspace_id = $2::uuid`
+		row = r.db.QueryRowContext(ctx, query, id, wID)
+	} else {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE id = $1::uuid`
+		row = r.db.QueryRowContext(ctx, query, id)
+	}
+
+	entity, err := scanDevice(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, device.ErrDeviceNotFound
 	}
@@ -100,14 +124,27 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Devi
 }
 
 func (r *DeviceRepository) GetByHardwareID(ctx context.Context, hardwareID string) (*device.Device, error) {
-	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
-		FROM devices
-		WHERE metadata->>'hardware_id' = $1
-		ORDER BY created_at ASC
-		LIMIT 1`
+	var row *sql.Row
 
-	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, hardwareID))
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE metadata->>'hardware_id' = $1 AND workspace_id = $2::uuid
+			ORDER BY created_at ASC
+			LIMIT 1`
+		row = r.db.QueryRowContext(ctx, query, hardwareID, wID)
+	} else {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE metadata->>'hardware_id' = $1
+			ORDER BY created_at ASC
+			LIMIT 1`
+		row = r.db.QueryRowContext(ctx, query, hardwareID)
+	}
+
+	entity, err := scanDevice(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, device.ErrDeviceNotFound
 	}
@@ -140,27 +177,54 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 		current.Metadata = *input.Metadata
 	}
 
-	const query = `
-		UPDATE devices
-		SET name = $2,
-			type = $3,
-			firmware_version = $4,
-			status = $5,
-			metadata = $6::jsonb,
-			updated_at = NOW()
-		WHERE id = $1::uuid
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
+	var row *sql.Row
 
-	updated, err := scanDevice(r.db.QueryRowContext(
-		ctx,
-		query,
-		current.ID,
-		current.Name,
-		current.Type,
-		current.FirmwareVersion,
-		current.Status,
-		current.Metadata,
-	))
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		const query = `
+			UPDATE devices
+			SET name = $2,
+				type = $3,
+				firmware_version = $4,
+				status = $5,
+				metadata = $6::jsonb,
+				updated_at = NOW()
+			WHERE id = $1::uuid AND workspace_id = $7::uuid
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
+		row = r.db.QueryRowContext(
+			ctx,
+			query,
+			current.ID,
+			current.Name,
+			current.Type,
+			current.FirmwareVersion,
+			current.Status,
+			current.Metadata,
+			wID,
+		)
+	} else {
+		const query = `
+			UPDATE devices
+			SET name = $2,
+				type = $3,
+				firmware_version = $4,
+				status = $5,
+				metadata = $6::jsonb,
+				updated_at = NOW()
+			WHERE id = $1::uuid
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
+		row = r.db.QueryRowContext(
+			ctx,
+			query,
+			current.ID,
+			current.Name,
+			current.Type,
+			current.FirmwareVersion,
+			current.Status,
+			current.Metadata,
+		)
+	}
+
+	updated, err := scanDevice(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, device.ErrDeviceNotFound
 	}
@@ -244,7 +308,15 @@ func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Du
 }
 
 func (r *DeviceRepository) Delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, "DELETE FROM devices WHERE id = $1::uuid", id)
+	var result sql.Result
+	var err error
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		result, err = r.db.ExecContext(ctx, "DELETE FROM devices WHERE id = $1::uuid AND workspace_id = $2::uuid", id, wID)
+	} else {
+		result, err = r.db.ExecContext(ctx, "DELETE FROM devices WHERE id = $1::uuid", id)
+	}
+
 	if err != nil {
 		return fmt.Errorf("delete device: %w", err)
 	}

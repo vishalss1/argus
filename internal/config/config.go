@@ -54,6 +54,9 @@ type Config struct {
 	AIQueryAPIKey        string
 	AIQueryRateLimit     int
 	AIRetentionDays      int
+	JWTSecret            string
+	AuthAuditLogRetentionDays int
+	GoogleClientID       string
 }
 
 func Load() *Config {
@@ -254,6 +257,24 @@ func Load() *Config {
 	} else {
 		cfg.AIRetentionDays = 30
 	}
+
+	cfg.JWTSecret = os.Getenv("JWT_SECRET")
+	if cfg.JWTSecret == "" {
+		cfg.JWTSecret = "default-super-secure-secret-key-change-this-in-prod"
+	}
+
+	auditRetentionDaysStr := os.Getenv("AUTH_AUDIT_LOG_RETENTION_DAYS")
+	if auditRetentionDaysStr != "" {
+		if val, err := strconv.Atoi(auditRetentionDaysStr); err == nil && val > 0 {
+			cfg.AuthAuditLogRetentionDays = val
+		} else {
+			cfg.AuthAuditLogRetentionDays = 90
+		}
+	} else {
+		cfg.AuthAuditLogRetentionDays = 90
+	}
+
+	cfg.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
 
 	return cfg
 }

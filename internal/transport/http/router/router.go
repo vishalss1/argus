@@ -7,8 +7,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	httpSwagger "github.com/swaggo/http-swagger"
 	_ "github.com/vishalss1/argus/docs/swagger"
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/transport/http/handler"
-	"github.com/vishalss1/argus/internal/transport/http/middleware"
+	authmiddleware "github.com/vishalss1/argus/internal/transport/http/middleware"
 	transportws "github.com/vishalss1/argus/internal/transport/websocket"
 )
 
@@ -22,11 +23,13 @@ func New(
 	aiHandler *handler.AIHandler,
 	workspaceHandler *handler.WorkspaceHandler,
 	sessionHandler *handler.SessionHandler,
+	authHandler *handler.AuthHandler,
+	authService *auth.Service,
 	websocketHandler *transportws.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
-	r.Use(middleware.Metrics)
+	r.Use(authmiddleware.Logger)
+	r.Use(authmiddleware.Metrics)
 
 	// Generic/Utility Routes
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -39,131 +42,153 @@ func New(
 	// Define all API logic in a single sub-router
 	apiRouter := chi.NewRouter()
 
-	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
+	// Unauthenticated Auth endpoints
+	apiRouter.Post("/auth/register", authHandler.Register)
+	apiRouter.Post("/auth/login", authHandler.Login)
+	apiRouter.Post("/auth/refresh", authHandler.Refresh)
+	apiRouter.Post("/auth/logout", authHandler.Logout)
+	apiRouter.Post("/auth/login/google", authHandler.LoginGoogle)
+
+	// Device-facing endpoints (Unauthenticated user-wise, since they connect directly)
 	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
-	apiRouter.Get("/alerts", ruleHandler.ListAlerts)
+	apiRouter.Post("/devices/heartbeat", deviceHandler.RecordGlobalHeartbeat)
+	apiRouter.Post("/devices/{deviceID}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+		deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
+	})
+	apiRouter.Post("/devices/{deviceID}/telemetry", func(w http.ResponseWriter, r *http.Request) {
+		telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+	})
 
-	apiRouter.Get("/fleet/incidents", aiHandler.ListFleetIncidents)
+	// User Authenticated Group
+	apiRouter.Group(func(r chi.Router) {
+		r.Use(authmiddleware.Auth(authService))
 
-	apiRouter.Route("/workspaces", func(r chi.Router) {
-		r.Get("/", workspaceHandler.List)
-		r.Post("/", workspaceHandler.Create)
-		r.Route("/{workspaceID}", func(r chi.Router) {
-			r.Get("/", workspaceHandler.Get)
-			r.Get("/devices", workspaceHandler.ListDevices)
-			r.Post("/devices", workspaceHandler.AssignDevice)
-			r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
-			r.Post("/sessions", sessionHandler.Create)
-			r.Get("/sessions", sessionHandler.List)
+		r.Get("/auth/me", authHandler.Me)
+
+		// Workspace management routes (accessible by any authenticated user)
+		r.Route("/workspaces", func(r chi.Router) {
+			r.Get("/", workspaceHandler.List)
+			r.Post("/", workspaceHandler.Create)
 		})
-	})
 
-	apiRouter.Route("/sessions/{sessionID}", func(r chi.Router) {
-		r.Get("/", sessionHandler.Get)
-		r.Post("/start", sessionHandler.Start)
-		r.Post("/stop", sessionHandler.Stop)
-		r.Get("/statistics", sessionHandler.GetStatistics)
-		r.Get("/artifact", sessionHandler.GetArtifact)
-		r.Get("/active-incidents", aiHandler.ListSessionActiveIncidents)
-	})
+		// Workspace Isolated Group (Requires X-Workspace-ID header and user membership check)
+		r.Group(func(r chi.Router) {
+			r.Use(authmiddleware.WorkspaceAuth(authService))
 
-	apiRouter.Route("/ai", func(r chi.Router) {
-		r.Post("/query", aiHandler.Ask)
-		r.Get("/events", aiHandler.ListEvents)
-		r.Get("/actions", aiHandler.ListActions)
-		r.Post("/actions/{actionID}/approve", aiHandler.ApproveAction)
-	})
+			r.Get("/ws", websocketHandler.ServeHTTP)
+			r.Get("/alerts", ruleHandler.ListAlerts)
+			r.Get("/fleet/incidents", aiHandler.ListFleetIncidents)
 
-	apiRouter.Route("/rules", func(r chi.Router) {
-		r.Get("/", ruleHandler.ListRules)
-		r.Post("/", ruleHandler.CreateRule)
-		r.Route("/{ruleID}", func(r chi.Router) {
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-				ruleHandler.GetRule(w, r, chi.URLParam(r, "ruleID"))
+			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
+				r.Get("/", workspaceHandler.Get)
+				r.Get("/devices", workspaceHandler.ListDevices)
+				r.Post("/devices", workspaceHandler.AssignDevice)
+				r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
+				r.Post("/sessions", sessionHandler.Create)
+				r.Get("/sessions", sessionHandler.List)
 			})
-			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
-				ruleHandler.UpdateRule(w, r, chi.URLParam(r, "ruleID"))
-			})
-			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				ruleHandler.DeleteRule(w, r, chi.URLParam(r, "ruleID"))
-			})
-		})
-	})
 
-	apiRouter.Route("/ota/firmware", func(r chi.Router) {
-		r.Get("/", otaHandler.ListFirmware)
-		r.Post("/", otaHandler.UploadFirmware)
-		r.Get("/{firmwareID}", func(w http.ResponseWriter, r *http.Request) {
-			otaHandler.GetFirmware(w, r, chi.URLParam(r, "firmwareID"))
-		})
-	})
+			r.Route("/sessions/{sessionID}", func(r chi.Router) {
+				r.Get("/", sessionHandler.Get)
+				r.Post("/start", sessionHandler.Start)
+				r.Post("/stop", sessionHandler.Stop)
+				r.Get("/statistics", sessionHandler.GetStatistics)
+				r.Get("/artifact", sessionHandler.GetArtifact)
+				r.Get("/active-incidents", aiHandler.ListSessionActiveIncidents)
+			})
 
-	apiRouter.Route("/ota/deployments", func(r chi.Router) {
-		r.Get("/", otaHandler.ListAllDeployments)
-		r.Get("/stats", otaHandler.Stats)
-		r.Get("/{deploymentID}/events", func(w http.ResponseWriter, r *http.Request) {
-			otaHandler.ListDeploymentEvents(w, r, chi.URLParam(r, "deploymentID"))
-		})
-	})
+			r.Route("/ai", func(r chi.Router) {
+				r.Post("/query", aiHandler.Ask)
+				r.Get("/events", aiHandler.ListEvents)
+				r.Get("/actions", aiHandler.ListActions)
+				r.Post("/actions/{actionID}/approve", aiHandler.ApproveAction)
+			})
 
-	apiRouter.Route("/devices", func(r chi.Router) {
-		r.Get("/", deviceHandler.ListDevices)
-		r.Post("/", deviceHandler.CreateDevice)
-		r.Post("/heartbeat", deviceHandler.RecordGlobalHeartbeat)
-		r.Route("/{deviceID}", func(r chi.Router) {
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-				deviceHandler.GetDevice(w, r, chi.URLParam(r, "deviceID"))
+			r.Route("/rules", func(r chi.Router) {
+				r.Get("/", ruleHandler.ListRules)
+				r.Post("/", ruleHandler.CreateRule)
+				r.Route("/{ruleID}", func(r chi.Router) {
+					r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+						ruleHandler.GetRule(w, r, chi.URLParam(r, "ruleID"))
+					})
+					r.Put("/", func(w http.ResponseWriter, r *http.Request) {
+						ruleHandler.UpdateRule(w, r, chi.URLParam(r, "ruleID"))
+					})
+					r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
+						ruleHandler.DeleteRule(w, r, chi.URLParam(r, "ruleID"))
+					})
+				})
 			})
-			r.Put("/", func(w http.ResponseWriter, r *http.Request) {
-				deviceHandler.UpdateDevice(w, r, chi.URLParam(r, "deviceID"))
+
+			r.Route("/ota/firmware", func(r chi.Router) {
+				r.Get("/", otaHandler.ListFirmware)
+				r.Post("/", otaHandler.UploadFirmware)
+				r.Get("/{firmwareID}", func(w http.ResponseWriter, r *http.Request) {
+					otaHandler.GetFirmware(w, r, chi.URLParam(r, "firmwareID"))
+				})
 			})
-			r.Post("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
-				deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
+
+			r.Route("/ota/deployments", func(r chi.Router) {
+				r.Get("/", otaHandler.ListAllDeployments)
+				r.Get("/stats", otaHandler.Stats)
+				r.Get("/{deploymentID}/events", func(w http.ResponseWriter, r *http.Request) {
+					otaHandler.ListDeploymentEvents(w, r, chi.URLParam(r, "deploymentID"))
+				})
 			})
-			r.Post("/telemetry", func(w http.ResponseWriter, r *http.Request) {
-				telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Get("/telemetry/latest", func(w http.ResponseWriter, r *http.Request) {
-				telemetryHandler.GetLatestTelemetry(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Get("/commands", func(w http.ResponseWriter, r *http.Request) {
-				commandHandler.ListCommands(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Post("/commands", func(w http.ResponseWriter, r *http.Request) {
-				commandHandler.SendCommand(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Get("/commands/{commandID}", func(w http.ResponseWriter, r *http.Request) {
-				commandHandler.GetCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
-			})
-			r.Get("/ota", func(w http.ResponseWriter, r *http.Request) {
-				otaHandler.ListDeployments(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Post("/ota", func(w http.ResponseWriter, r *http.Request) {
-				otaHandler.DeployFirmware(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Get("/ota/pending", func(w http.ResponseWriter, r *http.Request) {
-				otaHandler.GetPendingDeployment(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Get("/ota/{deploymentID}/manifest", func(w http.ResponseWriter, r *http.Request) {
-				otaHandler.GetManifest(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
-			})
-			r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
-				shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Put("/shadow", func(w http.ResponseWriter, r *http.Request) {
-				shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Put("/shadow/desired", func(w http.ResponseWriter, r *http.Request) {
-				shadowHandler.UpdateDesiredShadow(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Put("/shadow/reported", func(w http.ResponseWriter, r *http.Request) {
-				shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
-			})
-			r.Get("/ai/events", aiHandler.ListDeviceEvents)
-			r.Get("/ai/history", aiHandler.GetDeviceHistory)
-			r.Get("/status", aiHandler.GetDeviceStatus)
-			r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-				deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
+
+			r.Route("/devices", func(r chi.Router) {
+				r.Get("/", deviceHandler.ListDevices)
+				r.Post("/", deviceHandler.CreateDevice)
+				r.Route("/{deviceID}", func(r chi.Router) {
+					r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+						deviceHandler.GetDevice(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Put("/", func(w http.ResponseWriter, r *http.Request) {
+						deviceHandler.UpdateDevice(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Get("/telemetry/latest", func(w http.ResponseWriter, r *http.Request) {
+						telemetryHandler.GetLatestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Get("/commands", func(w http.ResponseWriter, r *http.Request) {
+						commandHandler.ListCommands(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Post("/commands", func(w http.ResponseWriter, r *http.Request) {
+						commandHandler.SendCommand(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Get("/commands/{commandID}", func(w http.ResponseWriter, r *http.Request) {
+						commandHandler.GetCommand(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "commandID"))
+					})
+					r.Get("/ota", func(w http.ResponseWriter, r *http.Request) {
+						otaHandler.ListDeployments(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Post("/ota", func(w http.ResponseWriter, r *http.Request) {
+						otaHandler.DeployFirmware(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Get("/ota/pending", func(w http.ResponseWriter, r *http.Request) {
+						otaHandler.GetPendingDeployment(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Get("/ota/{deploymentID}/manifest", func(w http.ResponseWriter, r *http.Request) {
+						otaHandler.GetManifest(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
+					})
+					r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
+						shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Put("/shadow", func(w http.ResponseWriter, r *http.Request) {
+						shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Put("/shadow/desired", func(w http.ResponseWriter, r *http.Request) {
+						shadowHandler.UpdateDesiredShadow(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Put("/shadow/reported", func(w http.ResponseWriter, r *http.Request) {
+						shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
+					})
+					r.Get("/ai/events", aiHandler.ListDeviceEvents)
+					r.Get("/ai/history", aiHandler.GetDeviceHistory)
+					r.Get("/status", aiHandler.GetDeviceStatus)
+					r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
+						deviceHandler.DeleteDevice(w, r, chi.URLParam(r, "deviceID"))
+					})
+				})
 			})
 		})
 	})

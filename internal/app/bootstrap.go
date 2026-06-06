@@ -32,6 +32,7 @@ import (
 	"github.com/vishalss1/argus/internal/domain/usage"
 	"github.com/vishalss1/argus/internal/domain/workspace"
 	"github.com/vishalss1/argus/internal/domain/session"
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
@@ -250,6 +251,67 @@ func Bootstrap() (*Server, error) {
 			}
 		}
 	}()
+	
+	// Instantiating Auth repositories
+	userRepo := postgres.NewUserRepository(database)
+	tokenRepo := postgres.NewRefreshTokenRepository(database)
+	auditRepo := postgres.NewAuditLogRepository(database)
+	authService := auth.NewService(userRepo, tokenRepo, auditRepo, cfg.JWTSecret, cfg.GoogleClientID)
+	authHandler := transporthandler.NewAuthHandler(authService, redisClient)
+
+	// Periodic Auth Token Cleanup & Audit Log Pruning Job (every 24 hours)
+	server.wg.Add(1)
+	go func() {
+		defer server.wg.Done()
+
+		// Run initial cleanup on startup after 2 minutes delay
+		select {
+		case <-appCtx.Done():
+			return
+		case <-time.After(2 * time.Minute):
+			bgCtx, cancel := context.WithTimeout(appCtx, 5*time.Minute)
+			log.Println("[AUTH CLEANUP] Running initial database cleanup...")
+			if deletedTokens, err := tokenRepo.DeleteExpiredOrRevoked(bgCtx); err != nil {
+				log.Printf("[AUTH CLEANUP] failed to delete expired refresh tokens: %v", err)
+			} else if deletedTokens > 0 {
+				log.Printf("[AUTH CLEANUP] deleted %d expired or revoked refresh tokens", deletedTokens)
+			}
+
+			cutoff := time.Now().UTC().AddDate(0, 0, -cfg.AuthAuditLogRetentionDays)
+			if deletedLogs, err := auditRepo.DeleteBefore(bgCtx, cutoff); err != nil {
+				log.Printf("[AUTH CLEANUP] failed to delete audit logs: %v", err)
+			} else if deletedLogs > 0 {
+				log.Printf("[AUTH CLEANUP] deleted %d expired auth audit logs", deletedLogs)
+			}
+			cancel()
+		}
+
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-appCtx.Done():
+				return
+			case <-ticker.C:
+				bgCtx, cancel := context.WithTimeout(appCtx, 10*time.Minute)
+				log.Println("[AUTH CLEANUP] Running periodic database cleanup...")
+				if deletedTokens, err := tokenRepo.DeleteExpiredOrRevoked(bgCtx); err != nil {
+					log.Printf("[AUTH CLEANUP] failed to delete expired refresh tokens: %v", err)
+				} else if deletedTokens > 0 {
+					log.Printf("[AUTH CLEANUP] deleted %d expired or revoked refresh tokens", deletedTokens)
+				}
+
+				cutoff := time.Now().UTC().AddDate(0, 0, -cfg.AuthAuditLogRetentionDays)
+				if deletedLogs, err := auditRepo.DeleteBefore(bgCtx, cutoff); err != nil {
+					log.Printf("[AUTH CLEANUP] failed to delete audit logs: %v", err)
+				} else if deletedLogs > 0 {
+					log.Printf("[AUTH CLEANUP] deleted %d expired auth audit logs", deletedLogs)
+				}
+				cancel()
+			}
+		}
+	}()
 
 	memoryManager := memory.NewManager(contextService)
 
@@ -371,7 +433,20 @@ func Bootstrap() (*Server, error) {
 	}
 
 	websocketHandler := transportws.NewHandler(websocketHub)
-	router := transportrouter.New(deviceHandler, telemetryHandler, shadowHandler, commandHandler, otaHandler, ruleHandler, aiHandler, workspaceHandler, sessionHandler, websocketHandler)
+	router := transportrouter.New(
+		deviceHandler,
+		telemetryHandler,
+		shadowHandler,
+		commandHandler,
+		otaHandler,
+		ruleHandler,
+		aiHandler,
+		workspaceHandler,
+		sessionHandler,
+		authHandler,
+		authService,
+		websocketHandler,
+	)
 
 	if kafkaProducer != nil && mqttClient != nil {
 		go startCommandDispatcher(appCtx, cfg, mqttClient)
