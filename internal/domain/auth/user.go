@@ -7,7 +7,7 @@ import (
 type User struct {
 	ID           string     `json:"id"`
 	Email        string     `json:"email"`
-	PasswordHash *string    `json:"-"` // Nullable for Google-only users
+	PasswordHash *string    `json:"-"` // Nullable if local password is not configured
 	Name         string     `json:"name"`
 	Status       string     `json:"status"` // "active", "disabled"
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`

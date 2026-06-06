@@ -180,46 +180,6 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// POST /auth/login/google
-func (h *AuthHandler) LoginGoogle(w http.ResponseWriter, r *http.Request) {
-	if h.isRateLimited(r, "login_google") {
-		writeError(w, http.StatusTooManyRequests, "Too many login attempts. Try again in a minute.")
-		return
-	}
-
-	// Limit request body to 4 KB
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-
-	var req struct {
-		IDToken string `json:"id_token"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if req.IDToken == "" {
-		writeError(w, http.StatusBadRequest, "ID token is required")
-		return
-	}
-
-	ip, ua := getIPAndUA(r)
-	user, accessToken, refreshToken, err := h.authService.LoginGoogle(r.Context(), req.IDToken, ip, ua)
-	if err != nil {
-		if errors.Is(err, auth.ErrAccountDisabled) {
-			writeError(w, http.StatusForbidden, "account is disabled")
-			return
-		}
-		writeError(w, http.StatusUnauthorized, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user":          user,
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-	})
-}
 
 // GET /auth/me
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {

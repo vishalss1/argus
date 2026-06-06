@@ -5,10 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -24,20 +22,13 @@ var (
 	ErrInvalidToken     = errors.New("invalid or expired refresh token")
 )
 
-type GoogleTokenInfo struct {
-	Email         string `json:"email"`
-	EmailVerified string `json:"email_verified"`
-	Name          string `json:"name"`
-	Audience      string `json:"aud"`
-	Error         string `json:"error"`
-}
-
 type Service struct {
-	userRepo       UserRepository
-	tokenRepo      RefreshTokenRepository
-	auditRepo      AuditLogRepository
-	jwtSecret      []byte
-	googleClientID string
+	userRepo          UserRepository
+	tokenRepo         RefreshTokenRepository
+	auditRepo         AuditLogRepository
+	jwtSecret         []byte
+	accessExpiration  time.Duration
+	refreshExpiration time.Duration
 }
 
 func NewService(
@@ -45,14 +36,16 @@ func NewService(
 	tokenRepo RefreshTokenRepository,
 	auditRepo AuditLogRepository,
 	jwtSecret string,
-	googleClientID string,
+	accessExpiration time.Duration,
+	refreshExpiration time.Duration,
 ) *Service {
 	return &Service{
-		userRepo:       userRepo,
-		tokenRepo:      tokenRepo,
-		auditRepo:      auditRepo,
-		jwtSecret:      []byte(jwtSecret),
-		googleClientID: googleClientID,
+		userRepo:          userRepo,
+		tokenRepo:         tokenRepo,
+		auditRepo:         auditRepo,
+		jwtSecret:         []byte(jwtSecret),
+		accessExpiration:  accessExpiration,
+		refreshExpiration: refreshExpiration,
 	}
 }
 
@@ -126,7 +119,7 @@ func (s *Service) Login(ctx context.Context, email, password string, ipAddress, 
 	}
 
 	if user.PasswordHash == nil {
-		// User registered via Google and has no password set
+		// User has no local password hash set
 		s.logAudit(ctx, &user.ID, "login_failure", ipAddress, userAgent, false)
 		return nil, "", "", ErrInvalidCreds
 	}
@@ -213,83 +206,7 @@ func (s *Service) Logout(ctx context.Context, rawRefreshToken string, ipAddress,
 	return nil
 }
 
-func (s *Service) LoginGoogle(ctx context.Context, idToken string, ipAddress, userAgent string) (*User, string, string, error) {
-	// Request token info from Google API
-	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken)
-	if err != nil {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", fmt.Errorf("failed to call google tokeninfo: %w", err)
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", fmt.Errorf("google tokeninfo returned status %d", resp.StatusCode)
-	}
-
-	var info GoogleTokenInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", err
-	}
-
-	if info.Error != "" {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", fmt.Errorf("google token verification error: %s", info.Error)
-	}
-
-	if info.EmailVerified != "true" {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", fmt.Errorf("google email is not verified")
-	}
-
-	// Verify token audience matches our client ID if configured
-	if s.googleClientID != "" && info.Audience != s.googleClientID {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", fmt.Errorf("invalid token audience: expected %s, got %s", s.googleClientID, info.Audience)
-	}
-
-	email := strings.TrimSpace(strings.ToLower(info.Email))
-	user, err := s.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", err
-	}
-
-	now := time.Now().UTC()
-	if user == nil {
-		// Provision new user
-		user = &User{
-			ID:           uuid.New().String(),
-			Email:        email,
-			PasswordHash: nil, // Google-only users have no local password
-			Name:         strings.TrimSpace(info.Name),
-			Status:       "active",
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		}
-		if err := s.userRepo.Create(ctx, user); err != nil {
-			s.logAudit(ctx, nil, "google_login", ipAddress, userAgent, false)
-			return nil, "", "", err
-		}
-	} else if user.Status == "disabled" {
-		s.logAudit(ctx, &user.ID, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", ErrAccountDisabled
-	}
-
-	user.LastLoginAt = &now
-	user.UpdatedAt = now
-	_ = s.userRepo.Update(ctx, user)
-
-	accessToken, refreshToken, err := s.generateTokens(ctx, user)
-	if err != nil {
-		s.logAudit(ctx, &user.ID, "google_login", ipAddress, userAgent, false)
-		return nil, "", "", err
-	}
-
-	s.logAudit(ctx, &user.ID, "google_login", ipAddress, userAgent, true)
-	return user, accessToken, refreshToken, nil
-}
 
 func (s *Service) GetMe(ctx context.Context, userID string) (*User, []WorkspaceInfo, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
@@ -320,8 +237,18 @@ func (s *Service) LogWorkspaceDenial(ctx context.Context, userID string, ipAddre
 // --- Internal Helpers ---
 
 func (s *Service) generateTokens(ctx context.Context, u *User) (string, string, error) {
-	// 1. Access Token (15 mins)
-	accessExpiry := time.Now().Add(15 * time.Minute)
+	// Fallbacks if unset
+	accessExp := s.accessExpiration
+	if accessExp == 0 {
+		accessExp = 15 * time.Minute
+	}
+	refreshExp := s.refreshExpiration
+	if refreshExp == 0 {
+		refreshExp = 30 * 24 * time.Hour
+	}
+
+	// 1. Access Token
+	accessExpiry := time.Now().Add(accessExp)
 	claims := TokenClaims{
 		UserID: u.ID,
 		Email:  u.Email,
@@ -337,7 +264,7 @@ func (s *Service) generateTokens(ctx context.Context, u *User) (string, string, 
 		return "", "", fmt.Errorf("sign access token: %w", err)
 	}
 
-	// 2. Refresh Token (30 days)
+	// 2. Refresh Token
 	rawRefreshTokenBytes := make([]byte, 32)
 	if _, err := rand.Read(rawRefreshTokenBytes); err != nil {
 		return "", "", fmt.Errorf("generate random bytes: %w", err)
@@ -345,7 +272,7 @@ func (s *Service) generateTokens(ctx context.Context, u *User) (string, string, 
 	rawRefreshToken := hex.EncodeToString(rawRefreshTokenBytes)
 
 	tokenHash := s.hashToken(rawRefreshToken)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	expiresAt := time.Now().Add(refreshExp)
 
 	dbToken := &RefreshToken{
 		ID:        uuid.New().String(),

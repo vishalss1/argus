@@ -256,7 +256,7 @@ func Bootstrap() (*Server, error) {
 	userRepo := postgres.NewUserRepository(database)
 	tokenRepo := postgres.NewRefreshTokenRepository(database)
 	auditRepo := postgres.NewAuditLogRepository(database)
-	authService := auth.NewService(userRepo, tokenRepo, auditRepo, cfg.JWTSecret, cfg.GoogleClientID)
+	authService := auth.NewService(userRepo, tokenRepo, auditRepo, cfg.JWTSecret, cfg.JWTAccessExpiration, cfg.JWTRefreshExpiration)
 	authHandler := transporthandler.NewAuthHandler(authService, redisClient)
 
 	// Periodic Auth Token Cleanup & Audit Log Pruning Job (every 24 hours)

@@ -116,7 +116,7 @@ func TestWebSocketRouteUpgradesThroughMiddleware(t *testing.T) {
 	}
 	auditRepo := &mockAuditLogRepository{}
 	
-	authService := auth.NewService(userRepo, tokenRepo, auditRepo, "testsecret-testsecret-testsecret", "")
+	authService := auth.NewService(userRepo, tokenRepo, auditRepo, "testsecret-testsecret-testsecret", 0, 0)
 
 	// Register test user and add workspace membership
 	user, err := authService.Register(context.Background(), "test@example.com", "password123", "Jane Doe", "127.0.0.1", "test-agent")
