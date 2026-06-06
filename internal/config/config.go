@@ -54,9 +54,10 @@ type Config struct {
 	AIQueryAPIKey        string
 	AIQueryRateLimit     int
 	AIRetentionDays      int
-	JWTSecret            string
+	JWTSecret                 string
+	JWTAccessExpiration       time.Duration
+	JWTRefreshExpiration      time.Duration
 	AuthAuditLogRetentionDays int
-	GoogleClientID       string
 }
 
 func Load() *Config {
@@ -263,6 +264,9 @@ func Load() *Config {
 		cfg.JWTSecret = "default-super-secure-secret-key-change-this-in-prod"
 	}
 
+	cfg.JWTAccessExpiration = parseDurationWithDays("JWT_ACCESS_EXPIRY", 15*time.Minute)
+	cfg.JWTRefreshExpiration = parseDurationWithDays("JWT_REFRESH_EXPIRY", 30*24*time.Hour)
+
 	auditRetentionDaysStr := os.Getenv("AUTH_AUDIT_LOG_RETENTION_DAYS")
 	if auditRetentionDaysStr != "" {
 		if val, err := strconv.Atoi(auditRetentionDaysStr); err == nil && val > 0 {
@@ -273,8 +277,6 @@ func Load() *Config {
 	} else {
 		cfg.AuthAuditLogRetentionDays = 90
 	}
-
-	cfg.GoogleClientID = os.Getenv("GOOGLE_CLIENT_ID")
 
 	return cfg
 }
@@ -317,4 +319,27 @@ func splitCSV(value string) []string {
 	}
 
 	return values
+}
+
+func parseDurationWithDays(key string, defaultDuration time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultDuration
+	}
+
+	if strings.HasSuffix(value, "d") {
+		daysStr := strings.TrimSuffix(value, "d")
+		days, err := strconv.Atoi(daysStr)
+		if err == nil && days > 0 {
+			return time.Duration(days) * 24 * time.Hour
+		}
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err == nil && parsed > 0 {
+		return parsed
+	}
+
+	log.Printf("Warning: invalid duration for %s, using default %v", key, defaultDuration)
+	return defaultDuration
 }

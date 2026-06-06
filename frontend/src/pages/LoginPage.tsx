@@ -33,26 +33,6 @@ export function LoginPage() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      // Simulate Google OAuth flow by sending a token
-      // The backend accepts the id_token, queries tokeninfo, and processes email.
-      // For verification, we can send a mock ID token or trigger a mock login.
-      const mockIDToken = "mock_google_id_token_for_verification";
-      const data = await request<{ user: any; access_token: string; refresh_token: string }>("/auth/login/google", {
-        method: "POST",
-        body: JSON.stringify({ id_token: mockIDToken }),
-      });
-      await login(data.access_token, data.refresh_token);
-      navigate("/dashboard");
-    } catch (err: any) {
-      setError(err.message || "Google Authentication failed");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div style={{
@@ -189,44 +169,7 @@ export function LoginPage() {
           </button>
         </form>
 
-        <div style={{ margin: "24px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
-          <div style={{ height: "1px", background: "var(--line)", flex: 1 }}></div>
-          <span style={{ fontSize: "12px", color: "var(--faint)", textTransform: "uppercase" }}>or</span>
-          <div style={{ height: "1px", background: "var(--line)", flex: 1 }}></div>
-        </div>
 
-        {/* Google Sign In */}
-        <button
-          onClick={handleGoogleSignIn}
-          disabled={isLoading}
-          style={{
-            width: "100%",
-            padding: "11px",
-            borderRadius: "8px",
-            border: "1px solid var(--line)",
-            background: "rgba(255,255,255,0.02)",
-            color: "#fff",
-            fontSize: "14px",
-            fontWeight: 500,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "10px",
-            transition: "background 0.2s"
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-          onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.02)"}
-        >
-          {/* Simple flat Google logo mockup */}
-          <svg width="18" height="18" viewBox="0 0 18 18">
-            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.797 2.717v2.258h2.91c1.702-1.567 2.683-3.874 2.683-6.615z" fill="#4285F4"/>
-            <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.91-2.258c-.806.54-1.837.86-3.046.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
-            <path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.96H.957C.347 6.173 0 7.549 0 9s.347 2.827.957 4.04l3.007-2.333z" fill="#FBBC05"/>
-            <path d="M9 3.58c1.32 0 2.507.454 3.44 1.347l2.58-2.58C13.463.887 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
-          </svg>
-          Google OAuth
-        </button>
 
         <p className="muted" style={{ textAlign: "center", fontSize: "14px", marginTop: "32px", marginBottom: 0 }}>
           Don't have an account?{" "}

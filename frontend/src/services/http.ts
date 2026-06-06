@@ -90,7 +90,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   });
 
   // Intercept 401 Unauthorized for Token Refresh
-  if (response.status === 401 && !path.startsWith("/auth/")) {
+  if (response.status === 401 && path !== "/auth/login" && path !== "/auth/refresh") {
     try {
       const refreshToken = localStorage.getItem("argus_refresh_token");
       if (!refreshToken) {

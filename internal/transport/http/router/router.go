@@ -47,7 +47,6 @@ func New(
 	apiRouter.Post("/auth/login", authHandler.Login)
 	apiRouter.Post("/auth/refresh", authHandler.Refresh)
 	apiRouter.Post("/auth/logout", authHandler.Logout)
-	apiRouter.Post("/auth/login/google", authHandler.LoginGoogle)
 
 	// Device-facing endpoints (Unauthenticated user-wise, since they connect directly)
 	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
