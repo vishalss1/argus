@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/vishalss1/argus/internal/domain/usage"
 	"github.com/vishalss1/argus/internal/domain/workspace"
 	"github.com/vishalss1/argus/internal/infrastructure/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 type Manager struct {
@@ -164,10 +164,16 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 
 	// Fetch all participating devices
 	devices, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
+	if len(devices) > 1000 {
+		devices = devices[:1000]
+	}
 	deviceCount := len(devices)
 
 	// Fetch all metric keys recorded for this session from Redis
 	metricKeys, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:metrics", id)).Result()
+	if len(metricKeys) > 100 {
+		metricKeys = metricKeys[:100]
+	}
 
 	// Gather Device Summaries using Pipelined HGetAll
 	deviceSummaries := make(map[string]DeviceSummaryArtifact)
@@ -206,13 +212,13 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 				activeAtEnd := worstSev != "healthy" && (warnCount+critCount > 0)
 
 				deviceSummaries[devID] = DeviceSummaryArtifact{
-					DeviceID:              devID,
-					FirstSeen:             firstSeenStr,
-					LastSeen:              lastSeenStr,
-					SampleCount:           samples,
+					DeviceID:               devID,
+					FirstSeen:              firstSeenStr,
+					LastSeen:               lastSeenStr,
+					SampleCount:            samples,
 					WarningIncidentsCount:  warnCount,
 					CriticalIncidentsCount: critCount,
-					ActiveAtEnd:           activeAtEnd,
+					ActiveAtEnd:            activeAtEnd,
 				}
 			}
 		}
@@ -252,6 +258,9 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	// Fetch Active Incidents (still open) from Redis
 	incidentsSetKey := fmt.Sprintf("session:%s:incidents", id)
 	activeIncidentKeys, _ := rdb.SMembers(ctx, incidentsSetKey).Result()
+	if len(activeIncidentKeys) > 1000 {
+		activeIncidentKeys = activeIncidentKeys[:1000]
+	}
 	if len(activeIncidentKeys) > 0 {
 		vals, err := rdb.MGet(ctx, activeIncidentKeys...).Result()
 		if err == nil {
@@ -451,6 +460,8 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	for _, devID := range devices {
 		keysToDelete = append(keysToDelete,
 			fmt.Sprintf("session:%s:device:%s:state", id, devID),
+			fmt.Sprintf("session:%s:device:%s:incidents", id, devID),
+			fmt.Sprintf("session:%s:device:%s:telemetry_history", id, devID),
 		)
 		for _, mKey := range metricKeys {
 			keysToDelete = append(keysToDelete,

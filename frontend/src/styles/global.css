@@ -1559,6 +1559,131 @@ textarea:focus {
   gap: 16px;
 }
 
+.ai-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ai-results .ai-reasoning-panel {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.ai-result-intent {
+  display: block;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  margin-bottom: 3px;
+}
+
+.ai-result-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.ai-result-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ai-result-card-header > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ai-health-score {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.ai-health-score > strong {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.ai-health-score > span {
+  align-self: flex-end;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.ai-health-score > div {
+  display: grid;
+  gap: 3px;
+  margin-left: 10px;
+}
+
+.ai-health-score small,
+.ai-related-device small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.ai-primary-cause {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 14px;
+}
+
+.ai-remediation-reasoning {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border-left: 2px solid var(--accent);
+  background: rgba(59, 130, 246, .06);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ai-remediation-reasoning span {
+  color: var(--muted);
+}
+
+.ai-related-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.ai-related-device > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-related-device > strong {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .ai-results {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ai-reasoning-header {
   display: flex;
   align-items: center;

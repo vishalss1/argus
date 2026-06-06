@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/device"
 )
@@ -64,13 +66,15 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
 			FROM devices
 			WHERE workspace_id = $1::uuid
-			ORDER BY created_at DESC`
+			ORDER BY created_at DESC
+			LIMIT 1000`
 		rows, err = r.db.QueryContext(ctx, query, wID)
 	} else {
 		const query = `
 			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
 			FROM devices
-			ORDER BY created_at DESC`
+			ORDER BY created_at DESC
+			LIMIT 1000`
 		rows, err = r.db.QueryContext(ctx, query)
 	}
 
@@ -92,6 +96,71 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 		return nil, fmt.Errorf("list devices rows: %w", err)
 	}
 
+	return devices, nil
+}
+
+func (r *DeviceRepository) Search(ctx context.Context, terms []string, limit int) ([]device.Device, error) {
+	cleanTerms := make([]string, 0, len(terms))
+	for _, term := range terms {
+		term = strings.ToLower(strings.TrimSpace(term))
+		if len(term) < 2 {
+			continue
+		}
+		cleanTerms = append(cleanTerms, term)
+	}
+	if len(cleanTerms) == 0 {
+		return []device.Device{}, nil
+	}
+	if limit <= 0 || limit > 25 {
+		limit = 10
+	}
+
+	var rows *sql.Rows
+	var err error
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE workspace_id = $1::uuid
+			  AND EXISTS (
+				SELECT 1 FROM unnest($2::text[]) term
+				WHERE lower(name) LIKE '%' || term || '%'
+				   OR id::text LIKE '%' || term || '%'
+				   OR lower(metadata->>'hardware_id') LIKE '%' || term || '%'
+			  )
+			ORDER BY updated_at DESC
+			LIMIT $3`
+		rows, err = r.db.QueryContext(ctx, query, wID, pq.Array(cleanTerms), limit)
+	} else {
+		const query = `
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE EXISTS (
+				SELECT 1 FROM unnest($1::text[]) term
+				WHERE lower(name) LIKE '%' || term || '%'
+				   OR id::text LIKE '%' || term || '%'
+				   OR lower(metadata->>'hardware_id') LIKE '%' || term || '%'
+			)
+			ORDER BY updated_at DESC
+			LIMIT $2`
+		rows, err = r.db.QueryContext(ctx, query, pq.Array(cleanTerms), limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("search devices: %w", err)
+	}
+	defer rows.Close()
+
+	devices := make([]device.Device, 0)
+	for rows.Next() {
+		entity, err := scanDevice(rows)
+		if err != nil {
+			return nil, err
+		}
+		devices = append(devices, *entity)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("search devices rows: %w", err)
+	}
 	return devices, nil
 }
 
@@ -237,12 +306,28 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 
 func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, status string) (*device.Device, error) {
 	const query = `
-		UPDATE devices
-		SET status = $2,
-			last_seen = NOW(),
-			updated_at = NOW()
-		WHERE id = $1::uuid
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
+		WITH target AS (
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE id = $1::uuid
+		), updated AS (
+			UPDATE devices
+			SET status = $2,
+				last_seen = NOW(),
+				updated_at = NOW()
+			WHERE id = $1::uuid
+			  AND (
+				status IS DISTINCT FROM $2
+				OR last_seen IS NULL
+				OR last_seen < NOW() - INTERVAL '15 seconds'
+			  )
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+		)
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at FROM updated
+		UNION ALL
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at FROM target
+		WHERE NOT EXISTS (SELECT 1 FROM updated)
+		LIMIT 1`
 
 	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -257,12 +342,28 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 
 func (r *DeviceRepository) UpdatePresence(ctx context.Context, id string, status string, timestamp time.Time) (*device.Device, error) {
 	const query = `
-		UPDATE devices
-		SET status = $2,
-			last_seen = $3,
-			updated_at = NOW()
-		WHERE id = $1::uuid
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at`
+		WITH target AS (
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+			FROM devices
+			WHERE id = $1::uuid
+		), updated AS (
+			UPDATE devices
+			SET status = $2,
+				last_seen = $3,
+				updated_at = NOW()
+			WHERE id = $1::uuid
+			  AND (
+				status IS DISTINCT FROM $2
+				OR last_seen IS NULL
+				OR last_seen < $3 - INTERVAL '15 seconds'
+			  )
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at
+		)
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at FROM updated
+		UNION ALL
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at FROM target
+		WHERE NOT EXISTS (SELECT 1 FROM updated)
+		LIMIT 1`
 
 	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status, timestamp.UTC()))
 	if errors.Is(err, sql.ErrNoRows) {

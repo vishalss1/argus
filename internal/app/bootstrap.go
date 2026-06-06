@@ -16,10 +16,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	segmentio "github.com/segmentio/kafka-go"
 	"github.com/vishalss1/argus/internal/ai/actions"
 	"github.com/vishalss1/argus/internal/ai/memory"
 	"github.com/vishalss1/argus/internal/ai/query"
 	"github.com/vishalss1/argus/internal/config"
+	"github.com/vishalss1/argus/internal/domain/auth"
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
@@ -27,16 +29,14 @@ import (
 	otadomain "github.com/vishalss1/argus/internal/domain/ota"
 	policydomain "github.com/vishalss1/argus/internal/domain/policy"
 	ruledomain "github.com/vishalss1/argus/internal/domain/rule"
+	"github.com/vishalss1/argus/internal/domain/session"
 	shadowdomain "github.com/vishalss1/argus/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/internal/domain/telemetry"
 	"github.com/vishalss1/argus/internal/domain/usage"
 	"github.com/vishalss1/argus/internal/domain/workspace"
-	"github.com/vishalss1/argus/internal/domain/session"
-	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/internal/infrastructure/embedding"
 	"github.com/vishalss1/argus/internal/infrastructure/kafka"
-	segmentio "github.com/segmentio/kafka-go"
 	"github.com/vishalss1/argus/internal/infrastructure/minio"
 	"github.com/vishalss1/argus/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/internal/infrastructure/postgres"
@@ -72,7 +72,7 @@ func (l *redisAlertLimiter) Allow(ctx context.Context, ruleID string, deviceID s
 func Bootstrap() (*Server, error) {
 	cfg := config.Load()
 	appCtx, cancel := context.WithCancel(context.Background())
-	
+
 	server := &Server{
 		cancel: cancel,
 	}
@@ -251,7 +251,7 @@ func Bootstrap() (*Server, error) {
 			}
 		}
 	}()
-	
+
 	// Instantiating Auth repositories
 	userRepo := postgres.NewUserRepository(database)
 	tokenRepo := postgres.NewRefreshTokenRepository(database)
@@ -393,7 +393,7 @@ func Bootstrap() (*Server, error) {
 	actionEngine := actions.NewEngine(commandService, policyService)
 
 	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
-	queryEngine := query.NewEngine(embeddingProvider, aiProvider, vectorStore, eventRepository, contextRepository, cfg.RAGSimilarityThreshold)
+	queryEngine := query.NewEngine(embeddingProvider, aiProvider, vectorStore, eventRepository, contextRepository, deviceRepository, redisClient, cfg.RAGSimilarityThreshold)
 
 	aiHandler := transporthandler.NewAIHandler(eventRepository, contextService, queryEngine, actionEngine, policyService, redisClient, cfg.AIQueryAPIKey, cfg.AIQueryRateLimit)
 
@@ -546,7 +546,6 @@ func Bootstrap() (*Server, error) {
 			}()
 		}
 	}
-
 
 	_ = actionEngine
 
@@ -736,8 +735,6 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 
 	log.Printf("[LIVE CONSUMER] started, consuming topic: %s", cfg.KafkaTelemetryTopic)
 
-
-
 	// In-memory cache for device workspace and active session
 	type cacheEntry struct {
 		val       string
@@ -913,8 +910,6 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 					log.Printf("[LIVE CONSUMER] failed to pipeline SetLatest: %v", err)
 				}
 
-
-
 				redisBatch = append(redisBatch, msg)
 				if len(redisBatch) >= 100 {
 					flushRedisBatch(ctx)
@@ -948,10 +943,6 @@ func toFloat(val interface{}) (float64, bool) {
 		return 0, false
 	}
 }
-
-
-
-
 
 func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postgres.RuleRepository, redisClient *redis.Client, kafkaProducer *kafka.Producer, deviceRepo *postgres.DeviceRepository) {
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
@@ -1009,6 +1000,8 @@ func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postg
 
 	var batchAlerts []ruledomain.Alert
 	var batchMessages []segmentio.Message
+	knownRules := make(map[string]struct{})
+	knownDevices := make(map[string]struct{})
 
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
@@ -1068,42 +1061,54 @@ func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postg
 
 			// Ensure rule exists to prevent foreign key constraint violations
 			if ruleRepo != nil {
-				if _, err := ruleRepo.GetRule(ctx, a.RuleID); err != nil {
-					log.Printf("[ALERT CONSUMER] Unknown rule %s for alert, auto-provisioning...", a.RuleID)
-					autoRule := ruledomain.Rule{
-						ID:        a.RuleID,
-						Name:      fmt.Sprintf("Auto-Provisioned Rule %s", a.RuleID),
-						Metric:    a.Metric,
-						Operator:  a.Operator,
-						Threshold: a.Threshold,
-						Enabled:   true,
-					}
-					if _, err := ruleRepo.CreateRule(ctx, autoRule); err != nil {
-						if !strings.Contains(err.Error(), "unique") && !strings.Contains(err.Error(), "duplicate key") {
-							log.Printf("[ALERT CONSUMER] Failed to auto-provision rule %s: %v", a.RuleID, err)
-							consumer.CommitMessages(ctx, msg)
-							continue
+				if _, cached := knownRules[a.RuleID]; !cached {
+					ruleEntity, err := ruleRepo.GetRule(ctx, a.RuleID)
+					if err == nil && ruleEntity != nil {
+						knownRules[a.RuleID] = struct{}{}
+					} else {
+						log.Printf("[ALERT CONSUMER] Unknown rule %s for alert, auto-provisioning...", a.RuleID)
+						autoRule := ruledomain.Rule{
+							ID:        a.RuleID,
+							Name:      fmt.Sprintf("Auto-Provisioned Rule %s", a.RuleID),
+							Metric:    a.Metric,
+							Operator:  a.Operator,
+							Threshold: a.Threshold,
+							Enabled:   true,
 						}
+						if _, err := ruleRepo.CreateRule(ctx, autoRule); err != nil {
+							if !strings.Contains(err.Error(), "unique") && !strings.Contains(err.Error(), "duplicate key") {
+								log.Printf("[ALERT CONSUMER] Failed to auto-provision rule %s: %v", a.RuleID, err)
+								consumer.CommitMessages(ctx, msg)
+								continue
+							}
+						}
+						knownRules[a.RuleID] = struct{}{}
 					}
 				}
 			}
 
 			// Ensure device exists to prevent foreign key constraint violations
 			if deviceRepo != nil {
-				if _, err := deviceRepo.GetByID(ctx, a.DeviceID); err != nil {
-					log.Printf("[ALERT CONSUMER] Unknown device %s for alert, auto-provisioning...", a.DeviceID)
-					autoDev := devicedomain.Device{
-						ID:              a.DeviceID,
-						Name:            fmt.Sprintf("Auto-Provisioned Device %s", a.DeviceID),
-						Type:            "unknown",
-						FirmwareVersion: "unknown",
-						Status:          "offline",
-						Metadata:        json.RawMessage(`{}`),
-					}
-					if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
-						log.Printf("[ALERT CONSUMER] Failed to auto-provision device %s: %v", a.DeviceID, err)
-						consumer.CommitMessages(ctx, msg)
-						continue
+				if _, cached := knownDevices[a.DeviceID]; !cached {
+					deviceEntity, err := deviceRepo.GetByID(ctx, a.DeviceID)
+					if err == nil && deviceEntity != nil {
+						knownDevices[a.DeviceID] = struct{}{}
+					} else {
+						log.Printf("[ALERT CONSUMER] Unknown device %s for alert, auto-provisioning...", a.DeviceID)
+						autoDev := devicedomain.Device{
+							ID:              a.DeviceID,
+							Name:            fmt.Sprintf("Auto-Provisioned Device %s", a.DeviceID),
+							Type:            "unknown",
+							FirmwareVersion: "unknown",
+							Status:          "offline",
+							Metadata:        json.RawMessage(`{}`),
+						}
+						if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
+							log.Printf("[ALERT CONSUMER] Failed to auto-provision device %s: %v", a.DeviceID, err)
+							consumer.CommitMessages(ctx, msg)
+							continue
+						}
+						knownDevices[a.DeviceID] = struct{}{}
 					}
 				}
 			}
@@ -1206,6 +1211,7 @@ func startIncidentConsumer(ctx context.Context, cfg *config.Config, eventRepo ev
 	defer consumer.Close()
 
 	log.Printf("[INCIDENT CONSUMER] started, consuming topic: %s", cfg.KafkaIncidentTopic)
+	knownDevices := make(map[string]struct{})
 
 	for {
 		select {
@@ -1237,21 +1243,27 @@ func startIncidentConsumer(ctx context.Context, cfg *config.Config, eventRepo ev
 			}
 
 			// Auto-provision device if missing to avoid foreign key violations
-			if _, err := deviceRepo.GetByID(ctx, inc.DeviceID); err != nil {
-				log.Printf("[INCIDENT CONSUMER] Unknown device %s, auto-provisioning...", inc.DeviceID)
-				autoDev := devicedomain.Device{
-					ID:              inc.DeviceID,
-					Name:            fmt.Sprintf("Auto-Provisioned Device %s", inc.DeviceID),
-					Type:            "unknown",
-					FirmwareVersion: "unknown",
-					Status:          "offline",
-					Metadata:        json.RawMessage(`{}`),
-				}
-				if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
-					log.Printf("[INCIDENT CONSUMER] Failed to auto-provision device %s: %v", inc.DeviceID, err)
-					log.Printf("[INCIDENT CONSUMER] Skipping incident event for unknown device %s: %v", inc.DeviceID, err)
-					consumer.CommitMessages(ctx, msg)
-					continue
+			if _, cached := knownDevices[inc.DeviceID]; !cached {
+				deviceEntity, err := deviceRepo.GetByID(ctx, inc.DeviceID)
+				if err == nil && deviceEntity != nil {
+					knownDevices[inc.DeviceID] = struct{}{}
+				} else {
+					log.Printf("[INCIDENT CONSUMER] Unknown device %s, auto-provisioning...", inc.DeviceID)
+					autoDev := devicedomain.Device{
+						ID:              inc.DeviceID,
+						Name:            fmt.Sprintf("Auto-Provisioned Device %s", inc.DeviceID),
+						Type:            "unknown",
+						FirmwareVersion: "unknown",
+						Status:          "offline",
+						Metadata:        json.RawMessage(`{}`),
+					}
+					if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
+						log.Printf("[INCIDENT CONSUMER] Failed to auto-provision device %s: %v", inc.DeviceID, err)
+						log.Printf("[INCIDENT CONSUMER] Skipping incident event for unknown device %s: %v", inc.DeviceID, err)
+						consumer.CommitMessages(ctx, msg)
+						continue
+					}
+					knownDevices[inc.DeviceID] = struct{}{}
 				}
 			}
 
@@ -1343,12 +1355,18 @@ func runCorrelation(ctx context.Context, redisClient *redis.Client, eventRepo ev
 	if err != nil || len(activeSessions) == 0 {
 		return
 	}
+	if len(activeSessions) > 100 {
+		activeSessions = activeSessions[:100]
+	}
 
 	for _, sessionID := range activeSessions {
 		incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
 		incidentKeys, err := rdb.SMembers(ctx, incidentsSetKey).Result()
 		if err != nil || len(incidentKeys) == 0 {
 			continue
+		}
+		if len(incidentKeys) > 1000 {
+			incidentKeys = incidentKeys[:1000]
 		}
 
 		vals, err := rdb.MGet(ctx, incidentKeys...).Result()
@@ -1456,4 +1474,3 @@ func runCorrelation(ctx context.Context, redisClient *redis.Client, eventRepo ev
 		}
 	}
 }
-

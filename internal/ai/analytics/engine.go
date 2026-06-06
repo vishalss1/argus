@@ -196,6 +196,17 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 	// Update basic Redis session indexes and device state in a pipeline
 	pipe := e.redisClient.Pipeline()
 
+	historyKey := fmt.Sprintf("session:%s:device:%s:telemetry_history", sessionID, t.DeviceID)
+	if telemetryJSON, marshalErr := json.Marshal(t); marshalErr == nil {
+		scoreTime := t.RecordedAt
+		if scoreTime.IsZero() {
+			scoreTime = time.Now().UTC()
+		}
+		pipe.ZAdd(ctx, historyKey, goredis.Z{Score: float64(scoreTime.UnixMilli()), Member: string(telemetryJSON)})
+		pipe.ZRemRangeByScore(ctx, historyKey, "-inf", fmt.Sprintf("%d", time.Now().Add(-24*time.Hour).UnixMilli()))
+		pipe.Expire(ctx, historyKey, 25*time.Hour)
+	}
+
 	devsKey := fmt.Sprintf("session:%s:devices", sessionID)
 	pipe.SAdd(ctx, devsKey, t.DeviceID)
 	pipe.Expire(ctx, devsKey, 24*time.Hour)
@@ -290,7 +301,7 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 			// Check if any incident is currently open for this metric and close it
 			for _, possibleType := range []string{"numeric_spike", "numeric_drop", "numeric_stuck"} {
 				pKey := fmt.Sprintf("session:%s:device:%s:incident:%s:%s", sessionID, t.DeviceID, metricKey, possibleType)
-				
+
 				e.mu.Lock()
 				isOpen := e.openIncidents[pKey]
 				e.mu.Unlock()
@@ -447,10 +458,13 @@ func (e *Engine) handleOpenIncident(ctx context.Context, sessionID, deviceID, me
 	}
 
 	incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
+	deviceIncidentsSetKey := fmt.Sprintf("session:%s:device:%s:incidents", sessionID, deviceID)
 	pipe := e.redisClient.Pipeline()
 	pipe.Set(ctx, incidentKey, string(payloadBytes), 24*time.Hour)
 	pipe.SAdd(ctx, incidentsSetKey, incidentKey)
 	pipe.Expire(ctx, incidentsSetKey, 24*time.Hour)
+	pipe.SAdd(ctx, deviceIncidentsSetKey, incidentKey)
+	pipe.Expire(ctx, deviceIncidentsSetKey, 24*time.Hour)
 
 	// Update device state count and worst severity
 	devStateKey := fmt.Sprintf("session:%s:device:%s:state", sessionID, deviceID)
@@ -534,8 +548,10 @@ func (e *Engine) handleCloseIncident(ctx context.Context, sessionID, deviceID, m
 	}
 
 	incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
+	deviceIncidentsSetKey := fmt.Sprintf("session:%s:device:%s:incidents", sessionID, deviceID)
 	pipe := e.redisClient.Pipeline()
 	pipe.SRem(ctx, incidentsSetKey, incidentKey)
+	pipe.SRem(ctx, deviceIncidentsSetKey, incidentKey)
 	pipe.Del(ctx, incidentKey)
 
 	// Decrement active incident counts

@@ -54,7 +54,8 @@ func (r *WorkspaceRepository) Get(ctx context.Context, id string) (*workspace.Wo
 func (r *WorkspaceRepository) List(ctx context.Context) ([]workspace.Workspace, error) {
 	query := `SELECT w.id, w.name, w.description, w.created_at,
 		(SELECT COUNT(*) FROM devices d WHERE d.workspace_id = w.id) as device_count
-		FROM workspaces w ORDER BY w.created_at DESC`
+		FROM workspaces w ORDER BY w.created_at DESC
+		LIMIT 100`
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("list workspaces: %w", err)
@@ -114,7 +115,7 @@ func (r *WorkspaceRepository) UnassignDevice(ctx context.Context, workspaceID st
 }
 
 func (r *WorkspaceRepository) ListDevices(ctx context.Context, workspaceID string) ([]workspace.DeviceSummary, error) {
-	query := `SELECT id, name, type, status, firmware_version, last_seen FROM devices WHERE workspace_id = $1 ORDER BY name`
+	query := `SELECT id, name, type, status, firmware_version, last_seen FROM devices WHERE workspace_id = $1 ORDER BY name LIMIT 1000`
 	rows, err := r.db.QueryContext(ctx, query, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace devices: %w", err)

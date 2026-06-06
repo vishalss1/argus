@@ -77,6 +77,7 @@ func (r *SessionRepository) ListByWorkspace(ctx context.Context, workspaceID str
 		FROM workspace_sessions
 		WHERE workspace_id = $1
 		ORDER BY created_at DESC
+		LIMIT 200
 	`
 	rows, err := r.db.QueryContext(ctx, query, workspaceID)
 	if err != nil {
@@ -102,6 +103,7 @@ func (r *SessionRepository) ListAllRunning(ctx context.Context) ([]session.Sessi
 		SELECT id, workspace_id, status, started_at, ended_at, created_by, created_at
 		FROM workspace_sessions
 		WHERE status = 'RUNNING'
+		LIMIT 1000
 	`
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -237,7 +239,7 @@ func (r *SessionRepository) UpdateCommandStatus(ctx context.Context, id string, 
 }
 
 func (r *SessionRepository) ListCommandsBySession(ctx context.Context, sessionID string) ([]session.Command, error) {
-	query := `SELECT id, session_id, device_id, command, issued_by, status, issued_at, completed_at FROM session_commands WHERE session_id = $1 ORDER BY issued_at ASC`
+	query := `SELECT id, session_id, device_id, command, issued_by, status, issued_at, completed_at FROM session_commands WHERE session_id = $1 ORDER BY issued_at ASC LIMIT 500`
 	rows, err := r.db.QueryContext(ctx, query, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("list session commands: %w", err)
@@ -332,7 +334,6 @@ func (r *SessionRepository) GetStatistics(ctx context.Context, sessionID string)
 	return &s, nil
 }
 
-
 func (r *SessionRepository) Delete(ctx context.Context, id string) error {
 	var query string
 	var err error
@@ -403,4 +404,3 @@ func (r *SessionRepository) GetArtifactBySession(ctx context.Context, sessionID 
 	}
 	return &a, nil
 }
-

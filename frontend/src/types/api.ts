@@ -215,6 +215,56 @@ export interface ReasoningResponse {
   confidence: number;
   evidence: string[];
   suggested_actions: string[];
+  intent: QueryIntent;
+  device_summary?: AIDeviceSummary;
+  root_cause_analysis?: RootCauseAnalysis;
+  remediations?: RemediationAnalysis[];
+  related_devices?: RelatedDevice[];
+}
+
+export type QueryIntent =
+  | "DEVICE_SUMMARY"
+  | "ROOT_CAUSE_ANALYSIS"
+  | "REMEDIATION"
+  | "INCIDENT_LOOKUP"
+  | "FLEET_SUMMARY"
+  | "DEVICE_COMPARISON"
+  | "UNKNOWN";
+
+export interface AIDeviceSummary {
+  deviceId: string;
+  deviceName: string;
+  deviceStatus: string;
+  severity: string;
+  openIncidents: number;
+  recentIncidents: number;
+  incidentsLast24h: number;
+  incidentsLast7d: number;
+  healthScore: number;
+  keyFindings: string[];
+  recommendations: string[];
+}
+
+export interface RootCauseAnalysis {
+  confidence: number;
+  primaryCause: string;
+  supportingEvidence: string[];
+  alternativeCauses: string[];
+  recommendedActions: string[];
+}
+
+export interface RemediationAnalysis {
+  pattern: string;
+  reasoning: string;
+  possibleCauses: string[];
+  actions: string[];
+}
+
+export interface RelatedDevice {
+  deviceId: string;
+  deviceName: string;
+  similarity: number;
+  sharedPatterns: string[];
 }
 
 export interface Workspace {
