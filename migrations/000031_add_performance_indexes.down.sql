@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_events_device_id_created_at;
+DROP INDEX IF EXISTS idx_operational_memory_device_id_timestamp;

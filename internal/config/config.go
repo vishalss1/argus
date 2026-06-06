@@ -48,6 +48,12 @@ type Config struct {
 	SessionStaleTimeoutHours int
 	KafkaDLQTopic        string
 	KafkaIncidentTopic   string
+	RAGSimilarityThreshold float32
+	EmbeddingQueueSize   int
+	EmbeddingWorkers     int
+	AIQueryAPIKey        string
+	AIQueryRateLimit     int
+	AIRetentionDays      int
 }
 
 func Load() *Config {
@@ -190,6 +196,63 @@ func Load() *Config {
 	}
 	if cfg.OllamaEmbedModel == "" {
 		cfg.OllamaEmbedModel = "nomic-embed-text"
+	}
+
+	thresholdStr := os.Getenv("RAG_SIMILARITY_THRESHOLD")
+	if thresholdStr != "" {
+		if val, err := strconv.ParseFloat(thresholdStr, 32); err == nil {
+			cfg.RAGSimilarityThreshold = float32(val)
+		} else {
+			cfg.RAGSimilarityThreshold = 0.5
+		}
+	} else {
+		cfg.RAGSimilarityThreshold = 0.5
+	}
+
+	queueSizeStr := os.Getenv("EMBEDDING_QUEUE_SIZE")
+	if queueSizeStr != "" {
+		if val, err := strconv.Atoi(queueSizeStr); err == nil && val > 0 {
+			cfg.EmbeddingQueueSize = val
+		} else {
+			cfg.EmbeddingQueueSize = 10000
+		}
+	} else {
+		cfg.EmbeddingQueueSize = 10000
+	}
+
+	workersStr := os.Getenv("EMBEDDING_WORKERS")
+	if workersStr != "" {
+		if val, err := strconv.Atoi(workersStr); err == nil && val > 0 {
+			cfg.EmbeddingWorkers = val
+		} else {
+			cfg.EmbeddingWorkers = 8
+		}
+	} else {
+		cfg.EmbeddingWorkers = 8
+	}
+
+	cfg.AIQueryAPIKey = os.Getenv("AI_QUERY_API_KEY")
+
+	rateLimitStr := os.Getenv("AI_QUERY_RATE_LIMIT")
+	if rateLimitStr != "" {
+		if val, err := strconv.Atoi(rateLimitStr); err == nil && val >= 0 {
+			cfg.AIQueryRateLimit = val
+		} else {
+			cfg.AIQueryRateLimit = 10 // default 10 requests per minute
+		}
+	} else {
+		cfg.AIQueryRateLimit = 10
+	}
+
+	retentionDaysStr := os.Getenv("AI_RETENTION_DAYS")
+	if retentionDaysStr != "" {
+		if val, err := strconv.Atoi(retentionDaysStr); err == nil && val > 0 {
+			cfg.AIRetentionDays = val
+		} else {
+			cfg.AIRetentionDays = 30 // default 30 days
+		}
+	} else {
+		cfg.AIRetentionDays = 30
 	}
 
 	return cfg

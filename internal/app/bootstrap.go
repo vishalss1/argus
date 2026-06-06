@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-
+	"github.com/google/uuid"
 	"github.com/vishalss1/argus/internal/ai/actions"
 	"github.com/vishalss1/argus/internal/ai/memory"
 	"github.com/vishalss1/argus/internal/ai/query"
@@ -23,7 +23,7 @@ import (
 	commanddomain "github.com/vishalss1/argus/internal/domain/command"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 	devicedomain "github.com/vishalss1/argus/internal/domain/device"
-
+	eventdomain "github.com/vishalss1/argus/internal/domain/event"
 	otadomain "github.com/vishalss1/argus/internal/domain/ota"
 	policydomain "github.com/vishalss1/argus/internal/domain/policy"
 	ruledomain "github.com/vishalss1/argus/internal/domain/rule"
@@ -71,6 +71,10 @@ func (l *redisAlertLimiter) Allow(ctx context.Context, ruleID string, deviceID s
 func Bootstrap() (*Server, error) {
 	cfg := config.Load()
 	appCtx, cancel := context.WithCancel(context.Background())
+	
+	server := &Server{
+		cancel: cancel,
+	}
 
 	database, err := postgres.InitDB(cfg.DatabaseURL)
 	if err != nil {
@@ -114,10 +118,21 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
-	websocketHub := transportws.NewHub()
-	realtime := &realtimePublisher{hub: websocketHub}
+	embeddingProvider := embedding.NewOllamaProvider(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
+	vectorStore := postgres.NewVectorStore(database)
+	eventRepository := postgres.NewEventRepository(database)
+	contextRepository := postgres.NewContextRepository(database)
+	embedSvc := memory.NewEmbeddingService(embeddingProvider, vectorStore, cfg.EmbeddingQueueSize)
 
 	deviceRepository := postgres.NewDeviceRepository(database)
+	websocketHub := transportws.NewHub()
+	realtime := &realtimePublisher{
+		hub:         websocketHub,
+		eventRepo:   eventRepository,
+		embedSvc:    embedSvc,
+		redisClient: redisClient,
+		deviceRepo:  deviceRepository,
+	}
 	deviceService := devicedomain.NewService(deviceRepository)
 	deviceService.SetEventPublisher(realtime)
 	presenceService := devicedomain.NewPresenceService(deviceService)
@@ -138,12 +153,104 @@ func Bootstrap() (*Server, error) {
 	shadowService := shadowdomain.NewService(shadowRepository)
 	shadowHandler := transporthandler.NewShadowHandler(shadowService)
 
-	embeddingProvider := embedding.NewOllamaProvider(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
-	vectorStore := postgres.NewVectorStore(database)
-
-	eventRepository := postgres.NewEventRepository(database)
-	contextRepository := postgres.NewContextRepository(database)
 	contextService := ctxdomain.NewService(contextRepository)
+	contextService.OnRecord = func(ctx context.Context, mem ctxdomain.OperationalMemory) {
+		embedSvc.EnqueueMemory(mem)
+	}
+
+	// Start embedding workers
+	embedSvc.StartWorkers(appCtx, cfg.EmbeddingWorkers, &server.wg)
+
+	// Backfill existing operational memory and event embeddings asynchronously at startup and periodically
+	server.wg.Add(1)
+	go func() {
+		defer server.wg.Done()
+
+		// Run initial backfill
+		func() {
+			bgCtx, cancel := context.WithTimeout(appCtx, 10*time.Minute)
+			defer cancel()
+			log.Println("[EMBEDDING BACKFILL] Starting initial backfill for missing embeddings...")
+			if err := embedSvc.Backfill(bgCtx, contextRepository, eventRepository); err != nil {
+				log.Printf("[EMBEDDING BACKFILL] error during initial backfill: %v", err)
+			} else {
+				log.Println("[EMBEDDING BACKFILL] Initial backfill completed successfully.")
+			}
+		}()
+
+		// Ticker for periodic reconciliation
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-appCtx.Done():
+				return
+			case <-ticker.C:
+				bgCtx, cancel := context.WithTimeout(appCtx, 10*time.Minute)
+				log.Println("[EMBEDDING BACKFILL] Starting periodic backfill reconciliation...")
+				if err := embedSvc.Backfill(bgCtx, contextRepository, eventRepository); err != nil {
+					log.Printf("[EMBEDDING BACKFILL] error during periodic backfill: %v", err)
+				} else {
+					log.Println("[EMBEDDING BACKFILL] Periodic backfill completed successfully.")
+				}
+				cancel()
+			}
+		}
+	}()
+
+	// Periodic database retention pruning (every 12 hours)
+	server.wg.Add(1)
+	go func() {
+		defer server.wg.Done()
+
+		// Run initial pruning on startup after 1 minute delay to let bootstrap finish
+		select {
+		case <-appCtx.Done():
+			return
+		case <-time.After(1 * time.Minute):
+			bgCtx, cancel := context.WithTimeout(appCtx, 5*time.Minute)
+			cutoff := time.Now().UTC().AddDate(0, 0, -cfg.AIRetentionDays)
+			log.Printf("[AI RETENTION] Running initial DB pruning (cutoff: %v)...", cutoff)
+			if pruned, err := eventRepository.Prune(bgCtx, cutoff); err != nil {
+				log.Printf("[AI RETENTION] failed to prune events: %v", err)
+			} else if pruned > 0 {
+				log.Printf("[AI RETENTION] pruned %d stale event records", pruned)
+			}
+			if pruned, err := contextRepository.Prune(bgCtx, cutoff); err != nil {
+				log.Printf("[AI RETENTION] failed to prune operational memory: %v", err)
+			} else if pruned > 0 {
+				log.Printf("[AI RETENTION] pruned %d stale operational memory records", pruned)
+			}
+			cancel()
+		}
+
+		ticker := time.NewTicker(12 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-appCtx.Done():
+				return
+			case <-ticker.C:
+				bgCtx, cancel := context.WithTimeout(appCtx, 10*time.Minute)
+				cutoff := time.Now().UTC().AddDate(0, 0, -cfg.AIRetentionDays)
+				log.Printf("[AI RETENTION] Running periodic DB pruning (cutoff: %v)...", cutoff)
+				if pruned, err := eventRepository.Prune(bgCtx, cutoff); err != nil {
+					log.Printf("[AI RETENTION] failed to prune events: %v", err)
+				} else if pruned > 0 {
+					log.Printf("[AI RETENTION] pruned %d stale event records", pruned)
+				}
+				if pruned, err := contextRepository.Prune(bgCtx, cutoff); err != nil {
+					log.Printf("[AI RETENTION] failed to prune operational memory: %v", err)
+				} else if pruned > 0 {
+					log.Printf("[AI RETENTION] pruned %d stale operational memory records", pruned)
+				}
+				cancel()
+			}
+		}
+	}()
+
 	memoryManager := memory.NewManager(contextService)
 
 	commandRepository := postgres.NewCommandRepository(database)
@@ -177,6 +284,34 @@ func Bootstrap() (*Server, error) {
 		if err := memoryManager.SummarizeDeployment(ctx, dep); err != nil {
 			log.Printf("failed to summarize deployment: %v", err)
 		}
+
+		if dep.Status == "failed" || dep.Status == "FAILED" || dep.Status == "nacked" || dep.Status == "NACKED" {
+			go func() {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				errMsg := "unknown error"
+				if dep.ResultMessage != nil {
+					errMsg = *dep.ResultMessage
+				}
+				ev, err := eventRepository.Create(bgCtx, eventdomain.Event{
+					ID:              uuid.New().String(),
+					DeviceID:        dep.DeviceID,
+					Type:            "ota_failure",
+					Severity:        eventdomain.SeverityWarning,
+					Title:           "OTA Deployment Failed",
+					Summary:         fmt.Sprintf("OTA deployment of firmware %s failed: %s", dep.ArtifactID, errMsg),
+					Source:          "ota_service",
+					ConfidenceScore: 1.0,
+					Metadata:        json.RawMessage(`{}`),
+					CreatedAt:       time.Now().UTC(),
+				})
+				if err == nil && embedSvc != nil {
+					embedSvc.EnqueueEvent(*ev)
+				} else if err != nil {
+					log.Printf("[OTA FAILURE LOG] Failed to log ota failure: %v", err)
+				}
+			}()
+		}
 	}
 	otaHandler := transporthandler.NewOTAHandler(otaService)
 
@@ -196,9 +331,9 @@ func Bootstrap() (*Server, error) {
 	actionEngine := actions.NewEngine(commandService, policyService)
 
 	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
-	queryEngine := query.NewEngine(embeddingProvider, aiProvider, vectorStore, eventRepository, contextRepository)
+	queryEngine := query.NewEngine(embeddingProvider, aiProvider, vectorStore, eventRepository, contextRepository, cfg.RAGSimilarityThreshold)
 
-	aiHandler := transporthandler.NewAIHandler(eventRepository, contextService, queryEngine, actionEngine, policyService, redisClient)
+	aiHandler := transporthandler.NewAIHandler(eventRepository, contextService, queryEngine, actionEngine, policyService, redisClient, cfg.AIQueryAPIKey, cfg.AIQueryRateLimit)
 
 	workspaceRepository := postgres.NewWorkspaceRepository(database)
 	workspaceService := workspace.NewService(workspaceRepository, redisClient)
@@ -253,38 +388,35 @@ func Bootstrap() (*Server, error) {
 		return false
 	}
 
-	server := &Server{
-		db:            database,
-		kafkaProducer: kafkaProducer,
-		mqttClient:    mqttClient,
-		httpServer: &http.Server{
-			Addr:    ":" + cfg.Port,
-			Handler: router,
-			TLSConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				// Disable Post-Quantum Key Exchange (ML-KEM) for better IoT compatibility
-				CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
-			},
+	server.websocketHub = websocketHub
+	server.httpServer = &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: router,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// Disable Post-Quantum Key Exchange (ML-KEM) for better IoT compatibility
+			CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
 		},
-		websocketHub: websocketHub,
-		tlsCertFile:  cfg.HTTPSTLSCertFile,
-		tlsKeyFile:   cfg.HTTPSTLSKeyFile,
-		cancel:       cancel,
-		runAPI:       hasProfile("api"),
 	}
+	server.mqttClient = mqttClient
+	server.kafkaProducer = kafkaProducer
+	server.db = database
+	server.tlsCertFile = cfg.HTTPSTLSCertFile
+	server.tlsKeyFile = cfg.HTTPSTLSKeyFile
+	server.runAPI = hasProfile("api")
 
 	wgCount := 0
 	if hasProfile("api") {
-		wgCount += 4 // websocketHub, monitorPresence, monitorOTATimeouts, startSessionReaper
+		wgCount += 5 // websocketHub, monitorPresence, monitorOTATimeouts, startSessionReaper, startCorrelationEngine
 	}
 	if hasProfile("telemetry") && len(cfg.KafkaBrokers) > 0 {
 		wgCount++
 	}
 	if hasProfile("summary") {
-		wgCount++
+		// No goroutine for summary profile currently
 	}
 	if hasProfile("alerts") && len(cfg.KafkaBrokers) > 0 {
-		wgCount++
+		wgCount += 2 // startAlertConsumer, startIncidentConsumer
 	}
 
 	server.wg.Add(wgCount)
@@ -309,6 +441,11 @@ func Bootstrap() (*Server, error) {
 			defer server.wg.Done()
 			startSessionReaper(appCtx, sessionManager, cfg.SessionStaleTimeoutHours)
 		}()
+
+		go func() {
+			defer server.wg.Done()
+			startCorrelationEngine(appCtx, redisClient, eventRepository, embedSvc, deviceRepository)
+		}()
 	}
 
 	// Seed Redis device-to-workspace cache before starting consumers
@@ -326,7 +463,11 @@ func Bootstrap() (*Server, error) {
 		if hasProfile("alerts") {
 			go func() {
 				defer server.wg.Done()
-				startAlertConsumer(appCtx, cfg, ruleRepository, redisClient, kafkaProducer)
+				startAlertConsumer(appCtx, cfg, ruleRepository, redisClient, kafkaProducer, deviceRepository)
+			}()
+			go func() {
+				defer server.wg.Done()
+				startIncidentConsumer(appCtx, cfg, eventRepository, embedSvc, kafkaProducer, deviceRepository)
 			}()
 		}
 	}
@@ -431,7 +572,9 @@ func (s *Server) Close() error {
 	if s.db != nil {
 		s.db.Close()
 	}
-	return s.httpServer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return s.httpServer.Shutdown(ctx)
 }
 
 func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient *mqtt.Client) {
@@ -735,7 +878,7 @@ func toFloat(val interface{}) (float64, bool) {
 
 
 
-func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postgres.RuleRepository, redisClient *redis.Client, kafkaProducer *kafka.Producer) {
+func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postgres.RuleRepository, redisClient *redis.Client, kafkaProducer *kafka.Producer, deviceRepo *postgres.DeviceRepository) {
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   "alerts.generated",
@@ -848,6 +991,48 @@ func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postg
 				continue
 			}
 
+			// Ensure rule exists to prevent foreign key constraint violations
+			if ruleRepo != nil {
+				if _, err := ruleRepo.GetRule(ctx, a.RuleID); err != nil {
+					log.Printf("[ALERT CONSUMER] Unknown rule %s for alert, auto-provisioning...", a.RuleID)
+					autoRule := ruledomain.Rule{
+						ID:        a.RuleID,
+						Name:      fmt.Sprintf("Auto-Provisioned Rule %s", a.RuleID),
+						Metric:    a.Metric,
+						Operator:  a.Operator,
+						Threshold: a.Threshold,
+						Enabled:   true,
+					}
+					if _, err := ruleRepo.CreateRule(ctx, autoRule); err != nil {
+						if !strings.Contains(err.Error(), "unique") && !strings.Contains(err.Error(), "duplicate key") {
+							log.Printf("[ALERT CONSUMER] Failed to auto-provision rule %s: %v", a.RuleID, err)
+							consumer.CommitMessages(ctx, msg)
+							continue
+						}
+					}
+				}
+			}
+
+			// Ensure device exists to prevent foreign key constraint violations
+			if deviceRepo != nil {
+				if _, err := deviceRepo.GetByID(ctx, a.DeviceID); err != nil {
+					log.Printf("[ALERT CONSUMER] Unknown device %s for alert, auto-provisioning...", a.DeviceID)
+					autoDev := devicedomain.Device{
+						ID:              a.DeviceID,
+						Name:            fmt.Sprintf("Auto-Provisioned Device %s", a.DeviceID),
+						Type:            "unknown",
+						FirmwareVersion: "unknown",
+						Status:          "offline",
+						Metadata:        json.RawMessage(`{}`),
+					}
+					if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
+						log.Printf("[ALERT CONSUMER] Failed to auto-provision device %s: %v", a.DeviceID, err)
+						consumer.CommitMessages(ctx, msg)
+						continue
+					}
+				}
+			}
+
 			// 1. In-memory deduplication within the current active batch
 			duplicateInBatch := false
 			for _, batched := range batchAlerts {
@@ -936,3 +1121,264 @@ type noopTelemetryRepository struct{}
 func (noopTelemetryRepository) Create(ctx context.Context, t telemetrydomain.Telemetry) (*telemetrydomain.Telemetry, error) {
 	return &t, nil
 }
+
+func startIncidentConsumer(ctx context.Context, cfg *config.Config, eventRepo eventdomain.Repository, embedSvc *memory.EmbeddingService, kafkaProducer *kafka.Producer, deviceRepo *postgres.DeviceRepository) {
+	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers: cfg.KafkaBrokers,
+		Topic:   cfg.KafkaIncidentTopic,
+		GroupID: "argus-incident-event-consumer-internal",
+	})
+	defer consumer.Close()
+
+	log.Printf("[INCIDENT CONSUMER] started, consuming topic: %s", cfg.KafkaIncidentTopic)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			msg, err := consumer.FetchMessage(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Printf("[INCIDENT CONSUMER] fetch error: %v", err)
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			var inc kafka.IncidentEvent
+			if err := json.Unmarshal(msg.Value, &inc); err != nil {
+				log.Printf("[INCIDENT CONSUMER] decode error: %v", err)
+				consumer.CommitMessages(ctx, msg)
+				continue
+			}
+
+			// Persist only significant events: Critical open incidents, or any Incident resolution (Status == CLOSE)
+			isSignificant := (inc.Status == "OPEN" && inc.Severity == "critical") || inc.Status == "CLOSE"
+			if !isSignificant {
+				consumer.CommitMessages(ctx, msg)
+				continue
+			}
+
+			// Auto-provision device if missing to avoid foreign key violations
+			if _, err := deviceRepo.GetByID(ctx, inc.DeviceID); err != nil {
+				log.Printf("[INCIDENT CONSUMER] Unknown device %s, auto-provisioning...", inc.DeviceID)
+				autoDev := devicedomain.Device{
+					ID:              inc.DeviceID,
+					Name:            fmt.Sprintf("Auto-Provisioned Device %s", inc.DeviceID),
+					Type:            "unknown",
+					FirmwareVersion: "unknown",
+					Status:          "offline",
+					Metadata:        json.RawMessage(`{}`),
+				}
+				if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
+					log.Printf("[INCIDENT CONSUMER] Failed to auto-provision device %s: %v", inc.DeviceID, err)
+					log.Printf("[INCIDENT CONSUMER] Skipping incident event for unknown device %s: %v", inc.DeviceID, err)
+					consumer.CommitMessages(ctx, msg)
+					continue
+				}
+			}
+
+			severity := eventdomain.SeverityWarning
+			if inc.Severity == "critical" {
+				severity = eventdomain.SeverityCritical
+			} else if inc.Status == "CLOSE" {
+				severity = eventdomain.SeverityInfo
+			}
+
+			eventType := "incident_critical"
+			title := "Critical Fleet Anomaly"
+			summary := fmt.Sprintf("Critical anomaly detected on device %s for metric %s: type=%s, peak_score=%.2f", inc.DeviceID, inc.Metric, inc.IncidentType, inc.Score)
+			if inc.Status == "CLOSE" {
+				eventType = "incident_resolution"
+				title = "Fleet Incident Resolved"
+				summary = fmt.Sprintf("Incident for device %s metric %s resolved", inc.DeviceID, inc.Metric)
+			}
+
+			metadataBytes, _ := json.Marshal(map[string]any{
+				"incident_type": inc.IncidentType,
+				"metric":        inc.Metric,
+				"score":         inc.Score,
+				"session_id":    inc.SessionID,
+				"status":        inc.Status,
+			})
+
+			newEvent := eventdomain.Event{
+				ID:              uuid.New().String(),
+				DeviceID:        inc.DeviceID,
+				Type:            eventType,
+				Severity:        severity,
+				Title:           title,
+				Summary:         summary,
+				Source:          "anomaly_worker",
+				ConfidenceScore: 1.0,
+				Metadata:        json.RawMessage(metadataBytes),
+				CreatedAt:       inc.Timestamp,
+			}
+
+			var created *eventdomain.Event
+			var createErr error
+			err = withRetry(3, func() error {
+				created, createErr = eventRepo.Create(ctx, newEvent)
+				return createErr
+			})
+
+			if err != nil {
+				log.Printf("[INCIDENT CONSUMER] failed to persist incident event after retries: %v", err)
+				if kafkaProducer != nil {
+					if dlqErr := kafkaProducer.PublishDLQ(ctx, cfg.KafkaIncidentTopic, msg.Key, msg.Value, err.Error()); dlqErr != nil {
+						log.Printf("[INCIDENT CONSUMER] FATAL: Failed to publish to DLQ, event uncommitted: %v", dlqErr)
+						continue // Do NOT commit, retry later
+					}
+				}
+				consumer.CommitMessages(ctx, msg) // Commit after successful DLQ publish
+				continue
+			}
+
+			if embedSvc != nil {
+				embedSvc.EnqueueEvent(*created)
+			}
+
+			consumer.CommitMessages(ctx, msg)
+		}
+	}
+}
+
+func startCorrelationEngine(ctx context.Context, redisClient *redis.Client, eventRepo eventdomain.Repository, embedSvc *memory.EmbeddingService, deviceRepo *postgres.DeviceRepository) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("[CORRELATION ENGINE] started, running every 1 minute")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCorrelation(ctx, redisClient, eventRepo, embedSvc, deviceRepo)
+		}
+	}
+}
+
+func runCorrelation(ctx context.Context, redisClient *redis.Client, eventRepo eventdomain.Repository, embedSvc *memory.EmbeddingService, deviceRepo *postgres.DeviceRepository) {
+	rdb := redisClient.Client()
+
+	activeSessions, err := rdb.SMembers(ctx, "sessions:active").Result()
+	if err != nil || len(activeSessions) == 0 {
+		return
+	}
+
+	for _, sessionID := range activeSessions {
+		incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
+		incidentKeys, err := rdb.SMembers(ctx, incidentsSetKey).Result()
+		if err != nil || len(incidentKeys) == 0 {
+			continue
+		}
+
+		vals, err := rdb.MGet(ctx, incidentKeys...).Result()
+		if err != nil {
+			continue
+		}
+
+		type groupKey struct {
+			incidentType string
+			metric       string
+		}
+
+		groups := make(map[groupKey][]string)
+
+		for _, v := range vals {
+			vStr, ok := v.(string)
+			if !ok || vStr == "" {
+				continue
+			}
+
+			var inc struct {
+				DeviceID     string `json:"device_id"`
+				Metric       string `json:"metric"`
+				IncidentType string `json:"incident_type"`
+			}
+			if err := json.Unmarshal([]byte(vStr), &inc); err == nil {
+				k := groupKey{
+					incidentType: inc.IncidentType,
+					metric:       inc.Metric,
+				}
+				groups[k] = append(groups[k], inc.DeviceID)
+			}
+		}
+
+		for k, devices := range groups {
+			distinctDevices := make(map[string]bool)
+			for _, dev := range devices {
+				distinctDevices[dev] = true
+			}
+
+			if len(distinctDevices) >= 3 {
+				deviceList := make([]string, 0, len(distinctDevices))
+				for dev := range distinctDevices {
+					deviceList = append(deviceList, dev)
+				}
+
+				timeWindow := time.Now().UTC().Truncate(15 * time.Minute).Format("1504")
+				cooldownKey := fmt.Sprintf("finding:cooldown:%s:%s:%s:%s", sessionID, k.metric, k.incidentType, timeWindow)
+
+				allowed := rdb.SetNX(ctx, cooldownKey, "1", 1*time.Hour).Val()
+				if !allowed {
+					continue
+				}
+
+				representativeDeviceID := deviceList[0]
+
+				// Auto-provision representative device if missing to avoid foreign key violations
+				if _, err := deviceRepo.GetByID(ctx, representativeDeviceID); err != nil {
+					log.Printf("[CORRELATION ENGINE] Unknown representative device %s, auto-provisioning...", representativeDeviceID)
+					autoDev := devicedomain.Device{
+						ID:              representativeDeviceID,
+						Name:            fmt.Sprintf("Auto-Provisioned Device %s", representativeDeviceID),
+						Type:            "unknown",
+						FirmwareVersion: "unknown",
+						Status:          "offline",
+						Metadata:        json.RawMessage(`{}`),
+					}
+					if _, err := deviceRepo.Create(ctx, autoDev); err != nil {
+						log.Printf("[CORRELATION ENGINE] Failed to auto-provision representative device %s: %v", representativeDeviceID, err)
+						log.Printf("[CORRELATION ENGINE] Skipping fleet finding event for unknown representative device %s: %v", representativeDeviceID, err)
+						continue
+					}
+				}
+
+				metadataBytes, _ := json.Marshal(map[string]any{
+					"session_id":    sessionID,
+					"metric":        k.metric,
+					"incident_type": k.incidentType,
+					"devices":       deviceList,
+				})
+
+				newEvent := eventdomain.Event{
+					ID:              uuid.New().String(),
+					DeviceID:        representativeDeviceID,
+					Type:            "fleet_finding",
+					Severity:        eventdomain.SeverityCritical,
+					Title:           "Fleet-Wide Anomaly Detected",
+					Summary:         fmt.Sprintf("Fleet correlation: %d devices are experiencing '%s' anomalies on metric '%s'", len(deviceList), k.incidentType, k.metric),
+					Source:          "correlation_engine",
+					ConfidenceScore: 0.90,
+					Metadata:        json.RawMessage(metadataBytes),
+					CreatedAt:       time.Now().UTC(),
+				}
+
+				created, err := eventRepo.Create(ctx, newEvent)
+				if err != nil {
+					log.Printf("[CORRELATION ENGINE] Failed to log fleet finding: %v", err)
+					continue
+				}
+
+				if embedSvc != nil {
+					embedSvc.EnqueueEvent(*created)
+				}
+			}
+		}
+	}
+}
+

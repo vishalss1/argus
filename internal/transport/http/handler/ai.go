@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vishalss1/argus/internal/ai/actions"
@@ -23,6 +25,8 @@ type AIHandler struct {
 	actionEngine    *actions.Engine
 	policyService   *policy.Service
 	redisClient     *redis.Client
+	apiKey          string
+	rateLimit       int
 }
 
 func NewAIHandler(
@@ -32,6 +36,8 @@ func NewAIHandler(
 	actionEngine *actions.Engine,
 	policyService *policy.Service,
 	redisClient *redis.Client,
+	apiKey string,
+	rateLimit int,
 ) *AIHandler {
 	return &AIHandler{
 		eventRepo:       eventRepo,
@@ -40,10 +46,49 @@ func NewAIHandler(
 		actionEngine:    actionEngine,
 		policyService:   policyService,
 		redisClient:     redisClient,
+		apiKey:          apiKey,
+		rateLimit:       rateLimit,
 	}
 }
 
 func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
+	// 1. API Key Authentication Check
+	if h.apiKey != "" {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			writeError(w, http.StatusUnauthorized, "Authorization header is required")
+			return
+		}
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" || parts[1] != h.apiKey {
+			writeError(w, http.StatusUnauthorized, "Invalid API key")
+			return
+		}
+	}
+
+	// 2. Redis-based Rate Limiting
+	if h.redisClient != nil && h.rateLimit > 0 {
+		ctx := r.Context()
+		ip := r.Header.Get("X-Forwarded-For")
+		if ip == "" {
+			ip = r.RemoteAddr
+			if idx := strings.LastIndex(ip, ":"); idx != -1 {
+				ip = ip[:idx]
+			}
+		}
+		key := fmt.Sprintf("rate_limit:ai_query:%s", ip)
+		count, err := h.redisClient.Client().Incr(ctx, key).Result()
+		if err == nil {
+			if count == 1 {
+				h.redisClient.Client().Expire(ctx, key, 1*time.Minute)
+			}
+			if count > int64(h.rateLimit) {
+				writeError(w, http.StatusTooManyRequests, "Rate limit exceeded. Try again in a minute.")
+				return
+			}
+		}
+	}
+
 	var body struct {
 		Query string `json:"query"`
 	}
@@ -66,8 +111,32 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func parsePagination(r *http.Request) (int, int) {
+	limit := 20
+	offset := 0
+
+	q := r.URL.Query()
+	if limitStr := q.Get("limit"); limitStr != "" {
+		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
+			limit = val
+			if limit > 100 {
+				limit = 100
+			}
+		}
+	}
+
+	if offsetStr := q.Get("offset"); offsetStr != "" {
+		if val, err := strconv.Atoi(offsetStr); err == nil && val >= 0 {
+			offset = val
+		}
+	}
+
+	return limit, offset
+}
+
 func (h *AIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
-	events, err := h.eventRepo.List(r.Context())
+	limit, offset := parsePagination(r)
+	events, err := h.eventRepo.List(r.Context(), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list events")
 		return
@@ -77,7 +146,8 @@ func (h *AIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 func (h *AIHandler) ListDeviceEvents(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")
-	events, err := h.eventRepo.ListByDevice(r.Context(), deviceID)
+	limit, offset := parsePagination(r)
+	events, err := h.eventRepo.ListByDevice(r.Context(), deviceID, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list device events")
 		return
@@ -245,7 +315,8 @@ func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
 
 func (h *AIHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")
-	memories, err := h.contextService.GetDeviceHistory(r.Context(), deviceID)
+	limit, offset := parsePagination(r)
+	memories, err := h.contextService.GetDeviceHistory(r.Context(), deviceID, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get device history")
 		return

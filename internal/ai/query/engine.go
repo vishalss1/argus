@@ -21,6 +21,7 @@ type Engine struct {
 	vectorStore       *postgres.VectorStore
 	eventRepo         *postgres.EventRepository
 	contextRepo       *postgres.ContextRepository
+	similarityThreshold float32
 }
 
 func NewEngine(
@@ -29,6 +30,7 @@ func NewEngine(
 	vectorStore *postgres.VectorStore,
 	eventRepo *postgres.EventRepository,
 	contextRepo *postgres.ContextRepository,
+	similarityThreshold float32,
 ) *Engine {
 	return &Engine{
 		embeddingProvider: embeddingProvider,
@@ -36,6 +38,7 @@ func NewEngine(
 		vectorStore:       vectorStore,
 		eventRepo:         eventRepo,
 		contextRepo:       contextRepo,
+		similarityThreshold: similarityThreshold,
 	}
 }
 
@@ -82,15 +85,27 @@ func (e *Engine) formatContext(c *Context) string {
 
 	buf.WriteString("--- RELEVANT EVENTS ---\n")
 	for _, ev := range c.Events {
-		buf.WriteString(fmt.Sprintf("- Title: %s | Summary: %s (Time: %s)\n", ev.Title, ev.Summary, ev.CreatedAt.Format(time.RFC3339)))
+		summary := ev.Summary
+		if len(summary) > 500 {
+			summary = summary[:500] + "... (truncated)"
+		}
+		buf.WriteString(fmt.Sprintf("- Title: %s | Summary: %s (Time: %s)\n", ev.Title, summary, ev.CreatedAt.Format(time.RFC3339)))
 	}
 
 	buf.WriteString("\n--- OPERATIONAL MEMORY ---\n")
 	for _, mem := range c.Memories {
-		buf.WriteString(fmt.Sprintf("- Type: %s | Summary: %s\n", mem.Type, mem.Summary))
+		summary := mem.Summary
+		if len(summary) > 500 {
+			summary = summary[:500] + "... (truncated)"
+		}
+		buf.WriteString(fmt.Sprintf("- Type: %s | Summary: %s\n", mem.Type, summary))
 	}
 
-	return buf.String()
+	res := buf.String()
+	if len(res) > 8000 {
+		res = res[:8000] + "\n... (context truncated to fit size limits)"
+	}
+	return res
 }
 
 type Context struct {
@@ -129,6 +144,10 @@ func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Cont
 	if err == nil {
 		log.Printf("[QUERY ENGINE] found %d semantic event matches", len(eventResults))
 		for _, res := range eventResults {
+			if res.Score < e.similarityThreshold {
+				log.Printf("[QUERY ENGINE] dropping event match %s due to low score: %f", res.ID, res.Score)
+				continue
+			}
 			if seenIDs[res.ID] {
 				continue
 			}
@@ -147,6 +166,10 @@ func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Cont
 	if err == nil {
 		log.Printf("[QUERY ENGINE] found %d semantic memory matches", len(memoryResults))
 		for _, res := range memoryResults {
+			if res.Score < e.similarityThreshold {
+				log.Printf("[QUERY ENGINE] dropping memory match %s due to low score: %f", res.ID, res.Score)
+				continue
+			}
 			if seenIDs[res.ID] {
 				continue
 			}

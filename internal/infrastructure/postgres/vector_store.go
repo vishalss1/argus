@@ -114,3 +114,36 @@ func (s *VectorStore) UpdateEmbedding(ctx context.Context, table string, id stri
 	_, err := s.db.ExecContext(ctx, query, pgvector.NewVector(embedding), id)
 	return err
 }
+
+func (s *VectorStore) ListIDsWithoutEmbedding(ctx context.Context, table string) ([]string, error) {
+	if !s.enabled {
+		return nil, ErrVectorSearchDisabled
+	}
+
+	allowedTables := map[string]bool{
+		"events":             true,
+		"operational_memory": true,
+	}
+	if !allowedTables[table] {
+		return nil, fmt.Errorf("table %s not allowed for listing IDs", table)
+	}
+
+	query := fmt.Sprintf("SELECT id FROM %s WHERE embedding IS NULL LIMIT 1000", table)
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query IDs without embedding: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, nil
+}
+
