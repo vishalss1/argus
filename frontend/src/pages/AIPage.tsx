@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../services/api";
 import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
-import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard } from "../components/ui";
+import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard, Pagination } from "../components/ui";
 import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, Play } from "lucide-react";
 import { useDeviceStatus, useSessionActiveIncidents, useDevices, useSessions } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
@@ -46,8 +46,12 @@ const AIPage: React.FC = () => {
   const [query, setQuery] = useState("");
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
+  const [queryError, setQueryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deviceID, setDeviceID] = useState("");
+  
+  const [eventsPage, setEventsPage] = useState(1);
+  const eventsPerPage = 10;
   
   const { selectedWorkspaceId, workspaceDevices } = useWorkspaceContext();
   const { data: sessions, isLoading: sessionsLoading } = useSessions(selectedWorkspaceId);
@@ -71,7 +75,19 @@ const AIPage: React.FC = () => {
     return events.filter((ev: SemanticEvent) => activeDeviceIds.has(ev.device_id));
   }, [events, activeDeviceIds]);
 
+  const paginatedEvents = useMemo<SemanticEvent[]>(() => {
+    const start = (eventsPage - 1) * eventsPerPage;
+    return filteredEvents.slice(start, start + eventsPerPage);
+  }, [filteredEvents, eventsPage, eventsPerPage]);
 
+  const totalEventsPages = useMemo(() => {
+    return Math.ceil(filteredEvents.length / eventsPerPage);
+  }, [filteredEvents, eventsPerPage]);
+
+  // Reset page when workspace changes
+  useEffect(() => {
+    setEventsPage(1);
+  }, [selectedWorkspaceId]);
 
   useEffect(() => {
     fetchBaseData();
@@ -79,7 +95,8 @@ const AIPage: React.FC = () => {
 
   const fetchBaseData = async () => {
     try {
-      const evs = await api.ai.listEvents();
+      // Fetch up to 100 events to ensure we have a good buffer for the workspace devices filter
+      const evs = await api.ai.listEvents(100, 0);
       setEvents(evs);
     } catch (err) {
       console.error("Failed to fetch AI data", err);
@@ -94,11 +111,13 @@ const AIPage: React.FC = () => {
 
     setQueryLoading(true);
     setReasoning(null);
+    setQueryError(null);
     try {
       const resp = await api.ai.query(query);
       setReasoning(resp);
     } catch (err) {
       console.error("Query failed", err);
+      setQueryError((err as Error).message || "An error occurred while processing your query.");
     } finally {
       setQueryLoading(false);
     }
@@ -216,6 +235,13 @@ const AIPage: React.FC = () => {
               </button>
             </form>
 
+            {queryError && (
+              <div style={{ marginTop: "12px", padding: "10px 14px", borderRadius: "6px", backgroundColor: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", color: "var(--danger)", fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                <span><strong>Query Error:</strong> {queryError}</span>
+              </div>
+            )}
+
             {reasoning && (
               <div className="ai-reasoning-panel">
                 <div className="ai-reasoning-header">
@@ -293,7 +319,7 @@ const AIPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEvents.length === 0 ? (
+                  {paginatedEvents.length === 0 ? (
                     <tr>
                       <td colSpan={4}>
                         <EmptyState
@@ -303,7 +329,7 @@ const AIPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    filteredEvents.slice(0, 12).map((ev: SemanticEvent) => (
+                    paginatedEvents.map((ev: SemanticEvent) => (
                       <tr key={ev.id}>
                         <td>
                           <strong>{ev.type.replace('_', ' ')}</strong>
@@ -329,6 +355,16 @@ const AIPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {totalEventsPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
+                <Pagination
+                  current={eventsPage}
+                  total={totalEventsPages}
+                  onChange={(page) => setEventsPage(page)}
+                />
+              </div>
+            )}
           </Panel>
         </div>
 

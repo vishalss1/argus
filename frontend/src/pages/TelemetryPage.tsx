@@ -21,7 +21,7 @@ import {
   Play,
   ArrowRight
 } from "lucide-react";
-import { CopyableID, EmptyState, PageHeader, Panel, StatusChip } from "../components/ui";
+import { CopyableID, EmptyState, PageHeader, Panel, StatusChip, Pagination } from "../components/ui";
 import { useDevices, useAlerts, useCommands, useDeployments, useSessions } from "../hooks/useArgusData";
 import { useRealtime } from "../hooks/useRealtime";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
@@ -300,15 +300,18 @@ export function TelemetryPage() {
   const deployments = useDeployments(deviceID);
   const commands = useCommands(deviceID);
 
+  const [timelinePage, setTimelinePage] = useState(1);
+  const timelinePerPage = 15;
+
   const semanticEvents = useQuery({
     queryKey: ["device-semantic-events", deviceID],
-    queryFn: () => api.ai.listDeviceEvents(deviceID),
+    queryFn: () => api.ai.listDeviceEvents(deviceID, 100, 0),
     enabled: Boolean(deviceID)
   });
 
   const deviceHistory = useQuery({
     queryKey: ["device-history", deviceID],
-    queryFn: () => api.ai.getDeviceHistory(deviceID),
+    queryFn: () => api.ai.getDeviceHistory(deviceID, 100, 0),
     enabled: Boolean(deviceID)
   });
 
@@ -317,7 +320,13 @@ export function TelemetryPage() {
     setDeviceID("");
     setShowSimulation(false);
     setShowRawPayload(false);
+    setTimelinePage(1);
   }, [selectedWorkspaceId]);
+
+  // Reset page when selected device changes
+  useEffect(() => {
+    setTimelinePage(1);
+  }, [deviceID]);
 
   // Workspace-scoped Fleet stats computation
   const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
@@ -543,6 +552,15 @@ export function TelemetryPage() {
 
     return list.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
   }, [alerts.data, deployments.data, commands.data, semanticEvents.data, deviceHistory.data, deviceID]);
+
+  const paginatedTimelineEvents = useMemo(() => {
+    const start = (timelinePage - 1) * timelinePerPage;
+    return timelineEvents.slice(start, start + timelinePerPage);
+  }, [timelineEvents, timelinePage, timelinePerPage]);
+
+  const totalTimelinePages = useMemo(() => {
+    return Math.ceil(timelineEvents.length / timelinePerPage);
+  }, [timelineEvents, timelinePerPage]);
 
   async function submitSimulation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -779,8 +797,7 @@ export function TelemetryPage() {
               {timelineEvents.length === 0 ? (
                 <EmptyState title="No timeline events recorded" description="No actions or anomalies have occurred on this device yet." />
               ) : (
-                <div className="timeline-list">
-                  {timelineEvents.slice(0, 15).map(event => (
+                <div className="timeline-list">                  {paginatedTimelineEvents.map(event => (
                     <div className="timeline-event-card" key={event.id}>
                       <div className="timeline-event-side">
                         <div className={`timeline-event-icon ${event.tone}`}>
@@ -801,6 +818,16 @@ export function TelemetryPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {totalTimelinePages > 1 && (
+                <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
+                  <Pagination
+                    current={timelinePage}
+                    total={totalTimelinePages}
+                    onChange={(page) => setTimelinePage(page)}
+                  />
                 </div>
               )}
             </Panel>
