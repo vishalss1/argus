@@ -39,8 +39,8 @@ func (s *Service) RecordMemory(ctx context.Context, mem OperationalMemory) (*Ope
 	return created, err
 }
 
-func (s *Service) GetDeviceHistory(ctx context.Context, deviceID string) ([]OperationalMemory, error) {
-	return s.repo.ListByDevice(ctx, deviceID)
+func (s *Service) GetDeviceHistory(ctx context.Context, deviceID string, limit, offset int) ([]OperationalMemory, error) {
+	return s.repo.ListByDevice(ctx, deviceID, limit, offset)
 }
 
 func (s *Service) GetLatestMemory(ctx context.Context, deviceID string, memoryType MemoryType) (*OperationalMemory, error) {

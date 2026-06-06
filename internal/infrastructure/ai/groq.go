@@ -22,7 +22,13 @@ func NewGroqProvider(apiKey, model, baseURL string) *GroqProvider {
 		apiKey:  apiKey,
 		model:   model,
 		baseURL: baseURL,
-		client:  &http.Client{},
+		client: &http.Client{
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+			},
+		},
 	}
 }
 
@@ -75,20 +81,40 @@ func (p *GroqProvider) Reason(ctx context.Context, systemPrompt, userPrompt stri
 		return nil, fmt.Errorf("marshal groq request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		LLMFailuresTotal.WithLabelValues("groq").Inc()
-		return nil, fmt.Errorf("create groq request: %w", err)
+	var resp *http.Response
+	var doErr error
+	delay := 1 * time.Second
+
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
+		if err != nil {
+			LLMFailuresTotal.WithLabelValues("groq").Inc()
+			return nil, fmt.Errorf("create groq request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+		resp, doErr = p.client.Do(req)
+		if doErr != nil {
+			LLMFailuresTotal.WithLabelValues("groq").Inc()
+			return nil, fmt.Errorf("do groq request: %w", doErr)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			select {
+			case <-ctx.Done():
+				LLMFailuresTotal.WithLabelValues("groq").Inc()
+				return nil, ctx.Err()
+			case <-time.After(delay):
+				delay *= 2
+				continue
+			}
+		}
+		break
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		LLMFailuresTotal.WithLabelValues("groq").Inc()
-		return nil, fmt.Errorf("do groq request: %w", err)
-	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

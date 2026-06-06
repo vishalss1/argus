@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 )
@@ -61,15 +62,16 @@ func (r *ContextRepository) GetByID(ctx context.Context, id string) (*ctxdomain.
 	return &mem, nil
 }
 
-func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string) ([]ctxdomain.OperationalMemory, error) {
+func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string, limit, offset int) ([]ctxdomain.OperationalMemory, error) {
 	query := `
 		SELECT id, device_id, type, summary, data, timestamp, created_at
 		FROM operational_memory
 		WHERE device_id = $1
 		ORDER BY timestamp DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, deviceID)
+	rows, err := r.db.QueryContext(ctx, query, deviceID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list operational memory by device: %w", err)
 	}
@@ -89,15 +91,16 @@ func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string) (
 	return memories, nil
 }
 
-func (r *ContextRepository) ListByType(ctx context.Context, memoryType ctxdomain.MemoryType) ([]ctxdomain.OperationalMemory, error) {
+func (r *ContextRepository) ListByType(ctx context.Context, memoryType ctxdomain.MemoryType, limit, offset int) ([]ctxdomain.OperationalMemory, error) {
 	query := `
 		SELECT id, device_id, type, summary, data, timestamp, created_at
 		FROM operational_memory
 		WHERE type = $1
 		ORDER BY timestamp DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, memoryType)
+	rows, err := r.db.QueryContext(ctx, query, memoryType, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list operational memory by type: %w", err)
 	}
@@ -115,6 +118,19 @@ func (r *ContextRepository) ListByType(ctx context.Context, memoryType ctxdomain
 	}
 
 	return memories, nil
+}
+
+func (r *ContextRepository) Prune(ctx context.Context, olderThan time.Time) (int64, error) {
+	query := `DELETE FROM operational_memory WHERE created_at < $1`
+	res, err := r.db.ExecContext(ctx, query, olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("prune operational memory: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
 }
 
 func (r *ContextRepository) GetLatestByDevice(ctx context.Context, deviceID string, memoryType ctxdomain.MemoryType) (*ctxdomain.OperationalMemory, error) {

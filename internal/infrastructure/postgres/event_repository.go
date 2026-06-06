@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/vishalss1/argus/internal/domain/event"
+	"github.com/vishalss1/argus/internal/infrastructure/ai"
 )
 
 type EventRepository struct {
@@ -36,6 +38,8 @@ func (r *EventRepository) Create(ctx context.Context, ev event.Event) (*event.Ev
 		return nil, fmt.Errorf("create event: %w", err)
 	}
 
+	ai.EventsGeneratedTotal.WithLabelValues(created.Type, string(created.Severity)).Inc()
+
 	return &created, nil
 }
 
@@ -61,14 +65,15 @@ func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event,
 	return &ev, nil
 }
 
-func (r *EventRepository) List(ctx context.Context) ([]event.Event, error) {
+func (r *EventRepository) List(ctx context.Context, limit, offset int) ([]event.Event, error) {
 	query := `
 		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
 		FROM events
 		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
@@ -88,15 +93,16 @@ func (r *EventRepository) List(ctx context.Context) ([]event.Event, error) {
 	return events, nil
 }
 
-func (r *EventRepository) ListByDevice(ctx context.Context, deviceID string) ([]event.Event, error) {
+func (r *EventRepository) ListByDevice(ctx context.Context, deviceID string, limit, offset int) ([]event.Event, error) {
 	query := `
 		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
 		FROM events
 		WHERE device_id = $1
 		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, deviceID)
+	rows, err := r.db.QueryContext(ctx, query, deviceID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list events by device: %w", err)
 	}
@@ -116,15 +122,16 @@ func (r *EventRepository) ListByDevice(ctx context.Context, deviceID string) ([]
 	return events, nil
 }
 
-func (r *EventRepository) ListByType(ctx context.Context, eventType string) ([]event.Event, error) {
+func (r *EventRepository) ListByType(ctx context.Context, eventType string, limit, offset int) ([]event.Event, error) {
 	query := `
 		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
 		FROM events
 		WHERE type = $1
 		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, eventType)
+	rows, err := r.db.QueryContext(ctx, query, eventType, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list events by type: %w", err)
 	}
@@ -142,4 +149,17 @@ func (r *EventRepository) ListByType(ctx context.Context, eventType string) ([]e
 	}
 
 	return events, nil
+}
+
+func (r *EventRepository) Prune(ctx context.Context, olderThan time.Time) (int64, error) {
+	query := `DELETE FROM events WHERE created_at < $1`
+	res, err := r.db.ExecContext(ctx, query, olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("prune events: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
 }

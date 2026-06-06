@@ -28,7 +28,13 @@ func NewOllamaProvider(baseURL, model string) *OllamaProvider {
 	return &OllamaProvider{
 		baseURL: baseURL,
 		model:   model,
-		client:  &http.Client{},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+			},
+		},
 	}
 }
 

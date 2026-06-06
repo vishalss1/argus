@@ -56,4 +56,35 @@ var (
 		},
 		[]string{"provider"},
 	)
+	EmbeddingQueueDepth = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "argus_ai_embedding_queue_depth",
+			Help: "Current depth of the embedding tasks queue.",
+		},
+	)
+	EmbeddingSuccessesTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "argus_ai_embedding_successes_total",
+			Help: "Total number of successful embedding tasks.",
+		},
+	)
+	EmbeddingFailuresTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "argus_ai_embedding_failures_total",
+			Help: "Total number of failed embedding tasks.",
+		},
+	)
+	EmbeddingDroppedTasksTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "argus_ai_embedding_dropped_tasks_total",
+			Help: "Total number of embedding tasks dropped due to queue saturation.",
+		},
+	)
+	ReconciliationTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_ai_embedding_reconciliation_total",
+			Help: "Total number of background backfill reconciliation runs.",
+		},
+		[]string{"status"},
+	)
 )
