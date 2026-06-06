@@ -50,7 +50,8 @@ func (r *CommandRepository) ListByDevice(ctx context.Context, deviceID string) (
 		SELECT id, device_id, command_type, payload, status, result_message, created_at, sent_at, acknowledged_at, updated_at
 		FROM commands
 		WHERE device_id = $1::uuid
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 200`
 
 	rows, err := r.db.QueryContext(ctx, query, deviceID)
 	if err != nil {

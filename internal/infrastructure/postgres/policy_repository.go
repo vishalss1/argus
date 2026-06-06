@@ -130,7 +130,7 @@ func (r *PolicyRepository) GetExecutionRecord(ctx context.Context, id string) (*
 }
 
 func (r *PolicyRepository) ListExecutionRecords(ctx context.Context) ([]policy.ExecutionRecord, error) {
-	query := `SELECT id, action, device_id, incident_id, status, suggested_by, approved_by, metadata, created_at FROM action_execution_records ORDER BY created_at DESC`
+	query := `SELECT id, action, device_id, incident_id, status, suggested_by, approved_by, metadata, created_at FROM action_execution_records ORDER BY created_at DESC LIMIT 500`
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

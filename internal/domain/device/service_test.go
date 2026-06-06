@@ -36,6 +36,10 @@ func (r *fakeRepository) List(ctx context.Context) ([]Device, error) {
 	return nil, nil
 }
 
+func (r *fakeRepository) Search(ctx context.Context, terms []string, limit int) ([]Device, error) {
+	return nil, nil
+}
+
 func (r *fakeRepository) GetByID(ctx context.Context, id string) (*Device, error) {
 	return nil, ErrDeviceNotFound
 }

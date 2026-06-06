@@ -1,44 +1,10 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../services/api";
-import { SemanticEvent, Incident, ReasoningResponse } from "../types/api";
+import { SemanticEvent, ReasoningResponse } from "../types/api";
 import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard, Pagination } from "../components/ui";
-import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, Play } from "lucide-react";
-import { useDeviceStatus, useSessionActiveIncidents, useDevices, useSessions } from "../hooks/useArgusData";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle } from "lucide-react";
+import { useDeviceStatus, useSessionActiveIncidents, useSessions } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
-
-function SessionRequiredPrompt({ title, description }: { title: string; description: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "40px 20px" }}>
-      <div style={{ maxWidth: 500, width: "100%", textAlign: "center" }}>
-        <div style={{
-          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
-          background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(245,158,11,0.1))",
-          border: "1px solid rgba(239,68,68,0.3)",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <Play size={36} style={{ color: "var(--danger)" }} />
-        </div>
-
-        <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
-          {title}
-        </h2>
-        <p className="muted" style={{ fontSize: "15px", lineHeight: 1.6, margin: "0 0 28px" }}>
-          {description}
-        </p>
-
-        <Link
-          to="/workspaces"
-          className="button primary"
-          style={{ padding: "12px 24px", fontSize: "15px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "8px", textDecoration: "none" }}
-        >
-          Go to Workspaces
-          <ArrowRight size={16} />
-        </Link>
-      </div>
-    </div>
-  );
-}
 
 const AIPage: React.FC = () => {
   const [events, setEvents] = useState<SemanticEvent[]>([]);
@@ -113,7 +79,7 @@ const AIPage: React.FC = () => {
     setReasoning(null);
     setQueryError(null);
     try {
-      const resp = await api.ai.query(query);
+      const resp = await api.ai.query(query, deviceID);
       setReasoning(resp);
     } catch (err) {
       console.error("Query failed", err);
@@ -135,20 +101,11 @@ const AIPage: React.FC = () => {
     );
   }
 
-  if (!activeSession) {
-    return (
-      <SessionRequiredPrompt
-        title="Session Required for AI Insights"
-        description="AI insights, semantic event correlation, and natural language reasoning require an active operational session in this workspace."
-      />
-    );
-  }
-
   return (
     <>
       <PageHeader 
         title="AI Operational Intelligence" 
-        description="Real-time semantic reasoning, statistical anomaly detection, and incident correlation."
+        description={activeSession ? "Real-time operational reasoning, root-cause analysis, and incident correlation." : "Operational health analysis from persisted device state. Start a session to add live anomaly correlation."}
         actions={
           <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
             <select 
@@ -211,7 +168,7 @@ const AIPage: React.FC = () => {
           <Panel
             title={
               <span style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--accent)" }}>
-                <Brain size={18} /> Semantic Query Engine
+                <Brain size={18} /> Operational Analysis Engine
               </span>
             }
           >
@@ -220,7 +177,7 @@ const AIPage: React.FC = () => {
                 <Search size={16} />
                 <input
                   type="text"
-                  placeholder="Ask about fleet state... (e.g. 'Recent anomalies on device-4?')"
+                  placeholder="Ask why a device failed, summarize its health, or request remediation..."
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
@@ -243,57 +200,71 @@ const AIPage: React.FC = () => {
             )}
 
             {reasoning && (
-              <div className="ai-reasoning-panel">
+              <div className="ai-results">
+                <div className="ai-reasoning-panel">
                 <div className="ai-reasoning-header">
-                  <h3>Analysis Result</h3>
+                  <div>
+                    <span className="ai-result-intent">{reasoning.intent.replace(/_/g, " ")}</span>
+                    <h3>Operational Analysis</h3>
+                  </div>
                   <span className={`ai-confidence-badge ${reasoning.confidence > 0 ? '' : 'low-confidence'}`}>
                     {(reasoning.confidence * 100).toFixed(0)}% CONFIDENCE
                   </span>
                 </div>
                 
-                {reasoning.summary ? (
-                  <>
-                    <p className="ai-reasoning-summary">
-                      {reasoning.summary}
-                    </p>
+                  <p className="ai-reasoning-summary">{reasoning.summary}</p>
+                </div>
 
-                    <div className="grid two">
-                      <div>
-                        <span className="ai-evidence-title">Evidence Chain</span>
-                        {reasoning.evidence && reasoning.evidence.length > 0 ? (
-                          <ul className="ai-evidence-list">
-                            {reasoning.evidence.map((ev, i) => (
-                              <li key={i} className="ai-evidence-item">
-                                <ShieldCheck size={12} className="ai-evidence-icon" />
-                                <span>{ev}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="muted" style={{ fontSize: "12px" }}>No evidence referenced.</span>
-                        )}
-                      </div>
-                      <div>
-                        <span className="ai-suggestions-title">Remediation Suggestions</span>
-                        {reasoning.suggested_actions && reasoning.suggested_actions.length > 0 ? (
-                          <div className="ai-suggestions-list">
-                            {reasoning.suggested_actions.map((act, i) => (
-                              <div key={i} className="ai-remediation-item">
-                                <span>{act}</span>
-                                <ArrowRight size={10} />
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="muted" style={{ fontSize: "12px" }}>No suggestions available.</span>
-                        )}
-                      </div>
+                {reasoning.device_summary && (
+                  <div className="ai-result-card health">
+                    <div className="ai-result-card-header">
+                      <span><Heart size={15} /> Device Health Summary</span>
+                      <StatusChip value={reasoning.device_summary.severity} />
                     </div>
-                  </>
-                ) : (
-                  <p className="muted" style={{ margin: 0, fontSize: "14px", fontStyle: "italic" }}>
-                    No matching information or anomalies found in current fleet context. Try refining your query.
-                  </p>
+                    <div className="ai-health-score">
+                      <strong>{reasoning.device_summary.healthScore}</strong><span>/100</span>
+                      <div><b>{reasoning.device_summary.deviceName}</b><small>{reasoning.device_summary.deviceStatus} · {reasoning.device_summary.openIncidents} open · {reasoning.device_summary.recentIncidents} recent</small></div>
+                    </div>
+                    <ul className="ai-evidence-list">
+                      {reasoning.device_summary.keyFindings.map((finding, i) => <li key={i} className="ai-evidence-item"><Activity size={12} className="ai-evidence-icon" /><span>{finding}</span></li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {reasoning.root_cause_analysis && (
+                  <div className="ai-result-card root-cause">
+                    <div className="ai-result-card-header"><span><AlertTriangle size={15} /> Root Cause Analysis</span><b>{reasoning.root_cause_analysis.confidence}%</b></div>
+                    <p className="ai-primary-cause">{reasoning.root_cause_analysis.primaryCause}</p>
+                    <span className="ai-evidence-title">Evidence Chain</span>
+                    <ul className="ai-evidence-list">
+                      {reasoning.root_cause_analysis.supportingEvidence.map((ev, i) => <li key={i} className="ai-evidence-item"><ShieldCheck size={12} className="ai-evidence-icon" /><span>{ev}</span></li>)}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="ai-result-card actions">
+                  <div className="ai-result-card-header"><span><CheckCircle size={15} /> Recommended Actions</span></div>
+                  {reasoning.remediations?.map(remediation => (
+                    <div className="ai-remediation-reasoning" key={remediation.pattern}>
+                      <b>{remediation.pattern}</b>
+                      <span>{remediation.reasoning}</span>
+                    </div>
+                  ))}
+                  <div className="ai-suggestions-list">
+                    {(reasoning.suggested_actions ?? []).map((action, i) => <div key={i} className="ai-remediation-item"><b>{i + 1}</b><span>{action}</span><ArrowRight size={10} /></div>)}
+                  </div>
+                </div>
+
+                {reasoning.related_devices && reasoning.related_devices.length > 0 && (
+                  <div className="ai-result-card related">
+                    <div className="ai-result-card-header"><span><Zap size={15} /> Related Devices</span></div>
+                    {reasoning.related_devices.map(device => (
+                      <div className="ai-related-device" key={device.deviceId}>
+                        <div><b>{device.deviceName}</b><small>{device.sharedPatterns.join(" · ")}</small></div>
+                        <strong>{device.similarity}%</strong>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

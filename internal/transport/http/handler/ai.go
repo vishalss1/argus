@@ -19,14 +19,14 @@ import (
 )
 
 type AIHandler struct {
-	eventRepo       event.Repository
-	contextService  *ctxdomain.Service
-	queryEngine     *query.Engine
-	actionEngine    *actions.Engine
-	policyService   *policy.Service
-	redisClient     *redis.Client
-	apiKey          string
-	rateLimit       int
+	eventRepo      event.Repository
+	contextService *ctxdomain.Service
+	queryEngine    *query.Engine
+	actionEngine   *actions.Engine
+	policyService  *policy.Service
+	redisClient    *redis.Client
+	apiKey         string
+	rateLimit      int
 }
 
 func NewAIHandler(
@@ -40,14 +40,14 @@ func NewAIHandler(
 	rateLimit int,
 ) *AIHandler {
 	return &AIHandler{
-		eventRepo:       eventRepo,
-		contextService:  contextService,
-		queryEngine:     queryEngine,
-		actionEngine:    actionEngine,
-		policyService:   policyService,
-		redisClient:     redisClient,
-		apiKey:          apiKey,
-		rateLimit:       rateLimit,
+		eventRepo:      eventRepo,
+		contextService: contextService,
+		queryEngine:    queryEngine,
+		actionEngine:   actionEngine,
+		policyService:  policyService,
+		redisClient:    redisClient,
+		apiKey:         apiKey,
+		rateLimit:      rateLimit,
 	}
 }
 
@@ -90,7 +90,8 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Query string `json:"query"`
+		Query    string `json:"query"`
+		DeviceID string `json:"device_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -107,7 +108,7 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.queryEngine.Ask(r.Context(), body.Query)
+	response, err := h.queryEngine.Ask(r.Context(), body.Query, body.DeviceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to reason: "+err.Error())
 		return
@@ -208,16 +209,11 @@ func (h *AIHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Request) {
 		severity = "healthy"
 	}
 
-	incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
-	incidentKeys, _ := h.redisClient.Client().SMembers(ctx, incidentsSetKey).Result()
-
 	var openIncidents []map[string]interface{}
-	var targetKeys []string
-	prefix := fmt.Sprintf("session:%s:device:%s:incident:", sessionID, deviceID)
-	for _, k := range incidentKeys {
-		if strings.HasPrefix(k, prefix) {
-			targetKeys = append(targetKeys, k)
-		}
+	deviceIncidentsSetKey := fmt.Sprintf("session:%s:device:%s:incidents", sessionID, deviceID)
+	targetKeys, _ := h.redisClient.Client().SMembers(ctx, deviceIncidentsSetKey).Result()
+	if len(targetKeys) > 100 {
+		targetKeys = targetKeys[:100]
 	}
 
 	if len(targetKeys) > 0 {
@@ -261,6 +257,9 @@ func (h *AIHandler) ListSessionActiveIncidents(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
+	if len(incidentKeys) > 500 {
+		incidentKeys = incidentKeys[:500]
+	}
 
 	var openIncidents []interface{}
 	if len(incidentKeys) > 0 {
@@ -288,12 +287,22 @@ func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
+	if len(activeSessions) > 100 {
+		activeSessions = activeSessions[:100]
+	}
 
 	var allIncidentKeys []string
 	for _, sessionID := range activeSessions {
+		if len(allIncidentKeys) >= 1000 {
+			break
+		}
 		incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
 		keys, err := h.redisClient.Client().SMembers(ctx, incidentsSetKey).Result()
 		if err == nil && len(keys) > 0 {
+			remaining := 1000 - len(allIncidentKeys)
+			if len(keys) > remaining {
+				keys = keys[:remaining]
+			}
 			allIncidentKeys = append(allIncidentKeys, keys...)
 		}
 	}
@@ -315,8 +324,6 @@ func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, openIncidents)
 }
-
-
 
 func (h *AIHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")

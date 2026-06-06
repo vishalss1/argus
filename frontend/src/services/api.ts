@@ -211,9 +211,9 @@ export const api = {
     getDeviceStatus: (deviceID: string) => request<DeviceStatusInfo>(`/devices/${deviceID}/status`),
     getSessionActiveIncidents: (sessionID: string) => request<ActiveIncident[]>(`/sessions/${sessionID}/active-incidents`),
     getFleetIncidents: () => request<ActiveIncident[]>("/fleet/incidents"),
-    query: (query: string) => request<ReasoningResponse>("/ai/query", {
+    query: (query: string, deviceID?: string) => request<ReasoningResponse>("/ai/query", {
       method: "POST",
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query, device_id: deviceID || undefined })
     })
   }
 };

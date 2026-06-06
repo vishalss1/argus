@@ -52,7 +52,8 @@ func (r *OTARepository) ListArtifacts(ctx context.Context) ([]ota.FirmwareArtifa
 	const query = `
 		SELECT id, version, filename, object_key, content_type, size_bytes, checksum_sha256, COALESCE(signature_alg, ''), COALESCE(signature, ''), COALESCE(signing_key_id, ''), created_at
 		FROM firmware_artifacts
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 100`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -157,7 +158,8 @@ func (r *OTARepository) ListDeployments(ctx context.Context) ([]ota.Deployment, 
 			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
 			JOIN devices d ON d.id = od.device_id
 			WHERE d.workspace_id = $1::uuid
-			ORDER BY od.created_at DESC`
+			ORDER BY od.created_at DESC
+			LIMIT 500`
 		args = append(args, wID)
 	} else {
 		query = `
@@ -165,7 +167,8 @@ func (r *OTARepository) ListDeployments(ctx context.Context) ([]ota.Deployment, 
 			FROM ota_deployments od
 			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
 			JOIN devices d ON d.id = od.device_id
-			ORDER BY od.created_at DESC`
+			ORDER BY od.created_at DESC
+			LIMIT 500`
 	}
 	return r.listDeployments(ctx, query, args...)
 }
@@ -181,7 +184,8 @@ func (r *OTARepository) ListDeploymentsByDevice(ctx context.Context, deviceID st
 			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
 			JOIN devices d ON d.id = od.device_id
 			WHERE od.device_id = $1::uuid AND d.workspace_id = $2::uuid
-			ORDER BY od.created_at DESC`
+			ORDER BY od.created_at DESC
+			LIMIT 100`
 		args = append(args, deviceID, wID)
 	} else {
 		query = `
@@ -190,7 +194,8 @@ func (r *OTARepository) ListDeploymentsByDevice(ctx context.Context, deviceID st
 			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
 			JOIN devices d ON d.id = od.device_id
 			WHERE od.device_id = $1::uuid
-			ORDER BY od.created_at DESC`
+			ORDER BY od.created_at DESC
+			LIMIT 100`
 		args = append(args, deviceID)
 	}
 	return r.listDeployments(ctx, query, args...)
@@ -429,7 +434,8 @@ func (r *OTARepository) ListDeploymentEvents(ctx context.Context, deploymentID s
 		SELECT id, deployment_id, device_id, status, progress, message, created_at
 		FROM ota_deployment_events
 		WHERE deployment_id = $1::uuid
-		ORDER BY created_at ASC, id ASC`
+		ORDER BY created_at ASC, id ASC
+		LIMIT 500`
 
 	rows, err := r.db.QueryContext(ctx, query, deploymentID)
 	if err != nil {

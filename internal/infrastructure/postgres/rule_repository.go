@@ -36,7 +36,8 @@ func (r *RuleRepository) ListRules(ctx context.Context) ([]rule.Rule, error) {
 	const query = `
 		SELECT id, name, metric, operator, threshold, enabled, created_at, updated_at
 		FROM rules
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 200`
 
 	return r.listRules(ctx, query)
 }
@@ -46,7 +47,8 @@ func (r *RuleRepository) ListEnabledRules(ctx context.Context) ([]rule.Rule, err
 		SELECT id, name, metric, operator, threshold, enabled, created_at, updated_at
 		FROM rules
 		WHERE enabled = TRUE
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT 200`
 
 	return r.listRules(ctx, query)
 }
@@ -166,13 +168,15 @@ func (r *RuleRepository) ListAlerts(ctx context.Context) ([]rule.Alert, error) {
 			FROM alerts a
 			JOIN devices d ON a.device_id = d.id
 			WHERE d.workspace_id = $1::uuid
-			ORDER BY a.created_at DESC`
+			ORDER BY a.created_at DESC
+			LIMIT 500`
 		rows, err = r.db.QueryContext(ctx, query, wID)
 	} else {
 		const query = `
 			SELECT id, rule_id, device_id, telemetry_id, metric, operator, threshold, observed_value, severity, message, created_at
 			FROM alerts
-			ORDER BY created_at DESC`
+			ORDER BY created_at DESC
+			LIMIT 500`
 		rows, err = r.db.QueryContext(ctx, query)
 	}
 
@@ -330,4 +334,3 @@ func (r *RuleRepository) CreateAlertsBatch(ctx context.Context, entities []rule.
 
 	return nil
 }
-

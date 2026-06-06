@@ -8,6 +8,7 @@ import (
 type Repository interface {
 	Create(ctx context.Context, device Device) (*Device, error)
 	List(ctx context.Context) ([]Device, error)
+	Search(ctx context.Context, terms []string, limit int) ([]Device, error)
 	GetByID(ctx context.Context, id string) (*Device, error)
 	GetByHardwareID(ctx context.Context, hardwareID string) (*Device, error)
 	Update(ctx context.Context, id string, input UpdateInput) (*Device, error)
