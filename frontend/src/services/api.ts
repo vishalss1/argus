@@ -75,6 +75,15 @@ export const api = {
         body: JSON.stringify({ name, description })
       }),
     get: (id: string) => request<Workspace>(`/workspaces/${id}`),
+    delete: (id: string) =>
+      request<void>(`/workspaces/${id}`, {
+        method: "DELETE"
+      }),
+    update: (id: string, name: string, description: string) =>
+      request<Workspace>(`/workspaces/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name, description })
+      }),
     listDevices: (workspaceID: string) =>
       request<DeviceSummary[]>(`/workspaces/${workspaceID}/devices`),
     assignDevice: (workspaceID: string, deviceID: string) =>

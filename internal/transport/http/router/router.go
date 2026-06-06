@@ -81,6 +81,8 @@ func New(
 
 			r.Route("/workspaces/{workspaceID}", func(r chi.Router) {
 				r.Get("/", workspaceHandler.Get)
+				r.Put("/", workspaceHandler.Update)
+				r.Delete("/", workspaceHandler.Delete)
 				r.Get("/devices", workspaceHandler.ListDevices)
 				r.Post("/devices", workspaceHandler.AssignDevice)
 				r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
