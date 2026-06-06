@@ -5,49 +5,26 @@ const envWebSocketURL = import.meta.env.VITE_WS_URL as string | undefined;
 export const API_BASE_URL = envBase?.replace(/\/$/, "") || "/api";
 
 export function websocketURL(path = "/api/ws") {
-  const token = localStorage.getItem("argus_access_token") || "";
-  const workspaceId = localStorage.getItem("argus_active_workspace_id") || "";
-
-  const appendParams = (urlStr: string) => {
-    try {
-      const urlObj = urlStr.startsWith("ws:") || urlStr.startsWith("wss:") 
-        ? new URL(urlStr) 
-        : new URL(urlStr, window.location.origin);
-      if (token) urlObj.searchParams.set("token", token);
-      if (workspaceId) urlObj.searchParams.set("workspace_id", workspaceId);
-      return urlStr.startsWith("ws:") || urlStr.startsWith("wss:") 
-        ? urlObj.toString() 
-        : urlObj.pathname + urlObj.search;
-    } catch {
-      return urlStr;
-    }
-  };
-
   if (envWebSocketURL) {
-    return appendParams(envWebSocketURL);
+    return envWebSocketURL;
   }
 
   if (import.meta.env.DEV && API_BASE_URL === "/api") {
-    // Use the Vite proxy for WebSockets in dev mode
-    const host = window.location.host; // e.g. localhost:5173
-    const finalUrl = `ws://${host}/api/ws`;
-    return appendParams(finalUrl);
+    const host = window.location.host;
+    return `ws://${host}/api/ws`;
   }
 
-  // Use the current page's host as the default for WebSocket connections.
-  // This ensures it works when accessing the server via IP on the local network.
   const host = typeof window !== "undefined" ? window.location.host : "localhost:8080";
   const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
 
   if (!envBase || !envBase.startsWith("http")) {
-    const finalUrl = `${protocol}//${host}${path}`;
-    return appendParams(finalUrl);
+    return `${protocol}//${host}${path}`;
   }
 
   const apiURL = new URL(API_BASE_URL);
   apiURL.protocol = apiURL.protocol === "https:" ? "wss:" : "ws:";
   apiURL.pathname = path;
-  return appendParams(apiURL.toString());
+  return apiURL.toString();
 }
 
 export class ApiError extends Error {
@@ -63,6 +40,8 @@ export class ApiError extends Error {
 interface RequestOptions extends RequestInit {
   raw?: boolean;
 }
+
+let activeRefreshPromise: Promise<{ access_token: string }> | null = null;
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
@@ -86,43 +65,46 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers
+    headers,
+    credentials: "include"
   });
 
   // Intercept 401 Unauthorized for Token Refresh
   if (response.status === 401 && path !== "/auth/login" && path !== "/auth/refresh") {
     try {
-      const refreshToken = localStorage.getItem("argus_refresh_token");
-      if (!refreshToken) {
-        throw new Error("No refresh token available");
+      if (!activeRefreshPromise) {
+        activeRefreshPromise = (async () => {
+          try {
+            const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
+              method: "POST",
+              credentials: "include"
+            });
+
+            if (!refreshResponse.ok) {
+              throw new Error("Failed to refresh token");
+            }
+
+            const tokens = await refreshResponse.json();
+            localStorage.setItem("argus_access_token", tokens.access_token);
+            return tokens;
+          } finally {
+            activeRefreshPromise = null;
+          }
+        })();
       }
 
-      const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ refresh_token: refreshToken })
-      });
-
-      if (!refreshResponse.ok) {
-        throw new Error("Failed to refresh token");
-      }
-
-      const tokens = await refreshResponse.json();
-      localStorage.setItem("argus_access_token", tokens.access_token);
-      localStorage.setItem("argus_refresh_token", tokens.refresh_token);
+      const tokens = await activeRefreshPromise;
 
       // Retry the original request with the new access token
       headers.set("Authorization", `Bearer ${tokens.access_token}`);
       response = await fetch(`${API_BASE_URL}${path}`, {
         ...options,
-        headers
+        headers,
+        credentials: "include"
       });
     } catch (err) {
       // Clear tokens and redirect to login
       localStorage.removeItem("argus_access_token");
-      localStorage.removeItem("argus_refresh_token");
       localStorage.removeItem("argus_active_workspace_id");
       
       // Only trigger redirect in browser environment

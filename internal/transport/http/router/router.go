@@ -54,6 +54,9 @@ func New(
 	apiRouter.Post("/devices/{deviceID}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 		deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
 	})
+
+	// WebSocket endpoint (authentication handled post-handshake via message)
+	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
 	apiRouter.Post("/devices/{deviceID}/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
 	})
@@ -74,7 +77,7 @@ func New(
 		r.Group(func(r chi.Router) {
 			r.Use(authmiddleware.WorkspaceAuth(authService))
 
-			r.Get("/ws", websocketHandler.ServeHTTP)
+
 			r.Get("/alerts", ruleHandler.ListAlerts)
 			r.Get("/fleet/incidents", aiHandler.ListFleetIncidents)
 

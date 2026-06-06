@@ -2,7 +2,7 @@ package router
 
 import (
 	"context"
-	"net/http"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -137,19 +137,30 @@ func TestWebSocketRouteUpgradesThroughMiddleware(t *testing.T) {
 	go hub.Run(ctx)
 
 	// Instantiate Router with real authService
-	server := httptest.NewServer(New(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, authService, transportws.NewHandler(hub)))
+	server := httptest.NewServer(New(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, authService, transportws.NewHandler(hub, authService)))
 	defer server.Close()
 
 	url := "ws" + server.URL[len("http"):] + "/ws"
-	
-	// Create request headers with auth credentials
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+accessT)
-	header.Set("X-Workspace-ID", "ws-12345")
 
-	conn, _, err := gorilla.DefaultDialer.Dial(url, header)
+	// WebSocket now uses post-handshake auth, so no headers needed
+	conn, _, err := gorilla.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
+
+	// Send auth message
+	authMsg := fmt.Sprintf(`{"type":"auth","payload":{"token":"%s","workspace_id":"ws-12345"}}`, accessT)
+	if err := conn.WriteMessage(gorilla.TextMessage, []byte(authMsg)); err != nil {
+		t.Fatalf("send auth message: %v", err)
+	}
+
+	// Read authenticated response
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read auth response: %v", err)
+	}
+	if !strings.Contains(string(msg), `"type":"authenticated"`) {
+		t.Fatalf("expected authenticated response, got: %s", msg)
+	}
 }

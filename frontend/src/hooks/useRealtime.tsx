@@ -61,13 +61,31 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       socket = new WebSocket(url);
 
       socket.onopen = () => {
-        retryRef.current = 0;
-        setStatus("connected");
+        // Send auth message immediately after connection opens
+        const token = localStorage.getItem("argus_access_token") || "";
+        const workspaceId = localStorage.getItem("argus_active_workspace_id") || "";
+        socket?.send(JSON.stringify({
+          type: "auth",
+          payload: { token, workspace_id: workspaceId }
+        }));
       };
 
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as RealtimeMessage;
+
+          // Handle authentication response
+          if ((message as any).type === "authenticated") {
+            retryRef.current = 0;
+            setStatus("connected");
+            return;
+          }
+
+          if ((message as any).type === "error") {
+            // Auth failed, close and retry
+            socket?.close();
+            return;
+          }
           
           if (message.type === "device_update") {
             const device = withEffectiveDeviceStatus(message.payload as Device);
