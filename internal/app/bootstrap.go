@@ -399,7 +399,7 @@ func Bootstrap() (*Server, error) {
 
 	workspaceRepository := postgres.NewWorkspaceRepository(database)
 	workspaceService := workspace.NewService(workspaceRepository, redisClient)
-	workspaceHandler := transporthandler.NewWorkspaceHandler(workspaceService)
+	workspaceHandler := transporthandler.NewWorkspaceHandler(workspaceService, userRepo)
 
 	usageRepository := postgres.NewUsageRepository(database)
 	usageService := usage.NewService(usageRepository)

@@ -5,15 +5,20 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/workspace"
 )
 
 type WorkspaceHandler struct {
-	service *workspace.Service
+	service  *workspace.Service
+	userRepo auth.UserRepository
 }
 
-func NewWorkspaceHandler(service *workspace.Service) *WorkspaceHandler {
-	return &WorkspaceHandler{service: service}
+func NewWorkspaceHandler(service *workspace.Service, userRepo auth.UserRepository) *WorkspaceHandler {
+	return &WorkspaceHandler{
+		service:  service,
+		userRepo: userRepo,
+	}
 }
 
 func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -30,6 +35,17 @@ func (h *WorkspaceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// Associate the creator user with the new workspace
+	userID, ok := auth.GetUserID(r.Context())
+	if ok && h.userRepo != nil {
+		if err := h.userRepo.AddWorkspaceMember(r.Context(), ws.ID, userID); err != nil {
+			// Clean up the created workspace if membership linking fails
+			_ = h.service.Delete(r.Context(), ws.ID)
+			writeError(w, http.StatusInternalServerError, "failed to assign workspace membership: "+err.Error())
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, ws)
@@ -93,4 +109,35 @@ func (h *WorkspaceHandler) ListDevices(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, devices)
 }
+
+func (h *WorkspaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "workspaceID")
+	if err := h.service.Delete(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *WorkspaceHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "workspaceID")
+	var input struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid input")
+		return
+	}
+
+	ws, err := h.service.Update(r.Context(), id, input.Name, input.Description)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ws)
+}
+
+
 

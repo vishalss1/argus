@@ -1,9 +1,11 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Briefcase, Play, Search, FolderOpen, Cpu, Trash2 } from "lucide-react";
+import { Plus, Briefcase, Play, Search, FolderOpen, Cpu, Trash2, Edit2 } from "lucide-react";
 import { 
   useWorkspaces, 
   useCreateWorkspace, 
+  useDeleteWorkspace,
+  useUpdateWorkspace,
   useSessions, 
   useCreateSession, 
   useStartSession,
@@ -12,6 +14,7 @@ import {
   useAssignDevice,
   useUnassignDevice
 } from "../hooks/useArgusData";
+import { useAuth } from "../context/AuthContext";
 import { PageHeader, Panel, EmptyState, Modal } from "../components/ui";
 
 export function WorkspacesPage() {
@@ -23,13 +26,53 @@ export function WorkspacesPage() {
   const [newDesc, setNewDesc] = useState("");
   const createWorkspace = useCreateWorkspace();
 
+  const deleteWorkspace = useDeleteWorkspace();
+  const { refreshMe } = useAuth();
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editId, setEditId] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const updateWorkspace = useUpdateWorkspace();
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editId || !editName) return;
+    try {
+      await updateWorkspace.mutateAsync({ id: editId, name: editName, description: editDesc });
+      await refreshMe();
+      setShowEditModal(false);
+      setEditId("");
+      setEditName("");
+      setEditDesc("");
+    } catch (err: any) {
+      alert(err.message || "Failed to update workspace");
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName) return;
     await createWorkspace.mutateAsync({ name: newName, description: newDesc });
+    await refreshMe();
     setShowCreateModal(false);
     setNewName("");
     setNewDesc("");
+  };
+
+  const handleDeleteWorkspace = async () => {
+    if (!workspaceToDelete) return;
+    try {
+      await deleteWorkspace.mutateAsync(workspaceToDelete.id);
+      await refreshMe();
+      if (selectedWorkspace === workspaceToDelete.id) {
+        setSelectedWorkspace(null);
+      }
+      setWorkspaceToDelete(null);
+    } catch (err: any) {
+      alert(err.message || "Failed to delete workspace");
+    }
   };
 
   return (
@@ -62,16 +105,65 @@ export function WorkspacesPage() {
                   <Briefcase size={20} style={{ color: "var(--accent)" }} />
                   <h3 style={{ margin: 0 }}>{ws.name}</h3>
                 </div>
-                <span className="mono" style={{ 
-                  fontSize: "11px", 
-                  padding: "2px 8px", 
-                  background: "rgba(255,255,255,0.05)", 
-                  border: "1px solid var(--line)", 
-                  borderRadius: "12px", 
-                  color: "var(--faint)" 
-                }}>
-                  {ws.device_count ?? 0} {ws.device_count === 1 ? "device" : "devices"}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
+                  <span className="mono" style={{ 
+                    fontSize: "11px", 
+                    padding: "2px 8px", 
+                    background: "rgba(255,255,255,0.05)", 
+                    border: "1px solid var(--line)", 
+                    borderRadius: "12px", 
+                    color: "var(--faint)" 
+                  }}>
+                    {ws.device_count ?? 0} {ws.device_count === 1 ? "device" : "devices"}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setEditId(ws.id);
+                      setEditName(ws.name);
+                      setEditDesc(ws.description || "");
+                      setShowEditModal(true);
+                    }}
+                    style={{
+                      padding: "4px 6px",
+                      minHeight: "auto",
+                      background: "rgba(255, 255, 255, 0.05)",
+                      border: "1px solid var(--line)",
+                      color: "var(--text)",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "background 0.2s"
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"}
+                    title="Edit Workspace"
+                  >
+                    <Edit2 size={13} />
+                  </button>
+                  <button
+                    onClick={() => setWorkspaceToDelete({ id: ws.id, name: ws.name })}
+                    style={{
+                      padding: "4px 6px",
+                      minHeight: "auto",
+                      background: "rgba(239, 68, 68, 0.1)",
+                      border: "1px solid rgba(239, 68, 68, 0.2)",
+                      color: "var(--danger)",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "background 0.2s"
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.2)"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"}
+                    title="Delete Workspace"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
               <p className="muted" style={{ margin: 0, fontSize: "14px" }}>{ws.description || "No description provided."}</p>
               <div className="mono muted" style={{ fontSize: "11px", marginTop: "12px" }}>ID: {ws.id}</div>
@@ -108,9 +200,46 @@ export function WorkspacesPage() {
           </div>
         </form>
       </Modal>
+
+      <Modal isOpen={Boolean(workspaceToDelete)} onClose={() => setWorkspaceToDelete(null)} title="Delete Workspace">
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <p style={{ fontSize: "14px", margin: 0, lineHeight: 1.5 }}>
+            Are you sure you want to delete workspace <strong>{workspaceToDelete?.name}</strong>?
+          </p>
+          <p className="muted" style={{ fontSize: "13px", margin: 0, lineHeight: 1.5 }}>
+            This action is irreversible. All associated sessions and historical telemetry logs will be permanently deleted. Assigned devices will be unassigned.
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+            <button type="button" className="button secondary" onClick={() => setWorkspaceToDelete(null)}>Cancel</button>
+            <button type="button" className="button danger" onClick={handleDeleteWorkspace} disabled={deleteWorkspace.isPending}>
+              {deleteWorkspace.isPending ? "Deleting..." : "Delete Workspace"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Update Workspace">
+        <form onSubmit={handleUpdate} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <div className="form-group">
+            <label>Name</label>
+            <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required autoFocus />
+          </div>
+          <div className="form-group">
+            <label>Description</label>
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Optional description..." rows={3} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+            <button type="button" className="button secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+            <button type="submit" className="button primary" disabled={updateWorkspace.isPending}>
+              {updateWorkspace.isPending ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }
+
 
 function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
   const [activeTab, setActiveTab] = useState<"sessions" | "devices">("sessions");
