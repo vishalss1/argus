@@ -178,9 +178,27 @@ export const api = {
   },
 
   ai: {
-    listEvents: () => request<SemanticEvent[]>("/ai/events"),
-    listDeviceEvents: (deviceID: string) => request<SemanticEvent[]>(`/devices/${deviceID}/ai/events`),
-    getDeviceHistory: (deviceID: string) => request<OperationalMemory[]>(`/devices/${deviceID}/ai/history`),
+    listEvents: (limit?: number, offset?: number) => {
+      const q = new URLSearchParams();
+      if (limit !== undefined) q.append("limit", String(limit));
+      if (offset !== undefined) q.append("offset", String(offset));
+      const qs = q.toString();
+      return request<SemanticEvent[]>(`/ai/events${qs ? "?" + qs : ""}`);
+    },
+    listDeviceEvents: (deviceID: string, limit?: number, offset?: number) => {
+      const q = new URLSearchParams();
+      if (limit !== undefined) q.append("limit", String(limit));
+      if (offset !== undefined) q.append("offset", String(offset));
+      const qs = q.toString();
+      return request<SemanticEvent[]>(`/devices/${deviceID}/ai/events${qs ? "?" + qs : ""}`);
+    },
+    getDeviceHistory: (deviceID: string, limit?: number, offset?: number) => {
+      const q = new URLSearchParams();
+      if (limit !== undefined) q.append("limit", String(limit));
+      if (offset !== undefined) q.append("offset", String(offset));
+      const qs = q.toString();
+      return request<OperationalMemory[]>(`/devices/${deviceID}/ai/history${qs ? "?" + qs : ""}`);
+    },
     getDeviceStatus: (deviceID: string) => request<DeviceStatusInfo>(`/devices/${deviceID}/status`),
     getSessionActiveIncidents: (sessionID: string) => request<ActiveIncident[]>(`/sessions/${sessionID}/active-incidents`),
     getFleetIncidents: () => request<ActiveIncident[]>("/fleet/incidents"),
