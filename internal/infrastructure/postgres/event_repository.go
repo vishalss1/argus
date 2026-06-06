@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/event"
 	"github.com/vishalss1/argus/internal/infrastructure/ai"
 )
@@ -44,14 +45,28 @@ func (r *EventRepository) Create(ctx context.Context, ev event.Event) (*event.Ev
 }
 
 func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event, error) {
-	query := `
-		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
-		FROM events
-		WHERE id = $1
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT e.id, e.device_id, e.type, e.severity, e.title, e.summary, e.source, e.confidence_score, e.metadata, e.created_at
+			FROM events e
+			JOIN devices d ON e.device_id = d.id
+			WHERE e.id = $1 AND d.workspace_id = $2::uuid
+		`
+		row = r.db.QueryRowContext(ctx, query, id, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
+			FROM events
+			WHERE id = $1
+		`
+		row = r.db.QueryRowContext(ctx, query, id)
+	}
 
 	var ev event.Event
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	err := row.Scan(
 		&ev.ID, &ev.DeviceID, &ev.Type, &ev.Severity, &ev.Title, &ev.Summary, &ev.Source, &ev.ConfidenceScore, &ev.Metadata, &ev.CreatedAt,
 	)
 
@@ -66,14 +81,30 @@ func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event,
 }
 
 func (r *EventRepository) List(ctx context.Context, limit, offset int) ([]event.Event, error) {
-	query := `
-		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
-		FROM events
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`
+	var query string
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT e.id, e.device_id, e.type, e.severity, e.title, e.summary, e.source, e.confidence_score, e.metadata, e.created_at
+			FROM events e
+			JOIN devices d ON e.device_id = d.id
+			WHERE d.workspace_id = $3::uuid
+			ORDER BY e.created_at DESC
+			LIMIT $1 OFFSET $2
+		`
+		rows, err = r.db.QueryContext(ctx, query, limit, offset, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
+			FROM events
+			ORDER BY created_at DESC
+			LIMIT $1 OFFSET $2
+		`
+		rows, err = r.db.QueryContext(ctx, query, limit, offset)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
@@ -94,15 +125,31 @@ func (r *EventRepository) List(ctx context.Context, limit, offset int) ([]event.
 }
 
 func (r *EventRepository) ListByDevice(ctx context.Context, deviceID string, limit, offset int) ([]event.Event, error) {
-	query := `
-		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
-		FROM events
-		WHERE device_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`
+	var query string
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query, deviceID, limit, offset)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT e.id, e.device_id, e.type, e.severity, e.title, e.summary, e.source, e.confidence_score, e.metadata, e.created_at
+			FROM events e
+			JOIN devices d ON e.device_id = d.id
+			WHERE e.device_id = $1 AND d.workspace_id = $4::uuid
+			ORDER BY e.created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, deviceID, limit, offset, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
+			FROM events
+			WHERE device_id = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, deviceID, limit, offset)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list events by device: %w", err)
 	}
@@ -123,15 +170,31 @@ func (r *EventRepository) ListByDevice(ctx context.Context, deviceID string, lim
 }
 
 func (r *EventRepository) ListByType(ctx context.Context, eventType string, limit, offset int) ([]event.Event, error) {
-	query := `
-		SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
-		FROM events
-		WHERE type = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`
+	var query string
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query, eventType, limit, offset)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT e.id, e.device_id, e.type, e.severity, e.title, e.summary, e.source, e.confidence_score, e.metadata, e.created_at
+			FROM events e
+			JOIN devices d ON e.device_id = d.id
+			WHERE e.type = $1 AND d.workspace_id = $4::uuid
+			ORDER BY e.created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, eventType, limit, offset, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at
+			FROM events
+			WHERE type = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, eventType, limit, offset)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list events by type: %w", err)
 	}

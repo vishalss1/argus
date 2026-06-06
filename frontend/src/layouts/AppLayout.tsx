@@ -18,11 +18,13 @@ import {
   Workflow,
   ArrowRight,
   Plus,
-  RefreshCw
+  RefreshCw,
+  LogOut
 } from "lucide-react";
 import { LiveIndicator, SearchBar } from "../components/ui";
 import { useHealth, useCreateWorkspace } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
+import { useAuth } from "../context/AuthContext";
 
 const monitorLinks = [
   { to: "/workspaces", label: "Workspaces", icon: Briefcase },
@@ -68,11 +70,13 @@ function WorkspaceOnboarding() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const createWorkspace = useCreateWorkspace();
+  const { refreshMe } = useAuth();
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     await createWorkspace.mutateAsync({ name: name.trim(), description: description.trim() });
+    await refreshMe();
     setName("");
     setDescription("");
   };
@@ -187,8 +191,18 @@ function WorkspaceOnboarding() {
 export function AppLayout() {
   const health = useHealth();
   const { selectedWorkspaceId, setSelectedWorkspaceId, workspaces } = useWorkspaceContext();
+  const { logout, user } = useAuth();
 
   const hasWorkspaces = workspaces.length > 0;
+
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "?";
 
   return (
     <div className="app-shell">
@@ -203,42 +217,77 @@ export function AppLayout() {
           </span>
         </NavLink>
 
-        {hasWorkspaces && (
-          <div className="workspace-selector-nav" style={{ padding: "0 16px 16px", borderBottom: "1px solid var(--line)", marginBottom: "16px" }}>
-            <label style={{ display: "block", fontSize: "10px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px", letterSpacing: "0.5px" }}>
-              Active Workspace
-            </label>
-            <div style={{ position: "relative" }}>
-              <select
-                value={selectedWorkspaceId}
-                onChange={(e) => setSelectedWorkspaceId(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "8px 28px 8px 12px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "6px",
-                  color: "var(--text)",
-                  fontSize: "13px",
-                  outline: "none",
-                  appearance: "none",
-                  cursor: "pointer",
-                  fontWeight: 500
-                }}
-              >
-                {workspaces.map(ws => (
-                  <option key={ws.id} value={ws.id}>{ws.name}</option>
-                ))}
-              </select>
-              <Briefcase size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--faint)", pointerEvents: "none" }} />
+        {/* Scrollable Navigation links */}
+        <div style={{ flex: 1, overflowY: "auto", paddingBottom: "16px" }}>
+          {hasWorkspaces && (
+            <div className="workspace-selector-nav" style={{ padding: "16px", borderBottom: "1px solid var(--line)", marginBottom: "16px" }}>
+              <label style={{ display: "block", fontSize: "10px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px", letterSpacing: "0.5px" }}>
+                Active Workspace
+              </label>
+              <div style={{ position: "relative" }}>
+                <select
+                  value={selectedWorkspaceId}
+                  onChange={(e) => setSelectedWorkspaceId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 28px 8px 12px",
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "6px",
+                    color: "var(--text)",
+                    fontSize: "13px",
+                    outline: "none",
+                    appearance: "none",
+                    cursor: "pointer",
+                    fontWeight: 500
+                  }}
+                >
+                  {workspaces.map(ws => (
+                    <option key={ws.id} value={ws.id}>{ws.name}</option>
+                  ))}
+                </select>
+                <Briefcase size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--faint)", pointerEvents: "none" }} />
+              </div>
+            </div>
+          )}
+
+          <NavGroup label="Monitor" links={monitorLinks} />
+          <NavGroup label="Control" links={controlLinks} />
+          <NavGroup label="Observe" links={observeLinks} />
+          <NavGroup label="" links={bottomLinks} />
+        </div>
+
+        {/* Fixed Footer with Operator Card & Logout */}
+        <div style={{ borderTop: "1px solid var(--line)", background: "#101318", padding: "14px 14px 16px" }}>
+          <div className="operator-card" style={{ margin: "0 0 12px" }}>
+            <div className="operator-avatar">{initials}</div>
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+              <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "13px", fontWeight: 600 }}>{user?.name || "Operator"}</strong>
+              <small style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--faint)", fontSize: "11px", marginTop: "2px" }}>{user?.email || "No email"}</small>
             </div>
           </div>
-        )}
-
-        <NavGroup label="Monitor" links={monitorLinks} />
-        <NavGroup label="Control" links={controlLinks} />
-        <NavGroup label="Observe" links={observeLinks} />
-        <NavGroup label="" links={bottomLinks} />
+          <button
+            onClick={logout}
+            style={{
+              width: "100%",
+              padding: "10px",
+              fontSize: "13px",
+              fontWeight: 600,
+              background: "rgba(239, 68, 68, 0.1)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              borderRadius: "6px",
+              color: "#f87171",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px"
+            }}
+          >
+            <LogOut size={14} />
+            Logout
+          </button>
+        </div>
       </aside>
       <div className="app-main">
         <header className="app-topbar">

@@ -397,7 +397,7 @@ button:active:not(:disabled) {
   background: var(--surface-2);
 }
 
-.operator-card div {
+.operator-card .operator-avatar {
   display: grid;
   width: 34px;
   height: 34px;
@@ -406,6 +406,7 @@ button:active:not(:disabled) {
   background: var(--surface-3);
   color: var(--muted);
   font-size: 12px;
+  font-weight: 600;
 }
 
 .operator-card strong,

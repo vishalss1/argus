@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode, useMemo } from "react";
-import { useWorkspaces, useDevices } from "../hooks/useArgusData";
+import { useDevices } from "../hooks/useArgusData";
 import type { Workspace, Device } from "../types/api";
+import { useAuth } from "./AuthContext";
 
 interface WorkspaceContextType {
   selectedWorkspaceId: string;
@@ -14,53 +15,39 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const workspacesQuery = useWorkspaces();
-  const devicesQuery = useDevices();
+  const { workspaces: authWorkspaces, isAuthenticated, activeWorkspaceId: authActiveId, setActiveWorkspaceId: authSetActiveId } = useAuth();
+  
+  // Fetch devices only when authenticated and an active workspace is selected
+  const devicesQuery = useDevices({ enabled: isAuthenticated && Boolean(authActiveId) });
 
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => {
-    return localStorage.getItem("argus_active_workspace_id") || "";
-  });
-
-  const workspaces = workspacesQuery.data ?? [];
-
-  // Automatically select first workspace if none is selected or selected one no longer exists
-  useEffect(() => {
-    if (workspaces.length > 0) {
-      const exists = workspaces.some(w => w.id === selectedWorkspaceId);
-      if (!selectedWorkspaceId || !exists) {
-        const firstId = workspaces[0].id;
-        setSelectedWorkspaceId(firstId);
-        localStorage.setItem("argus_active_workspace_id", firstId);
-      }
-    } else if (selectedWorkspaceId) {
-      // Clear if empty
-      setSelectedWorkspaceId("");
-      localStorage.removeItem("argus_active_workspace_id");
-    }
-  }, [workspaces, selectedWorkspaceId]);
+  // Map Auth context workspaces to Workspace list
+  const workspaces = useMemo<Workspace[]>(() => {
+    return (authWorkspaces || []).map(w => ({
+      id: w.id,
+      name: w.name,
+      description: "",
+      created_at: "",
+      device_count: 0
+    }));
+  }, [authWorkspaces]);
 
   const activeWorkspace = useMemo(() => {
-    return workspaces.find(w => w.id === selectedWorkspaceId) || null;
-  }, [workspaces, selectedWorkspaceId]);
+    return (workspaces || []).find(w => w.id === authActiveId) || null;
+  }, [workspaces, authActiveId]);
 
   const workspaceDevices = useMemo(() => {
-    if (!selectedWorkspaceId || !devicesQuery.data) return [];
-    return devicesQuery.data.filter(d => d.workspace_id === selectedWorkspaceId);
-  }, [selectedWorkspaceId, devicesQuery.data]);
-
-  const handleSetWorkspaceId = (id: string) => {
-    setSelectedWorkspaceId(id);
-    localStorage.setItem("argus_active_workspace_id", id);
-  };
+    if (!authActiveId || !devicesQuery.data) return [];
+    return devicesQuery.data.filter(d => d.workspace_id === authActiveId);
+  }, [authActiveId, devicesQuery.data]);
 
   return (
     <WorkspaceContext.Provider value={{
-      selectedWorkspaceId,
-      setSelectedWorkspaceId: handleSetWorkspaceId,
+      selectedWorkspaceId: authActiveId,
+      setSelectedWorkspaceId: authSetActiveId,
       workspaces,
       activeWorkspace,
       workspaceDevices,
-      isLoading: workspacesQuery.isLoading || devicesQuery.isLoading
+      isLoading: devicesQuery.isLoading
     }}>
       {children}
     </WorkspaceContext.Provider>

@@ -176,11 +176,12 @@ export function useFleetIncidents() {
   });
 }
 
-export function useDevices({ realtime = false }: { realtime?: boolean } = {}) {
+export function useDevices({ realtime = false, enabled = true }: { realtime?: boolean; enabled?: boolean } = {}) {
   void realtime;
   return useQuery({
     queryKey: queryKeys.devices,
     queryFn: api.devices.list,
+    enabled,
     refetchInterval: false,
     select: (devices) => {
       const now = Date.now();

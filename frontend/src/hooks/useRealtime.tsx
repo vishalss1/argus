@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useContext, useEffect, useRef, useState 
 import { useQueryClient } from "@tanstack/react-query";
 import { withEffectiveDeviceStatus } from "../lib/format";
 import { websocketURL } from "../services/http";
+import { useAuth } from "../context/AuthContext";
 import type { Deployment, Device, Telemetry } from "../types/api";
 import { queryKeys } from "./useArgusData";
 
@@ -29,11 +30,17 @@ const RealtimeContext = createContext<RealtimeContextValue>({
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<RealtimeStatus>("connecting");
+  const { isAuthenticated, activeWorkspaceId } = useAuth();
+  const [status, setStatus] = useState<RealtimeStatus>("disconnected");
   const [telemetryByDevice, setTelemetryByDevice] = useState<Record<string, Telemetry[]>>({});
   const retryRef = useRef(0);
 
   useEffect(() => {
+    if (!isAuthenticated || !activeWorkspaceId) {
+      setStatus("disconnected");
+      return;
+    }
+
     let closed = false;
     let socket: WebSocket | null = null;
     let initialTimer: number | undefined;
@@ -140,7 +147,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         socket.close();
       }
     };
-  }, [queryClient]);
+  }, [queryClient, isAuthenticated, activeWorkspaceId]);
 
   return (
     <RealtimeContext.Provider value={{ status, telemetryByDevice }}>

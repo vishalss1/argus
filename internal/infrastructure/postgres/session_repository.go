@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/session"
 )
 
@@ -40,12 +41,25 @@ func (r *SessionRepository) Create(ctx context.Context, s session.Session) (*ses
 }
 
 func (r *SessionRepository) Get(ctx context.Context, id string) (*session.Session, error) {
-	query := `
-		SELECT id, workspace_id, status, started_at, ended_at, created_by, created_at
-		FROM workspace_sessions WHERE id = $1
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT id, workspace_id, status, started_at, ended_at, created_by, created_at
+			FROM workspace_sessions WHERE id = $1 AND workspace_id = $2
+		`
+		row = r.db.QueryRowContext(ctx, query, id, wID)
+	} else {
+		query = `
+			SELECT id, workspace_id, status, started_at, ended_at, created_by, created_at
+			FROM workspace_sessions WHERE id = $1
+		`
+		row = r.db.QueryRowContext(ctx, query, id)
+	}
+
 	var s session.Session
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	err := row.Scan(
 		&s.ID, &s.WorkspaceID, &s.Status, &s.StartedAt, &s.EndedAt, &s.CreatedBy, &s.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -109,14 +123,29 @@ func (r *SessionRepository) ListAllRunning(ctx context.Context) ([]session.Sessi
 }
 
 func (r *SessionRepository) UpdateStatus(ctx context.Context, id string, status session.Status, startedAt *time.Time, endedAt *time.Time) (*session.Session, error) {
-	query := `
-		UPDATE workspace_sessions
-		SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
-		WHERE id = $4
-		RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			UPDATE workspace_sessions
+			SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
+			WHERE id = $4 AND workspace_id = $5
+			RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
+		`
+		row = r.db.QueryRowContext(ctx, query, status, startedAt, endedAt, id, wID)
+	} else {
+		query = `
+			UPDATE workspace_sessions
+			SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
+			WHERE id = $4
+			RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
+		`
+		row = r.db.QueryRowContext(ctx, query, status, startedAt, endedAt, id)
+	}
+
 	var s session.Session
-	err := r.db.QueryRowContext(ctx, query, status, startedAt, endedAt, id).Scan(
+	err := row.Scan(
 		&s.ID, &s.WorkspaceID, &s.Status, &s.StartedAt, &s.EndedAt, &s.CreatedBy, &s.CreatedAt,
 	)
 	if err != nil {
@@ -126,14 +155,29 @@ func (r *SessionRepository) UpdateStatus(ctx context.Context, id string, status 
 }
 
 func (r *SessionRepository) TransitionStatus(ctx context.Context, id string, fromStatus session.Status, toStatus session.Status, startedAt *time.Time, endedAt *time.Time) (*session.Session, error) {
-	query := `
-		UPDATE workspace_sessions
-		SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
-		WHERE id = $4 AND status = $5
-		RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			UPDATE workspace_sessions
+			SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
+			WHERE id = $4 AND status = $5 AND workspace_id = $6
+			RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
+		`
+		row = r.db.QueryRowContext(ctx, query, toStatus, startedAt, endedAt, id, fromStatus, wID)
+	} else {
+		query = `
+			UPDATE workspace_sessions
+			SET status = $1, started_at = COALESCE($2, started_at), ended_at = COALESCE($3, ended_at)
+			WHERE id = $4 AND status = $5
+			RETURNING id, workspace_id, status, started_at, ended_at, created_by, created_at
+		`
+		row = r.db.QueryRowContext(ctx, query, toStatus, startedAt, endedAt, id, fromStatus)
+	}
+
 	var s session.Session
-	err := r.db.QueryRowContext(ctx, query, toStatus, startedAt, endedAt, id, fromStatus).Scan(
+	err := row.Scan(
 		&s.ID, &s.WorkspaceID, &s.Status, &s.StartedAt, &s.EndedAt, &s.CreatedBy, &s.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -250,14 +294,31 @@ func (r *SessionRepository) UpsertStatistics(ctx context.Context, s session.Stat
 }
 
 func (r *SessionRepository) GetStatistics(ctx context.Context, sessionID string) (*session.Statistics, error) {
-	query := `
-		SELECT session_id, duration_seconds, messages_processed, alerts_count, critical_events, uptime_percentage, average_latency_ms,
-		       average_battery, minimum_battery, maximum_battery, average_temperature, minimum_temperature, maximum_temperature,
-		       distance_travelled, device_participation_count, command_count, anomaly_count, updated_at
-		FROM session_statistics WHERE session_id = $1
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT s.session_id, s.duration_seconds, s.messages_processed, s.alerts_count, s.critical_events, s.uptime_percentage, s.average_latency_ms,
+			       s.average_battery, s.minimum_battery, s.maximum_battery, s.average_temperature, s.minimum_temperature, s.maximum_temperature,
+			       s.distance_travelled, s.device_participation_count, s.command_count, s.anomaly_count, s.updated_at
+			FROM session_statistics s
+			JOIN workspace_sessions ws ON s.session_id = ws.id
+			WHERE s.session_id = $1 AND ws.workspace_id = $2
+		`
+		row = r.db.QueryRowContext(ctx, query, sessionID, wID)
+	} else {
+		query = `
+			SELECT session_id, duration_seconds, messages_processed, alerts_count, critical_events, uptime_percentage, average_latency_ms,
+			       average_battery, minimum_battery, maximum_battery, average_temperature, minimum_temperature, maximum_temperature,
+			       distance_travelled, device_participation_count, command_count, anomaly_count, updated_at
+			FROM session_statistics WHERE session_id = $1
+		`
+		row = r.db.QueryRowContext(ctx, query, sessionID)
+	}
+
 	var s session.Statistics
-	err := r.db.QueryRowContext(ctx, query, sessionID).Scan(
+	err := row.Scan(
 		&s.SessionID, &s.DurationSeconds, &s.MessagesProcessed, &s.AlertsCount, &s.CriticalEvents, &s.UptimePercentage, &s.AvgLatencyMS,
 		&s.AvgBattery, &s.MinBattery, &s.MaxBattery, &s.AvgTemperature, &s.MinTemperature, &s.MaxTemperature,
 		&s.DistanceTravelled, &s.DeviceParticipationCount, &s.CommandCount, &s.AnomalyCount, &s.UpdatedAt,
@@ -273,8 +334,17 @@ func (r *SessionRepository) GetStatistics(ctx context.Context, sessionID string)
 
 
 func (r *SessionRepository) Delete(ctx context.Context, id string) error {
-	query := `DELETE FROM workspace_sessions WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
+	var query string
+	var err error
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `DELETE FROM workspace_sessions WHERE id = $1 AND workspace_id = $2`
+		_, err = r.db.ExecContext(ctx, query, id, wID)
+	} else {
+		query = `DELETE FROM workspace_sessions WHERE id = $1`
+		_, err = r.db.ExecContext(ctx, query, id)
+	}
+
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
@@ -312,9 +382,19 @@ func (r *SessionRepository) CreateArtifact(ctx context.Context, a session.Artifa
 }
 
 func (r *SessionRepository) GetArtifactBySession(ctx context.Context, sessionID string) (*session.Artifact, error) {
-	query := `SELECT session_id, workspace_id, generated_at, report_version, artifact_json FROM session_artifacts WHERE session_id = $1`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `SELECT session_id, workspace_id, generated_at, report_version, artifact_json FROM session_artifacts WHERE session_id = $1 AND workspace_id = $2`
+		row = r.db.QueryRowContext(ctx, query, sessionID, wID)
+	} else {
+		query = `SELECT session_id, workspace_id, generated_at, report_version, artifact_json FROM session_artifacts WHERE session_id = $1`
+		row = r.db.QueryRowContext(ctx, query, sessionID)
+	}
+
 	var a session.Artifact
-	err := r.db.QueryRowContext(ctx, query, sessionID).Scan(&a.SessionID, &a.WorkspaceID, &a.GeneratedAt, &a.ReportVersion, &a.ArtifactJSON)
+	err := row.Scan(&a.SessionID, &a.WorkspaceID, &a.GeneratedAt, &a.ReportVersion, &a.ArtifactJSON)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

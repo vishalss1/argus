@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vishalss1/argus/internal/domain/auth"
 	ctxdomain "github.com/vishalss1/argus/internal/domain/context"
 )
 
@@ -41,14 +42,28 @@ func (r *ContextRepository) Create(ctx context.Context, mem ctxdomain.Operationa
 }
 
 func (r *ContextRepository) GetByID(ctx context.Context, id string) (*ctxdomain.OperationalMemory, error) {
-	query := `
-		SELECT id, device_id, type, summary, data, timestamp, created_at
-		FROM operational_memory
-		WHERE id = $1
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT om.id, om.device_id, om.type, om.summary, om.data, om.timestamp, om.created_at
+			FROM operational_memory om
+			JOIN devices d ON om.device_id = d.id
+			WHERE om.id = $1 AND d.workspace_id = $2::uuid
+		`
+		row = r.db.QueryRowContext(ctx, query, id, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, summary, data, timestamp, created_at
+			FROM operational_memory
+			WHERE id = $1
+		`
+		row = r.db.QueryRowContext(ctx, query, id)
+	}
 
 	var mem ctxdomain.OperationalMemory
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	err := row.Scan(
 		&mem.ID, &mem.DeviceID, &mem.Type, &mem.Summary, &mem.Data, &mem.Timestamp, &mem.CreatedAt,
 	)
 
@@ -63,15 +78,31 @@ func (r *ContextRepository) GetByID(ctx context.Context, id string) (*ctxdomain.
 }
 
 func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string, limit, offset int) ([]ctxdomain.OperationalMemory, error) {
-	query := `
-		SELECT id, device_id, type, summary, data, timestamp, created_at
-		FROM operational_memory
-		WHERE device_id = $1
-		ORDER BY timestamp DESC
-		LIMIT $2 OFFSET $3
-	`
+	var query string
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query, deviceID, limit, offset)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT om.id, om.device_id, om.type, om.summary, om.data, om.timestamp, om.created_at
+			FROM operational_memory om
+			JOIN devices d ON om.device_id = d.id
+			WHERE om.device_id = $1 AND d.workspace_id = $4::uuid
+			ORDER BY om.timestamp DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, deviceID, limit, offset, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, summary, data, timestamp, created_at
+			FROM operational_memory
+			WHERE device_id = $1
+			ORDER BY timestamp DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, deviceID, limit, offset)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list operational memory by device: %w", err)
 	}
@@ -92,15 +123,31 @@ func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string, l
 }
 
 func (r *ContextRepository) ListByType(ctx context.Context, memoryType ctxdomain.MemoryType, limit, offset int) ([]ctxdomain.OperationalMemory, error) {
-	query := `
-		SELECT id, device_id, type, summary, data, timestamp, created_at
-		FROM operational_memory
-		WHERE type = $1
-		ORDER BY timestamp DESC
-		LIMIT $2 OFFSET $3
-	`
+	var query string
+	var rows *sql.Rows
+	var err error
 
-	rows, err := r.db.QueryContext(ctx, query, memoryType, limit, offset)
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT om.id, om.device_id, om.type, om.summary, om.data, om.timestamp, om.created_at
+			FROM operational_memory om
+			JOIN devices d ON om.device_id = d.id
+			WHERE om.type = $1 AND d.workspace_id = $4::uuid
+			ORDER BY om.timestamp DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, memoryType, limit, offset, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, summary, data, timestamp, created_at
+			FROM operational_memory
+			WHERE type = $1
+			ORDER BY timestamp DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = r.db.QueryContext(ctx, query, memoryType, limit, offset)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("list operational memory by type: %w", err)
 	}
@@ -134,16 +181,32 @@ func (r *ContextRepository) Prune(ctx context.Context, olderThan time.Time) (int
 }
 
 func (r *ContextRepository) GetLatestByDevice(ctx context.Context, deviceID string, memoryType ctxdomain.MemoryType) (*ctxdomain.OperationalMemory, error) {
-	query := `
-		SELECT id, device_id, type, summary, data, timestamp, created_at
-		FROM operational_memory
-		WHERE device_id = $1 AND type = $2
-		ORDER BY timestamp DESC
-		LIMIT 1
-	`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT om.id, om.device_id, om.type, om.summary, om.data, om.timestamp, om.created_at
+			FROM operational_memory om
+			JOIN devices d ON om.device_id = d.id
+			WHERE om.device_id = $1 AND om.type = $2 AND d.workspace_id = $3::uuid
+			ORDER BY om.timestamp DESC
+			LIMIT 1
+		`
+		row = r.db.QueryRowContext(ctx, query, deviceID, memoryType, wID)
+	} else {
+		query = `
+			SELECT id, device_id, type, summary, data, timestamp, created_at
+			FROM operational_memory
+			WHERE device_id = $1 AND type = $2
+			ORDER BY timestamp DESC
+			LIMIT 1
+		`
+		row = r.db.QueryRowContext(ctx, query, deviceID, memoryType)
+	}
 
 	var mem ctxdomain.OperationalMemory
-	err := r.db.QueryRowContext(ctx, query, deviceID, memoryType).Scan(
+	err := row.Scan(
 		&mem.ID, &mem.DeviceID, &mem.Type, &mem.Summary, &mem.Data, &mem.Timestamp, &mem.CreatedAt,
 	)
 

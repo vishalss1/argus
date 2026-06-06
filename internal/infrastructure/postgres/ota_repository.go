@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/vishalss1/argus/internal/domain/auth"
 	"github.com/vishalss1/argus/internal/domain/device"
 	"github.com/vishalss1/argus/internal/domain/ota"
 )
@@ -146,24 +147,53 @@ func (r *OTARepository) CreateDeployment(ctx context.Context, deployment ota.Dep
 }
 
 func (r *OTARepository) ListDeployments(ctx context.Context) ([]ota.Deployment, error) {
-	query := `
-		SELECT ` + deploymentColumns("od") + `
-		FROM ota_deployments od
-		JOIN firmware_artifacts fa ON fa.id = od.artifact_id
-		JOIN devices d ON d.id = od.device_id
-		ORDER BY od.created_at DESC`
-	return r.listDeployments(ctx, query)
+	var query string
+	var args []any
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT ` + deploymentColumns("od") + `
+			FROM ota_deployments od
+			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+			JOIN devices d ON d.id = od.device_id
+			WHERE d.workspace_id = $1::uuid
+			ORDER BY od.created_at DESC`
+		args = append(args, wID)
+	} else {
+		query = `
+			SELECT ` + deploymentColumns("od") + `
+			FROM ota_deployments od
+			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+			JOIN devices d ON d.id = od.device_id
+			ORDER BY od.created_at DESC`
+	}
+	return r.listDeployments(ctx, query, args...)
 }
 
 func (r *OTARepository) ListDeploymentsByDevice(ctx context.Context, deviceID string) ([]ota.Deployment, error) {
-	query := `
-		SELECT ` + deploymentColumns("od") + `
-		FROM ota_deployments od
-		JOIN firmware_artifacts fa ON fa.id = od.artifact_id
-		JOIN devices d ON d.id = od.device_id
-		WHERE od.device_id = $1::uuid
-		ORDER BY od.created_at DESC`
-	return r.listDeployments(ctx, query, deviceID)
+	var query string
+	var args []any
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT ` + deploymentColumns("od") + `
+			FROM ota_deployments od
+			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+			JOIN devices d ON d.id = od.device_id
+			WHERE od.device_id = $1::uuid AND d.workspace_id = $2::uuid
+			ORDER BY od.created_at DESC`
+		args = append(args, deviceID, wID)
+	} else {
+		query = `
+			SELECT ` + deploymentColumns("od") + `
+			FROM ota_deployments od
+			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+			JOIN devices d ON d.id = od.device_id
+			WHERE od.device_id = $1::uuid
+			ORDER BY od.created_at DESC`
+		args = append(args, deviceID)
+	}
+	return r.listDeployments(ctx, query, args...)
 }
 
 func (r *OTARepository) listDeployments(ctx context.Context, query string, args ...any) ([]ota.Deployment, error) {
@@ -190,14 +220,28 @@ func (r *OTARepository) listDeployments(ctx context.Context, query string, args 
 }
 
 func (r *OTARepository) GetDeployment(ctx context.Context, deviceID string, id string) (*ota.Deployment, error) {
-	query := `
-		SELECT ` + deploymentColumns("od") + `
-		FROM ota_deployments od
-		JOIN firmware_artifacts fa ON fa.id = od.artifact_id
-		JOIN devices d ON d.id = od.device_id
-		WHERE od.device_id = $1::uuid AND od.id = $2::uuid`
+	var query string
+	var row *sql.Row
 
-	deployment, err := scanDeployment(r.db.QueryRowContext(ctx, query, deviceID, id))
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT ` + deploymentColumns("od") + `
+			FROM ota_deployments od
+			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+			JOIN devices d ON d.id = od.device_id
+			WHERE od.device_id = $1::uuid AND od.id = $2::uuid AND d.workspace_id = $3::uuid`
+		row = r.db.QueryRowContext(ctx, query, deviceID, id, wID)
+	} else {
+		query = `
+			SELECT ` + deploymentColumns("od") + `
+			FROM ota_deployments od
+			JOIN firmware_artifacts fa ON fa.id = od.artifact_id
+			JOIN devices d ON d.id = od.device_id
+			WHERE od.device_id = $1::uuid AND od.id = $2::uuid`
+		row = r.db.QueryRowContext(ctx, query, deviceID, id)
+	}
+
+	deployment, err := scanDeployment(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ota.ErrDeploymentNotFound
 	}
@@ -418,16 +462,33 @@ func (r *OTARepository) ListDeploymentEvents(ctx context.Context, deploymentID s
 }
 
 func (r *OTARepository) Stats(ctx context.Context) (*ota.FleetStats, error) {
-	const query = `
-		SELECT
-			COUNT(*)::int,
-			COUNT(*) FILTER (WHERE status = 'acked')::int,
-			COUNT(*) FILTER (WHERE status IN ('nacked', 'timeout'))::int,
-			COUNT(DISTINCT device_id) FILTER (WHERE status IN ('pending', 'available', 'downloading', 'flashing', 'rebooting'))::int
-		FROM ota_deployments`
+	var query string
+	var row *sql.Row
+
+	if wID, ok := auth.GetWorkspaceID(ctx); ok {
+		query = `
+			SELECT
+				COUNT(*)::int,
+				COUNT(*) FILTER (WHERE status = 'acked')::int,
+				COUNT(*) FILTER (WHERE status IN ('nacked', 'timeout'))::int,
+				COUNT(DISTINCT device_id) FILTER (WHERE status IN ('pending', 'available', 'downloading', 'flashing', 'rebooting'))::int
+			FROM ota_deployments od
+			JOIN devices d ON od.device_id = d.id
+			WHERE d.workspace_id = $1::uuid`
+		row = r.db.QueryRowContext(ctx, query, wID)
+	} else {
+		query = `
+			SELECT
+				COUNT(*)::int,
+				COUNT(*) FILTER (WHERE status = 'acked')::int,
+				COUNT(*) FILTER (WHERE status IN ('nacked', 'timeout'))::int,
+				COUNT(DISTINCT device_id) FILTER (WHERE status IN ('pending', 'available', 'downloading', 'flashing', 'rebooting'))::int
+			FROM ota_deployments`
+		row = r.db.QueryRowContext(ctx, query)
+	}
 
 	var stats ota.FleetStats
-	if err := r.db.QueryRowContext(ctx, query).Scan(
+	if err := row.Scan(
 		&stats.TotalDeployments,
 		&stats.SuccessfulDeployments,
 		&stats.FailedDeployments,

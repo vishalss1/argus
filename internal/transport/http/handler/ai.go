@@ -97,8 +97,13 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	body.Query = strings.TrimSpace(body.Query)
 	if body.Query == "" {
 		writeError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+	if len(body.Query) > 500 {
+		writeError(w, http.StatusBadRequest, "query cannot exceed 500 characters")
 		return
 	}
 
