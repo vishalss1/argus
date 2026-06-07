@@ -1,10 +1,10 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Activity, BarChart3 } from "lucide-react";
+import { Activity, ArrowRight } from "lucide-react";
 
 const productLinks = [
-  { to: "/", label: "Overview" },
+  { to: "/", label: "Platform" },
   { to: "/architecture", label: "Architecture" },
-  { to: "/documentation", label: "Docs" },
+  { to: "/documentation", label: "Documentation" },
   { to: "/about", label: "About" }
 ];
 
@@ -14,11 +14,10 @@ export function ProductLayout() {
       <header className="topbar">
         <NavLink className="brand" to="/">
           <span className="brand-mark">
-            <Activity size={16} aria-hidden />
+            <Activity size={20} aria-hidden />
           </span>
           <span>
             <strong>ARGUS</strong>
-            <small>Fleet Intelligence Platform</small>
           </span>
         </NavLink>
         <nav className="topnav" aria-label="Primary navigation">
@@ -29,12 +28,8 @@ export function ProductLayout() {
           ))}
         </nav>
         <div className="topbar-right">
-          <NavLink className="button secondary compact" to="/documentation">
-            View Docs
-          </NavLink>
-          <NavLink className="button primary compact" to="/dashboard">
-            <BarChart3 size={15} aria-hidden />
-            Dashboard →
+          <NavLink className="btn-inverse" to="/dashboard">
+            Dashboard <ArrowRight size={13} aria-hidden />
           </NavLink>
         </div>
       </header>

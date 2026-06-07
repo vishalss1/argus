@@ -32,12 +32,12 @@ function ProtectedRoute() {
         alignItems: "center",
         justifyContent: "center",
         minHeight: "100vh",
-        background: "radial-gradient(circle at top, #1e1b4b, #09090b)",
-        color: "var(--accent)",
-        fontSize: "16px",
-        fontWeight: 600
+        background: "#0d1117",
+        color: "#8b949e",
+        fontSize: "14px",
+        fontWeight: 500
       }}>
-        Loading ARGUS...
+        Loading...
       </div>
     );
   }

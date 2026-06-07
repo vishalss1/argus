@@ -1,13 +1,13 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Briefcase, Play, Search, FolderOpen, Cpu, Trash2, Edit2 } from "lucide-react";
-import { 
-  useWorkspaces, 
-  useCreateWorkspace, 
+import { Plus, Briefcase, Play, Cpu, Trash2, Edit2 } from "lucide-react";
+import {
+  useWorkspaces,
+  useCreateWorkspace,
   useDeleteWorkspace,
   useUpdateWorkspace,
-  useSessions, 
-  useCreateSession, 
+  useSessions,
+  useCreateSession,
   useStartSession,
   useWorkspaceDevices,
   useDevices,
@@ -20,7 +20,7 @@ import { PageHeader, Panel, EmptyState, Modal } from "../components/ui";
 export function WorkspacesPage() {
   const { data: workspaces, isLoading } = useWorkspaces();
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
-  
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
@@ -78,95 +78,62 @@ export function WorkspacesPage() {
   return (
     <>
       <PageHeader
+        eyebrow="Operational Grouping"
         title="Workspaces"
         description="Manage logical fleets and active operational sessions."
         actions={
-          <button className="button primary" onClick={() => setShowCreateModal(true)}>
-            <Plus size={16} /> New Workspace
+          <button className="btn-inverse" onClick={() => setShowCreateModal(true)}>
+            <Plus size={15} strokeWidth={1.5} /> New Workspace
           </button>
         }
       />
 
       <div className="grid two">
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {isLoading && <p>Loading workspaces...</p>}
+        <div className="workspace-list">
+          {isLoading && <p className="muted">Loading workspaces...</p>}
           {!isLoading && workspaces?.length === 0 && (
             <EmptyState title="No Workspaces" description="Create a workspace to organize your devices and run sessions." />
           )}
           {workspaces?.map((ws) => (
-            <div 
-              key={ws.id} 
+            <div
+              key={ws.id}
               className={`panel interactive ${selectedWorkspace === ws.id ? "selected" : ""}`}
               onClick={() => setSelectedWorkspace(ws.id)}
-              style={{ padding: "16px", cursor: "pointer", border: selectedWorkspace === ws.id ? "1px solid var(--accent)" : undefined }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "8px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <Briefcase size={20} style={{ color: "var(--accent)" }} />
-                  <h3 style={{ margin: 0 }}>{ws.name}</h3>
+              <div className="workspace-card-header">
+                <div className="workspace-card-title">
+                  <Briefcase size={18} strokeWidth={1.5} />
+                  <h3>{ws.name}</h3>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
-                  <span className="mono" style={{ 
-                    fontSize: "11px", 
-                    padding: "2px 8px", 
-                    background: "rgba(255,255,255,0.05)", 
-                    border: "1px solid var(--line)", 
-                    borderRadius: "12px", 
-                    color: "var(--faint)" 
-                  }}>
+                <div className="workspace-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <span className="inline-chip">
                     {ws.device_count ?? 0} {ws.device_count === 1 ? "device" : "devices"}
                   </span>
                   <button
+                    className="icon-button"
                     onClick={() => {
                       setEditId(ws.id);
                       setEditName(ws.name);
                       setEditDesc(ws.description || "");
                       setShowEditModal(true);
                     }}
-                    style={{
-                      padding: "4px 6px",
-                      minHeight: "auto",
-                      background: "rgba(255, 255, 255, 0.05)",
-                      border: "1px solid var(--line)",
-                      color: "var(--text)",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      transition: "background 0.2s"
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"}
                     title="Edit Workspace"
+                    aria-label={`Edit ${ws.name}`}
                   >
-                    <Edit2 size={13} />
+                    <Edit2 size={13} strokeWidth={1.5} />
                   </button>
                   <button
+                    className="icon-button danger"
                     onClick={() => setWorkspaceToDelete({ id: ws.id, name: ws.name })}
-                    style={{
-                      padding: "4px 6px",
-                      minHeight: "auto",
-                      background: "rgba(239, 68, 68, 0.1)",
-                      border: "1px solid rgba(239, 68, 68, 0.2)",
-                      color: "var(--danger)",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      transition: "background 0.2s"
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.2)"}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"}
                     title="Delete Workspace"
+                    aria-label={`Delete ${ws.name}`}
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={13} strokeWidth={1.5} />
                   </button>
                 </div>
               </div>
-              <p className="muted" style={{ margin: 0, fontSize: "14px" }}>{ws.description || "No description provided."}</p>
-              <div className="mono muted" style={{ fontSize: "11px", marginTop: "12px" }}>ID: {ws.id}</div>
+              <p className="muted workspace-card-desc">{ws.description || "No description provided."}</p>
+              <div className="mono muted workspace-card-id">ID: {ws.id}</div>
             </div>
           ))}
         </div>
@@ -183,7 +150,7 @@ export function WorkspacesPage() {
       </div>
 
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Workspace">
-        <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <form onSubmit={handleCreate} className="modal-form">
           <div className="form-group">
             <label>Name</label>
             <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Factory Floor A" required autoFocus />
@@ -192,9 +159,9 @@ export function WorkspacesPage() {
             <label>Description</label>
             <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optional description..." rows={3} />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+          <div className="modal-actions">
             <button type="button" className="button secondary" onClick={() => setShowCreateModal(false)}>Cancel</button>
-            <button type="submit" className="button primary" disabled={createWorkspace.isPending}>
+            <button type="submit" className="btn-inverse" disabled={createWorkspace.isPending}>
               {createWorkspace.isPending ? "Creating..." : "Create"}
             </button>
           </div>
@@ -202,16 +169,16 @@ export function WorkspacesPage() {
       </Modal>
 
       <Modal isOpen={Boolean(workspaceToDelete)} onClose={() => setWorkspaceToDelete(null)} title="Delete Workspace">
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <p style={{ fontSize: "14px", margin: 0, lineHeight: 1.5 }}>
+        <div className="modal-form">
+          <p className="modal-text">
             Are you sure you want to delete workspace <strong>{workspaceToDelete?.name}</strong>?
           </p>
-          <p className="muted" style={{ fontSize: "13px", margin: 0, lineHeight: 1.5 }}>
+          <p className="muted modal-text-sub">
             This action is irreversible. All associated sessions and historical telemetry logs will be permanently deleted. Assigned devices will be unassigned.
           </p>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+          <div className="modal-actions">
             <button type="button" className="button secondary" onClick={() => setWorkspaceToDelete(null)}>Cancel</button>
-            <button type="button" className="button danger" onClick={handleDeleteWorkspace} disabled={deleteWorkspace.isPending}>
+            <button type="button" className="btn-inverse" onClick={handleDeleteWorkspace} disabled={deleteWorkspace.isPending}>
               {deleteWorkspace.isPending ? "Deleting..." : "Delete Workspace"}
             </button>
           </div>
@@ -219,7 +186,7 @@ export function WorkspacesPage() {
       </Modal>
 
       <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Update Workspace">
-        <form onSubmit={handleUpdate} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <form onSubmit={handleUpdate} className="modal-form">
           <div className="form-group">
             <label>Name</label>
             <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required autoFocus />
@@ -228,9 +195,9 @@ export function WorkspacesPage() {
             <label>Description</label>
             <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Optional description..." rows={3} />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+          <div className="modal-actions">
             <button type="button" className="button secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
-            <button type="submit" className="button primary" disabled={updateWorkspace.isPending}>
+            <button type="submit" className="btn-inverse" disabled={updateWorkspace.isPending}>
               {updateWorkspace.isPending ? "Saving..." : "Save Changes"}
             </button>
           </div>
@@ -243,13 +210,11 @@ export function WorkspacesPage() {
 
 function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
   const [activeTab, setActiveTab] = useState<"sessions" | "devices">("sessions");
-  
-  // Sessions data
+
   const { data: sessions, isLoading: sessionsLoading } = useSessions(workspaceID);
   const createSession = useCreateSession();
   const startSession = useStartSession();
 
-  // Devices data
   const { data: workspaceDevices, isLoading: devicesLoading } = useWorkspaceDevices(workspaceID);
   const { data: allDevices } = useDevices();
   const assignDevice = useAssignDevice();
@@ -283,67 +248,44 @@ function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
   const history = sessions?.filter(s => s.status === "COMPLETED" || s.status === "FAILED" || s.status === "CANCELLED") || [];
 
   return (
-    <Panel 
+    <Panel
       title={
-        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-          <span 
-            onClick={() => setActiveTab("sessions")} 
-            style={{ 
-              cursor: "pointer", 
-              color: activeTab === "sessions" ? "var(--text)" : "var(--faint)",
-              borderBottom: activeTab === "sessions" ? "2px solid var(--accent)" : "2px solid transparent",
-              paddingBottom: "4px",
-              fontWeight: activeTab === "sessions" ? 600 : 400,
-              fontSize: "16px",
-              transition: "all 0.2s"
-            }}
+        <div className="workspace-tabs">
+          <button
+            type="button"
+            className={`workspace-tab ${activeTab === "sessions" ? "active" : ""}`}
+            onClick={() => setActiveTab("sessions")}
           >
             Sessions
-          </span>
-          <span 
-            onClick={() => setActiveTab("devices")} 
-            style={{ 
-              cursor: "pointer", 
-              color: activeTab === "devices" ? "var(--text)" : "var(--faint)",
-              borderBottom: activeTab === "devices" ? "2px solid var(--accent)" : "2px solid transparent",
-              paddingBottom: "4px",
-              fontWeight: activeTab === "devices" ? 600 : 400,
-              fontSize: "16px",
-              transition: "all 0.2s"
-            }}
+          </button>
+          <button
+            type="button"
+            className={`workspace-tab ${activeTab === "devices" ? "active" : ""}`}
+            onClick={() => setActiveTab("devices")}
           >
             Devices
-          </span>
+          </button>
         </div>
-      } 
+      }
       actions={
         activeTab === "sessions" ? (
-          <button className="button primary compact" onClick={handleNewSession} disabled={createSession.isPending || startSession.isPending}>
-            <Play size={14} /> Start New Session
+          <button className="btn-inverse compact" onClick={handleNewSession} disabled={createSession.isPending || startSession.isPending}>
+            <Play size={13} strokeWidth={1.5} /> Start New Session
           </button>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div className="workspace-assign">
             <select
               value={deviceToAssign}
               onChange={e => setDeviceToAssign(e.target.value)}
-              style={{
-                padding: "6px 12px",
-                background: "var(--surface-2)",
-                border: "1px solid var(--line)",
-                borderRadius: "4px",
-                color: "inherit",
-                fontSize: "13px",
-                outline: "none"
-              }}
             >
-              <option value="">Select Device...</option>
+              <option value="">Select device...</option>
               {unassignedDevices.map(d => (
                 <option key={d.id} value={d.id}>{d.name} ({d.type})</option>
               ))}
             </select>
-            <button 
-              className="button primary compact" 
-              onClick={handleAssignDevice} 
+            <button
+              className="btn-inverse compact"
+              onClick={handleAssignDevice}
               disabled={!deviceToAssign || assignDevice.isPending}
             >
               Add Device
@@ -353,18 +295,18 @@ function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
       }
     >
       {activeTab === "sessions" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        <div className="detail-stack">
           <div>
-            <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", color: "var(--faint)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Active</h4>
+            <h4 className="section-heading">Active</h4>
             {activeSessions.length === 0 ? (
-              <p className="muted" style={{ fontSize: "14px" }}>No active sessions.</p>
+              <p className="muted">No active sessions.</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div className="detail-stack">
                 {activeSessions.map(s => (
-                  <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px", background: "var(--surface-2)", borderRadius: "6px" }}>
-                    <div>
-                      <div style={{ fontWeight: 500 }}>Session <span className="mono" style={{ fontSize: "12px" }}>{s.id.split("-")[0]}</span></div>
-                      <div className="muted" style={{ fontSize: "12px", marginTop: "4px" }}>Status: <span style={{ color: s.status === "RUNNING" ? "var(--success)" : "var(--accent)" }}>{s.status}</span></div>
+                  <div key={s.id} className="row-card">
+                    <div className="row-card-text">
+                      <strong>Session <span className="mono">{s.id.split("-")[0]}</span></strong>
+                      <small>Status: {s.status}</small>
                     </div>
                     <Link to={`/sessions/${s.id}`} className="button secondary compact">
                       Open Dashboard
@@ -376,9 +318,9 @@ function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
           </div>
 
           <div>
-            <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", color: "var(--faint)", textTransform: "uppercase", letterSpacing: "0.5px" }}>History</h4>
+            <h4 className="section-heading">History</h4>
             {history.length === 0 ? (
-              <p className="muted" style={{ fontSize: "14px" }}>No historical sessions.</p>
+              <p className="muted">No historical sessions.</p>
             ) : (
               <div className="table-wrap">
                 <table className="ai-table">
@@ -394,16 +336,12 @@ function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
                   <tbody>
                     {history.map(s => (
                       <tr key={s.id}>
-                        <td className="mono" style={{ fontSize: "12px" }}>{s.id.split("-")[0]}</td>
-                        <td>
-                          <span style={{ color: s.status === "FAILED" ? "var(--danger)" : "var(--faint)", fontSize: "12px" }}>
-                            {s.status}
-                          </span>
-                        </td>
-                        <td className="muted" style={{ fontSize: "12px" }}>{s.started_at ? new Date(s.started_at).toLocaleDateString() : "-"}</td>
-                        <td className="muted" style={{ fontSize: "12px" }}>{s.ended_at ? new Date(s.ended_at).toLocaleDateString() : "-"}</td>
+                        <td className="mono">{s.id.split("-")[0]}</td>
+                        <td>{s.status}</td>
+                        <td className="muted">{s.started_at ? new Date(s.started_at).toLocaleDateString() : "-"}</td>
+                        <td className="muted">{s.ended_at ? new Date(s.ended_at).toLocaleDateString() : "-"}</td>
                         <td style={{ textAlign: "right" }}>
-                          <Link to={`/sessions/${s.id}/report`} style={{ color: "var(--accent)", fontSize: "12px", textDecoration: "none" }}>View Report</Link>
+                          <Link to={`/sessions/${s.id}/report`} className="t-link">View Report</Link>
                         </td>
                       </tr>
                     ))}
@@ -414,71 +352,35 @@ function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <h4 style={{ margin: "0", fontSize: "14px", color: "var(--faint)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            Assigned Devices ({workspaceDevices?.length ?? 0})
-          </h4>
-          
+        <div className="detail-stack">
+          <h4 className="section-heading">Assigned Devices ({workspaceDevices?.length ?? 0})</h4>
+
           {(!workspaceDevices || workspaceDevices.length === 0) ? (
-            <p className="muted" style={{ fontSize: "14px", margin: "10px 0" }}>No devices assigned to this workspace yet.</p>
+            <p className="muted">No devices assigned to this workspace yet.</p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div className="detail-stack">
               {workspaceDevices.map(d => (
-                <div 
-                  key={d.id} 
-                  style={{ 
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "space-between", 
-                    padding: "12px 16px", 
-                    background: "var(--surface-2)", 
-                    borderRadius: "6px",
-                    border: "1px solid var(--line)" 
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <Cpu size={18} style={{ color: "var(--accent)" }} />
-                    <div>
-                      <div style={{ fontWeight: 500, fontSize: "14px" }}>{d.name}</div>
-                      <div className="muted" style={{ fontSize: "11px", marginTop: "2px" }}>
-                        Type: {d.type} | Version: {d.firmware_version}
-                      </div>
+                <div key={d.id} className="row-card">
+                  <div className="row-card-text">
+                    <div className="workspace-card-title">
+                      <Cpu size={16} strokeWidth={1.5} />
+                      <strong>{d.name}</strong>
                     </div>
+                    <small>Type: {d.type} · Version: {d.firmware_version}</small>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <span style={{ 
-                      fontSize: "12px", 
-                      color: d.status === "online" ? "var(--success)" : "var(--faint)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px"
-                    }}>
-                      <span style={{ 
-                        width: "6px", 
-                        height: "6px", 
-                        borderRadius: "50%", 
-                        background: d.status === "online" ? "var(--success)" : "var(--faint)" 
-                      }} />
+                  <div className="row-card-meta">
+                    <span className="row-status">
+                      <span className="status-dot" />
                       {d.status}
                     </span>
                     <button
-                      className="button danger compact"
+                      className="icon-button danger"
                       onClick={() => handleUnassignDevice(d.id)}
                       disabled={unassignDevice.isPending}
-                      style={{ 
-                        padding: "6px", 
-                        background: "rgba(239, 68, 68, 0.1)", 
-                        border: "1px solid rgba(239, 68, 68, 0.2)",
-                        color: "var(--danger)",
-                        borderRadius: "4px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center"
-                      }}
                       title="Unassign Device"
+                      aria-label={`Unassign ${d.name}`}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} strokeWidth={1.5} />
                     </button>
                   </div>
                 </div>

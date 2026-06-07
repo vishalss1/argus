@@ -1,5 +1,5 @@
 import { type ReactNode, useState, useEffect } from "react";
-import { AlertTriangle, Check, Copy, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Check, Copy, RefreshCw, Search, X } from "lucide-react";
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info";
 
@@ -85,8 +85,8 @@ export function StatusChip({ value }: { value?: string }) {
   let tone: Tone = "neutral";
   if (["online", "acked", "enabled", "healthy"].includes(normalized.toLowerCase())) tone = "success";
   if (["warning", "pending", "available", "downloading", "flashing", "rebooting"].includes(normalized.toLowerCase())) tone = "warning";
-  if (["critical", "nacked", "disabled", "error", "timeout"].includes(normalized.toLowerCase())) tone = "danger";
-  if (["ota"].includes(normalized.toLowerCase())) tone = "info";
+  if (["critical", "nacked", "disabled", "error", "timeout", "failed"].includes(normalized.toLowerCase())) tone = "danger";
+  if (["ota", "info"].includes(normalized.toLowerCase())) tone = "info";
   return <span className={`status-chip tone-${tone}`}>{normalized}</span>;
 }
 
@@ -106,20 +106,20 @@ export function CopyableID({ id, length = 8 }: { id: string; length?: number }) 
 
   return (
     <span className="copy-id-wrap">
-      <button className="copy-id mono" type="button" onClick={copyID} aria-label={`Copy device ID ${id}`}>
+      <button className="copy-id" type="button" onClick={copyID} aria-label={`Copy device ID ${id}`}>
         {shortID}
       </button>
-      <span 
-        className="copy-id-tooltip" 
+      <span
+        className="copy-id-tooltip"
         role="tooltip"
         style={copied ? { display: "inline-flex" } : undefined}
       >
         {copied ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--success)" }}>
-            <Check size={12} aria-hidden /> Copied!
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+            <Check size={12} aria-hidden /> Copied
           </span>
         ) : (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--text)" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
             <Copy size={12} aria-hidden /> Copy
           </span>
         )}
@@ -139,7 +139,7 @@ export function EmptyState({
 }) {
   return (
     <div className="empty-state">
-      <AlertTriangle size={20} aria-hidden />
+      <AlertTriangle size={20} strokeWidth={1.5} aria-hidden />
       <h3>{title}</h3>
       <p>{description}</p>
       {action}
@@ -150,12 +150,12 @@ export function EmptyState({
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="empty-state error">
-      <AlertTriangle size={20} aria-hidden />
+      <AlertTriangle size={20} strokeWidth={1.5} aria-hidden />
       <h3>Unable to load data</h3>
       <p>{message}</p>
       {onRetry && (
-        <button className="button secondary" type="button" onClick={onRetry}>
-          <RefreshCw size={15} aria-hidden />
+        <button className="btn-inverse" type="button" onClick={onRetry}>
+          <RefreshCw size={15} strokeWidth={1.5} aria-hidden />
           Retry
         </button>
       )}
@@ -288,7 +288,7 @@ export function LiveIndicator({
   }, []);
   const timeStr = time.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = time.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const statusLabel = isChecking ? "CHECKING" : isOnline ? "ONLINE" : "OFFLINE";
+  const statusLabel = isChecking ? "Checking" : isOnline ? "Online" : "Offline";
   const statusClass = isChecking ? "checking" : isOnline ? "online" : "offline";
   return (
     <div className="timestamp-display">
@@ -300,17 +300,16 @@ export function LiveIndicator({
 
 export function ProgressBar({
   value,
-  max,
-  color
+  max
 }: {
   value: number;
   max: number;
-  color: string;
+  color?: string;
 }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
     <div className="progress-track">
-      <div className="progress-fill" style={{ width: `${pct}%`, background: color }} />
+      <div className="progress-fill" style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -336,7 +335,7 @@ export function EventStreamEntry({
 export function SearchBar({ placeholder = "Search..." }: { placeholder?: string }) {
   return (
     <div className="search-input">
-      <Search size={14} />
+      <Search size={14} strokeWidth={1.5} />
       <input placeholder={placeholder} />
     </div>
   );
@@ -399,11 +398,13 @@ export function Modal({
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-      <div className="modal-content panel" onClick={e => e.stopPropagation()} style={{ minWidth: "400px", maxWidth: "90vw", padding: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          <button type="button" onClick={onClose} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "18px", color: "var(--faint)" }}>✕</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button type="button" onClick={onClose} className="modal-close" aria-label="Close dialog">
+            <X size={18} strokeWidth={1.5} />
+          </button>
         </div>
         {children}
       </div>

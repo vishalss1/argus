@@ -26,7 +26,7 @@ import {
   useSessionStatistics, 
   useSessionArtifact 
 } from "../hooks/useArgusData";
-import { PageHeader, Panel, StatCard, LoadingRows, ErrorState } from "../components/ui";
+import { PageHeader, Panel, StatCard, LoadingRows, ErrorState, StatusChip } from "../components/ui";
 import { api } from "../services/api";
 
 type TabID = "overview" | "devices" | "ai" | "aggregates";
@@ -142,39 +142,30 @@ export function SessionReportPage() {
     return new Date(isoString).toLocaleString();
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusTone = (status: string): "success" | "danger" | "neutral" => {
     switch (status) {
-      case "COMPLETED": return "var(--success)";
-      case "FAILED": return "var(--danger)";
-      default: return "var(--faint)";
+      case "COMPLETED": return "success";
+      case "FAILED": return "danger";
+      default: return "neutral";
     }
   };
 
   const tabs = [
-    { id: "overview", label: "Overview", icon: <Activity size={15} /> },
-    { id: "devices", label: "Devices", icon: <Cpu size={15} /> },
-    { id: "ai", label: "AI Incidents", icon: <MessageSquare size={15} /> },
-    { id: "aggregates", label: "Metric Aggregates", icon: <TrendingUp size={15} /> }
+    { id: "overview", label: "Overview", icon: <Activity size={15} strokeWidth={1.5} /> },
+    { id: "devices", label: "Devices", icon: <Cpu size={15} strokeWidth={1.5} /> },
+    { id: "ai", label: "AI Incidents", icon: <MessageSquare size={15} strokeWidth={1.5} /> },
+    { id: "aggregates", label: "Metric Aggregates", icon: <TrendingUp size={15} strokeWidth={1.5} /> }
   ];
 
   return (
     <>
-      <div style={{ marginBottom: "16px" }}>
-        <button 
-          onClick={() => navigate("/workspaces")} 
-          style={{ 
-            display: "inline-flex", 
-            alignItems: "center", 
-            gap: "6px", 
-            background: "none", 
-            border: "none", 
-            color: "var(--accent)", 
-            cursor: "pointer", 
-            padding: 0,
-            fontSize: "14px"
-          }}
+      <div className="report-back-link">
+        <button
+          onClick={() => navigate("/workspaces")}
+          className="t-link"
+          type="button"
         >
-          <ArrowLeft size={16} /> Back to Workspaces
+          <ArrowLeft size={14} strokeWidth={1.5} /> Back to Workspaces
         </button>
       </div>
 
@@ -182,21 +173,21 @@ export function SessionReportPage() {
         title={`Session Report v2`}
         description={`Comprehensive operational archive for session ${sessionID}`}
         actions={
-          <div style={{ display: "flex", gap: "12px" }}>
-            <button 
-              className="button secondary compact" 
+          <div className="report-actions">
+            <button
+              className="button secondary compact"
               onClick={() => handleExport("json")}
               disabled={exportingFormat !== null}
             >
-              <FileJson size={14} style={{ marginRight: 6 }} />
+              <FileJson size={13} strokeWidth={1.5} />
               {exportingFormat === "json" ? "Exporting..." : "Export JSON"}
             </button>
-            <button 
-              className="button primary compact" 
+            <button
+              className="btn-inverse"
               onClick={() => handleExport("csv")}
               disabled={exportingFormat !== null}
             >
-              <Download size={14} style={{ marginRight: 6 }} />
+              <Download size={13} strokeWidth={1.5} />
               {exportingFormat === "csv" ? "Exporting..." : "Export CSV"}
             </button>
           </div>
@@ -204,49 +195,21 @@ export function SessionReportPage() {
       />
 
       {exportError && (
-        <div style={{ 
-          padding: "12px 16px", 
-          background: "rgba(239, 68, 68, 0.1)", 
-          border: "1px solid rgba(239, 68, 68, 0.2)", 
-          borderRadius: "6px", 
-          color: "var(--danger)",
-          marginBottom: "20px",
-          fontSize: "14px"
-        }}>
+        <div className="form-message error report-export-error">
           {exportError}
         </div>
       )}
 
       {/* Tabs Navigation */}
-      <div style={{
-        display: "flex",
-        gap: "4px",
-        borderBottom: "1px solid var(--line)",
-        marginBottom: "24px",
-        overflowX: "auto",
-        paddingBottom: "1px"
-      }}>
+      <div className="report-tabs">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as TabID)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "12px 18px",
-                background: isActive ? "rgba(255, 255, 255, 0.03)" : "transparent",
-                border: "none",
-                borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
-                color: isActive ? "var(--accent)" : "var(--muted)",
-                cursor: "pointer",
-                fontWeight: isActive ? 600 : 500,
-                fontSize: "14px",
-                whiteSpace: "nowrap",
-                transition: "all 0.2s ease"
-              }}
+              className={`report-tab ${isActive ? "active" : ""}`}
+              type="button"
             >
               {tab.icon}
               {tab.label}
@@ -257,117 +220,96 @@ export function SessionReportPage() {
 
       {/* Render active tab content */}
       {activeTab === "overview" && (
-        <div className="grid three" style={{ gap: "24px" }}>
+        <div className="grid three report-overview">
           {/* Metadata Sidebar */}
-          <div style={{ gridColumn: "span 1", display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div className="report-meta-col">
             <Panel title="Metadata Overview">
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="report-meta-stack">
                 <div>
-                  <span className="muted" style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Session ID</span>
-                  <div className="mono" style={{ fontSize: "13px", marginTop: "4px" }}>{session.id}</div>
+                  <span className="report-meta-label">Session ID</span>
+                  <div className="mono report-meta-value">{session.id}</div>
                 </div>
-                
+
                 <div>
-                  <span className="muted" style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Status</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", fontWeight: 600 }}>
-                    <span style={{ 
-                      width: "8px", 
-                      height: "8px", 
-                      borderRadius: "50%", 
-                      background: getStatusColor(session.status) 
-                    }} />
-                    <span style={{ color: getStatusColor(session.status), fontSize: "14px" }}>{session.status}</span>
+                  <span className="report-meta-label">Status</span>
+                  <div className="report-status-row">
+                    <span className="status-dot" />
+                    <span><StatusChip value={session.status} /></span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="muted" style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Started At</span>
-                  <div style={{ fontSize: "13px", marginTop: "4px" }}>{formatTime(session.started_at ?? undefined)}</div>
+                  <span className="report-meta-label">Started At</span>
+                  <div className="report-meta-value">{formatTime(session.started_at ?? undefined)}</div>
                 </div>
 
                 <div>
-                  <span className="muted" style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Ended At</span>
-                  <div style={{ fontSize: "13px", marginTop: "4px" }}>{formatTime(session.ended_at ?? undefined)}</div>
+                  <span className="report-meta-label">Ended At</span>
+                  <div className="report-meta-value">{formatTime(session.ended_at ?? undefined)}</div>
                 </div>
 
                 <div>
-                  <span className="muted" style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Report Version</span>
-                  <div className="mono" style={{ fontSize: "13px", marginTop: "4px" }}>v{artifact.report_version || "2.0"}</div>
+                  <span className="report-meta-label">Report Version</span>
+                  <div className="mono report-meta-value">v{artifact.report_version || "2.0"}</div>
                 </div>
               </div>
             </Panel>
 
             <Panel title="Archive Policy Status">
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "4px 0" }}>
-                <CheckCircle2 size={24} style={{ color: "var(--success)", flexShrink: 0 }} />
+              <div className="report-archive-row">
+                <CheckCircle2 size={22} strokeWidth={1.5} />
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: "13px", color: "var(--text)" }}>Telemetry Cleaned</div>
-                  <div className="muted" style={{ fontSize: "12px", marginTop: "2px" }}>Raw logs & Redis keys have been safely cleared from storage.</div>
+                  <div className="report-archive-title">Telemetry Cleaned</div>
+                  <div className="muted report-archive-desc">Raw logs & Redis keys have been safely cleared from storage.</div>
                 </div>
               </div>
             </Panel>
           </div>
 
           {/* Main summary info */}
-          <div style={{ gridColumn: "span 2", display: "flex", flexDirection: "column", gap: "24px" }}>
+          <div className="report-summary-col">
             <Panel title="Session Summary">
-              <blockquote style={{ 
-                margin: 0, 
-                padding: "16px", 
-                background: "rgba(255,255,255,0.01)", 
-                borderLeft: "4px solid var(--accent)", 
-                borderRadius: "4px",
-                fontStyle: "italic",
-                color: "var(--text)",
-                fontSize: "14px",
-                lineHeight: 1.5,
-                marginBottom: "20px"
-              }}>
+              <blockquote className="report-blockquote">
                 "{artifact.session_summary || "No summary text generated for this session."}"
               </blockquote>
 
-              <div className="stat-grid three" style={{ gap: "16px" }}>
-                <StatCard 
-                  label="Duration" 
-                  value={formatSeconds(stats.duration_seconds ?? 0)} 
+              <div className="stat-grid three">
+                <StatCard
+                  label="Duration"
+                  value={formatSeconds(stats.duration_seconds ?? 0)}
                 />
-                <StatCard 
-                  label="Uptime percentage" 
-                  value={`${(stats.uptime_percentage ?? 100.0).toFixed(1)}%`} 
+                <StatCard
+                  label="Uptime percentage"
+                  value={`${(stats.uptime_percentage ?? 100.0).toFixed(1)}%`}
                   tone={stats.uptime_percentage && stats.uptime_percentage < 98 ? "warning" : "success"}
                 />
-                <StatCard 
-                  label="Total Samples" 
-                  value={(stats.messages_processed ?? 0).toLocaleString()} 
+                <StatCard
+                  label="Total Samples"
+                  value={(stats.messages_processed ?? 0).toLocaleString()}
                 />
               </div>
             </Panel>
 
             {/* Environmental Vitals */}
             <Panel title="Vitals & Environmental Aggregates">
-              <div className="grid two" style={{ gap: "20px" }}>
-                
+              <div className="grid two report-vitals-grid">
+
                 {/* Battery Stats Card */}
-                <div style={{ 
-                  padding: "16px", 
-                  background: "var(--surface-2)", 
-                  border: "1px solid var(--line)", 
-                  borderRadius: "8px" 
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-                    <Battery size={20} style={{ color: "var(--accent)" }} />
-                    <h4 style={{ margin: 0, fontSize: "14px" }}>Battery Metrics</h4>
+                <div className="report-vital-card">
+                  <div className="report-vital-header">
+                    <Battery size={18} strokeWidth={1.5} />
+                    <h4>Battery Metrics</h4>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "13px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div className="report-vital-list">
+                    <div className="report-vital-row">
                       <span className="muted">Average Battery</span>
-                      <span style={{ fontWeight: 600 }}>{stats.average_battery !== undefined && stats.average_battery > 0 ? `${stats.average_battery.toFixed(1)}%` : "-"}</span>
+                      <span>{stats.average_battery !== undefined && stats.average_battery > 0 ? `${stats.average_battery.toFixed(1)}%` : "-"}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div className="report-vital-row">
                       <span className="muted">Minimum Battery</span>
                       <span className="mono">{stats.minimum_battery !== undefined && stats.minimum_battery > 0 ? `${stats.minimum_battery.toFixed(1)}%` : "-"}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div className="report-vital-row">
                       <span className="muted">Maximum Battery</span>
                       <span className="mono">{stats.maximum_battery !== undefined && stats.maximum_battery > 0 ? `${stats.maximum_battery.toFixed(1)}%` : "-"}</span>
                     </div>
@@ -375,26 +317,21 @@ export function SessionReportPage() {
                 </div>
 
                 {/* Temperature Stats Card */}
-                <div style={{ 
-                  padding: "16px", 
-                  background: "var(--surface-2)", 
-                  border: "1px solid var(--line)", 
-                  borderRadius: "8px" 
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-                    <Thermometer size={20} style={{ color: "var(--accent)" }} />
-                    <h4 style={{ margin: 0, fontSize: "14px" }}>Temperature Metrics</h4>
+                <div className="report-vital-card">
+                  <div className="report-vital-header">
+                    <Thermometer size={18} strokeWidth={1.5} />
+                    <h4>Temperature Metrics</h4>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "13px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div className="report-vital-list">
+                    <div className="report-vital-row">
                       <span className="muted">Average Temp</span>
-                      <span style={{ fontWeight: 600 }}>{stats.average_temperature !== undefined && stats.average_temperature > 0 ? `${stats.average_temperature.toFixed(1)}°C` : "-"}</span>
+                      <span>{stats.average_temperature !== undefined && stats.average_temperature > 0 ? `${stats.average_temperature.toFixed(1)}°C` : "-"}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div className="report-vital-row">
                       <span className="muted">Minimum Temp</span>
                       <span className="mono">{stats.minimum_temperature !== undefined && stats.minimum_temperature > 0 ? `${stats.minimum_temperature.toFixed(1)}°C` : "-"}</span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div className="report-vital-row">
                       <span className="muted">Maximum Temp</span>
                       <span className="mono">{stats.maximum_temperature !== undefined && stats.maximum_temperature > 0 ? `${stats.maximum_temperature.toFixed(1)}°C` : "-"}</span>
                     </div>
@@ -404,31 +341,31 @@ export function SessionReportPage() {
               </div>
 
               {/* Counter Metrics (Distance, Commands, Alerts, Anomalies) */}
-              <div className="grid four" style={{ gap: "16px", marginTop: "20px" }}>
-                <div style={{ textAlign: "center", padding: "12px", background: "rgba(255,255,255,0.015)", borderRadius: "6px" }}>
-                  <Navigation size={18} style={{ color: "var(--accent)", marginBottom: "4px" }} />
-                  <div className="muted" style={{ fontSize: "11px" }}>Distance</div>
-                  <div className="mono" style={{ fontSize: "14px", fontWeight: 600, marginTop: "4px" }}>
+              <div className="grid four report-counter-grid">
+                <div className="report-counter-card">
+                  <Navigation size={16} strokeWidth={1.5} />
+                  <div className="muted report-counter-label">Distance</div>
+                  <div className="mono report-counter-value">
                     {stats.distance_travelled !== undefined ? `${stats.distance_travelled.toFixed(3)} km` : "0 km"}
                   </div>
                 </div>
 
-                <div style={{ textAlign: "center", padding: "12px", background: "rgba(255,255,255,0.015)", borderRadius: "6px" }}>
-                  <AlertTriangle size={18} style={{ color: stats.alerts_count && stats.alerts_count > 0 ? "var(--warning)" : "var(--faint)", marginBottom: "4px" }} />
-                  <div className="muted" style={{ fontSize: "11px" }}>Alerts Count</div>
-                  <div className="mono" style={{ fontSize: "14px", fontWeight: 600, marginTop: "4px" }}>{stats.alerts_count ?? 0}</div>
+                <div className="report-counter-card">
+                  <AlertTriangle size={16} strokeWidth={1.5} />
+                  <div className="muted report-counter-label">Alerts Count</div>
+                  <div className="mono report-counter-value">{stats.alerts_count ?? 0}</div>
                 </div>
 
-                <div style={{ textAlign: "center", padding: "12px", background: "rgba(255,255,255,0.015)", borderRadius: "6px" }}>
-                  <XCircle size={18} style={{ color: stats.anomaly_count && stats.anomaly_count > 0 ? "var(--danger)" : "var(--faint)", marginBottom: "4px" }} />
-                  <div className="muted" style={{ fontSize: "11px" }}>AI Anomalies</div>
-                  <div className="mono" style={{ fontSize: "14px", fontWeight: 600, marginTop: "4px" }}>{stats.anomaly_count ?? 0}</div>
+                <div className="report-counter-card">
+                  <XCircle size={16} strokeWidth={1.5} />
+                  <div className="muted report-counter-label">AI Anomalies</div>
+                  <div className="mono report-counter-value">{stats.anomaly_count ?? 0}</div>
                 </div>
 
-                <div style={{ textAlign: "center", padding: "12px", background: "rgba(255,255,255,0.015)", borderRadius: "6px" }}>
-                  <Terminal size={18} style={{ color: "var(--accent)", marginBottom: "4px" }} />
-                  <div className="muted" style={{ fontSize: "11px" }}>Commands Sent</div>
-                  <div className="mono" style={{ fontSize: "14px", fontWeight: 600, marginTop: "4px" }}>{stats.command_count ?? 0}</div>
+                <div className="report-counter-card">
+                  <Terminal size={16} strokeWidth={1.5} />
+                  <div className="muted report-counter-label">Commands Sent</div>
+                  <div className="mono report-counter-value">{stats.command_count ?? 0}</div>
                 </div>
               </div>
             </Panel>
@@ -462,30 +399,17 @@ export function SessionReportPage() {
                       <td className="muted" style={{ fontSize: "11px" }}>{formatTime(info.last_seen)}</td>
                       <td className="mono" style={{ fontSize: "12px" }}>{info.sample_count}</td>
                       <td className="mono" style={{ fontSize: "12px" }}>
-                        <span className="badge" style={{ 
-                          background: info.warning_incidents_count > 0 ? "rgba(245,158,11,0.15)" : "transparent",
-                          color: info.warning_incidents_count > 0 ? "var(--warning)" : "var(--muted)",
-                          padding: "2px 6px",
-                          borderRadius: "4px"
-                        }}>
+                        <span className={`inline-chip ${info.warning_incidents_count > 0 ? "tone-warning" : ""}`}>
                           {info.warning_incidents_count}
                         </span>
                       </td>
                       <td className="mono" style={{ fontSize: "12px" }}>
-                        <span className="badge" style={{ 
-                          background: info.critical_incidents_count > 0 ? "rgba(239,68,68,0.15)" : "transparent",
-                          color: info.critical_incidents_count > 0 ? "var(--danger)" : "var(--muted)",
-                          padding: "2px 6px",
-                          borderRadius: "4px"
-                        }}>
+                        <span className={`inline-chip ${info.critical_incidents_count > 0 ? "tone-danger" : ""}`}>
                           {info.critical_incidents_count}
                         </span>
                       </td>
                       <td style={{ fontSize: "13px" }}>
-                        <span style={{ 
-                          fontWeight: 600,
-                          color: info.active_at_end ? "var(--danger)" : "var(--success)"
-                        }}>
+                        <span className={info.active_at_end ? "incident-title" : "report-healthy"}>
                           {info.active_at_end ? "Critical/Warning Active" : "Healthy"}
                         </span>
                       </td>
@@ -501,47 +425,29 @@ export function SessionReportPage() {
       {activeTab === "ai" && (
         <Panel title={`AI Incidents Archive (${artifact.incidents_archive?.length ?? 0})`}>
           {(!artifact.incidents_archive || artifact.incidents_archive.length === 0) ? (
-            <p className="muted" style={{ fontSize: "14px", margin: 0 }}>No AI incidents recorded for this session.</p>
+            <p className="muted report-empty-msg">No AI incidents recorded for this session.</p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div className="report-incidents-stack">
               {artifact.incidents_archive.map((inc, i) => (
-                <div key={i} style={{ 
-                  padding: "16px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "8px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "12px"
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <span className="badge" style={{
-                        background: inc.severity === "critical" ? "rgba(239, 68, 68, 0.15)" : "rgba(245, 158, 11, 0.15)",
-                        color: inc.severity === "critical" ? "var(--danger)" : "var(--warning)",
-                        padding: "3px 8px",
-                        borderRadius: "4px",
-                        fontWeight: 600,
-                        fontSize: "11px",
-                        textTransform: "uppercase"
-                      }}>{inc.severity}</span>
-                      <span className="mono" style={{ fontSize: "12px", fontWeight: 600 }}>{inc.metric} ({inc.incident_type})</span>
-                      <span className="mono muted" style={{ fontSize: "12px" }}>Device: {inc.device_id}</span>
+                <div key={i} className="report-incident-card">
+                  <div className="report-incident-header">
+                    <div className="report-incident-meta">
+                      <span className={`inline-chip ${inc.severity === "critical" ? "tone-danger" : "tone-warning"}`}>
+                        {inc.severity}
+                      </span>
+                      <span className="mono report-incident-metric">{inc.metric} ({inc.incident_type})</span>
+                      <span className="mono muted report-incident-device">Device: {inc.device_id}</span>
                     </div>
-                    <span style={{ 
-                      fontWeight: 600,
-                      fontSize: "12px",
-                      color: inc.resolved_at ? "var(--success)" : "var(--warning)"
-                    }}>
+                    <span className={inc.resolved_at ? "report-healthy" : "report-warning"}>
                       {inc.resolved_at ? "RESOLVED" : "ACTIVE AT END"}
                     </span>
                   </div>
 
-                  <p style={{ margin: 0, fontSize: "14px", lineHeight: 1.5, color: "var(--text)" }}>
+                  <p className="report-incident-summary">
                     {inc.summary}
                   </p>
 
-                  <div className="grid four" style={{ gap: "12px", fontSize: "12px", marginTop: "4px" }}>
+                  <div className="grid four report-incident-grid">
                     <div>
                       <span className="muted">Started:</span> <span className="mono">{formatTime(inc.start_time)}</span>
                     </div>
@@ -565,7 +471,7 @@ export function SessionReportPage() {
       {activeTab === "aggregates" && (
         <Panel title="Monitored Metric Aggregates">
           {Object.keys(artifact.metrics_aggregates || {}).length === 0 ? (
-            <p className="muted" style={{ fontSize: "14px", margin: 0 }}>No metric aggregates recorded for this session.</p>
+            <p className="muted report-empty-msg">No metric aggregates recorded for this session.</p>
           ) : (
             <div className="table-wrap">
               <table className="ai-table">

@@ -93,7 +93,7 @@ const AIPage: React.FC = () => {
     return (
       <div className="workspace">
         <div className="empty-state">
-          <Clock className="animate-spin" size={24} />
+          <Clock className="animate-spin" size={24} strokeWidth={1.5} />
           <h3>Initializing Context</h3>
           <p>Assembling fleet intelligence from operational memory...</p>
         </div>
@@ -107,19 +107,18 @@ const AIPage: React.FC = () => {
         title="AI Operational Intelligence" 
         description={activeSession ? "Real-time operational reasoning, root-cause analysis, and incident correlation." : "Operational health analysis from persisted device state. Start a session to add live anomaly correlation."}
         actions={
-          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-            <select 
-              value={deviceID} 
+          <div className="ai-page-actions">
+            <select
+              value={deviceID}
               onChange={(e) => setDeviceID(e.target.value)}
-              className="button secondary compact"
-              style={{ minWidth: 180, background: "var(--surface-2)" }}
+              className="ai-device-select"
             >
               <option value="">All Devices</option>
               {workspaceDevices.map(d => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
-            <div className="live-badge online"><span className="live-dot" />LOCAL INFERENCE ACTIVE</div>
+            <div className="live-badge online"><span className="live-dot" />Local Inference</div>
           </div>
         }
       />
@@ -167,14 +166,14 @@ const AIPage: React.FC = () => {
           {/* Query Engine */}
           <Panel
             title={
-              <span style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--accent)" }}>
-                <Brain size={18} /> Operational Analysis Engine
+              <span className="ai-panel-title">
+                <Brain size={18} strokeWidth={1.5} /> Operational Analysis Engine
               </span>
             }
           >
-            <form onSubmit={handleQuery} style={{ display: "flex", gap: "12px" }}>
-              <div className="search-input" style={{ flex: 1, height: 38, background: "var(--surface-2)" }}>
-                <Search size={16} />
+            <form onSubmit={handleQuery} className="ai-query-form">
+              <div className="search-input" style={{ flex: 1, height: 38 }}>
+                <Search size={15} strokeWidth={1.5} />
                 <input
                   type="text"
                   placeholder="Ask why a device failed, summarize its health, or request remediation..."
@@ -182,18 +181,17 @@ const AIPage: React.FC = () => {
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
-              <button 
-                type="submit" 
-                className="button primary"
+              <button
+                type="submit"
+                className="btn-inverse"
                 disabled={queryLoading}
-                style={{ paddingLeft: 24, paddingRight: 24 }}
               >
                 {queryLoading ? "Reasoning..." : "Analyze"}
               </button>
             </form>
 
             {queryError && (
-              <div style={{ marginTop: "12px", padding: "10px 14px", borderRadius: "6px", backgroundColor: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", color: "var(--danger)", fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <div className="form-message error">
                 <AlertCircle size={16} style={{ flexShrink: 0 }} />
                 <span><strong>Query Error:</strong> {queryError}</span>
               </div>
@@ -273,8 +271,8 @@ const AIPage: React.FC = () => {
           {/* Semantic Feed */}
           <Panel
             title={
-              <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Zap size={16} style={{ color: "var(--warning)" }} /> Semantic Operational Feed
+              <span className="ai-panel-title">
+                <Zap size={16} strokeWidth={1.5} /> Semantic Operational Feed
               </span>
             }
             subtitle={`${filteredEvents.length} events detected`}
@@ -304,20 +302,20 @@ const AIPage: React.FC = () => {
                       <tr key={ev.id}>
                         <td>
                           <strong>{ev.type.replace('_', ' ')}</strong>
-                          <div className="mono" style={{ fontSize: "10px", color: "var(--faint)", textTransform: "uppercase", marginTop: "2px" }}>
+                          <div className="ai-event-source">
                             {ev.source}
                           </div>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{ev.title}</div>
-                          <div className="muted" style={{ fontSize: "12px", marginTop: "2px", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                          <div className="ai-event-title">{ev.title}</div>
+                          <div className="ai-event-summary">
                             {ev.summary}
                           </div>
                         </td>
                         <td style={{ textAlign: "center" }}>
                           <StatusChip value={ev.severity} />
                         </td>
-                        <td className="mono" style={{ textAlign: "right", color: "var(--faint)", fontSize: "11px" }}>
+                        <td className="mono ai-event-time">
                           {new Date(ev.created_at).toLocaleTimeString()}
                         </td>
                       </tr>
@@ -328,7 +326,7 @@ const AIPage: React.FC = () => {
             </div>
 
             {totalEventsPages > 1 && (
-              <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
+              <div className="ai-pagination">
                 <Pagination
                   current={eventsPage}
                   total={totalEventsPages}
@@ -343,8 +341,8 @@ const AIPage: React.FC = () => {
           {/* Active Incidents */}
           <Panel
             title={
-              <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <AlertCircle size={14} className="text-danger" /> Active Incidents
+              <span className="ai-panel-title">
+                <AlertCircle size={14} strokeWidth={1.5} /> Active Incidents
               </span>
             }
             subtitle={`${filteredActiveIncidents.length} open incidents`}
@@ -355,7 +353,7 @@ const AIPage: React.FC = () => {
                   <div className="incident-card-header">
                     <StatusChip value={inc.severity} />
                     <time className="incident-time">
-                      <Clock size={10} />
+                      <Clock size={11} strokeWidth={1.5} />
                       {new Date(inc.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </time>
                   </div>
@@ -363,8 +361,8 @@ const AIPage: React.FC = () => {
                   <p className="incident-summary">{inc.summary}</p>
                   <div className="incident-devices">
                     <CopyableID id={inc.device_id} length={6} />
-                    <span className="mono" style={{ fontSize: "11px", color: "var(--muted)", marginLeft: "auto" }}>
-                      Seen: {inc.occurrences}x | Peak: {inc.peak_score.toFixed(2)}
+                    <span className="incident-meta-mono">
+                      Seen: {inc.occurrences}x · Peak: {inc.peak_score.toFixed(2)}
                     </span>
                   </div>
                 </div>

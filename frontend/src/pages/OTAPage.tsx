@@ -262,7 +262,7 @@ export function OTAPage() {
                     <td><strong>{findDeploymentDeviceName(deployment)}</strong><div><CopyableID id={deployment.device_id} /></div></td>
                     <td>{deployment.version ? (<><strong>{deployment.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={deployment.artifact_id} /></div></>) : (<CopyableID id={deployment.artifact_id} />)}<div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{deployment.filename}</div></td>
                     <td><StatusChip value={deployment.status} /></td>
-                    <td><div style={{ minWidth: 140 }}><ProgressBar value={statusProgress(deployment)} max={100} color={deployment.status === "acked" ? "var(--success)" : deployment.status === "nacked" || deployment.status === "timeout" ? "var(--danger)" : "var(--warning)"} /><span className="muted" style={{ fontSize: 11 }}>{statusProgress(deployment)}%</span></div></td>
+                    <td><div className="ota-progress-cell"><ProgressBar value={statusProgress(deployment)} max={100} /><span className="muted">{statusProgress(deployment)}%</span></div></td>
                     <td>{formatDate(deployment.created_at)}</td>
                     <td>{formatDate(terminalTime(deployment))}</td>
                     <td>{durationLabel(deployment)}</td>

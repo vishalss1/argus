@@ -271,7 +271,7 @@ function FleetDashboard() {
                   </tbody>
                 </table>
               </div>
-              <div className="muted" style={{ padding: "10px 0 4px", fontSize: 12 }}>
+              <div className="muted dashboard-paging-info">
                 Showing {paged.length} of {filtered.length.toLocaleString()} devices
               </div>
               <Pagination current={page} total={totalPages} onChange={setPage} />
@@ -279,7 +279,7 @@ function FleetDashboard() {
           )}
         </Panel>
         <div className="grid">
-          <Panel title="Recent Alerts" actions={<Link to="/alerts" className="muted" style={{ fontSize: 12 }}>View All</Link>}>
+          <Panel title="Recent Alerts" actions={<Link to="/alerts" className="t-link">View All</Link>}>
             {eventEntries.length === 0 ? (
               <EmptyState title="No alerts" description="No alerts have been generated." />        
             ) : (
@@ -290,39 +290,39 @@ function FleetDashboard() {
               </div>
             )}
           </Panel>
-          <Panel title="Fleet Health" actions={<button className="button compact secondary" type="button" onClick={refresh}>Refresh</button>}>
+          <Panel title="Fleet Health" actions={<button className="button secondary compact" type="button" onClick={refresh}>Refresh</button>}>
             <div className="health-list">
               <div className="health-row">
                 <div className="health-meta">
                   <span>Online</span>
-                  <strong style={{ color: "var(--success)" }}>{onlineCount.toLocaleString()}</strong>
+                  <strong>{onlineCount.toLocaleString()}</strong>
                 </div>
-                <ProgressBar value={onlineCount} max={Math.max(totalDevices, 1)} color="var(--success)" />
-                <span className="muted" style={{ fontSize: 11 }}>{totalDevices > 0 ? ((onlineCount / totalDevices) * 100).toFixed(1) : 0}%</span>
+                <ProgressBar value={onlineCount} max={Math.max(totalDevices, 1)} />
+                <span className="muted">{totalDevices > 0 ? ((onlineCount / totalDevices) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="health-row">
                 <div className="health-meta">
                   <span>Warning</span>
-                  <strong style={{ color: "var(--warning)" }}>{warningCount.toLocaleString()}</strong>
+                  <strong>{warningCount.toLocaleString()}</strong>
                 </div>
-                <ProgressBar value={warningCount} max={Math.max(totalDevices, 1)} color="var(--warning)" />
-                <span className="muted" style={{ fontSize: 11 }}>{totalDevices > 0 ? ((warningCount / totalDevices) * 100).toFixed(1) : 0}%</span>
+                <ProgressBar value={warningCount} max={Math.max(totalDevices, 1)} />
+                <span className="muted">{totalDevices > 0 ? ((warningCount / totalDevices) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="health-row">
                 <div className="health-meta">
                   <span>Critical</span>
-                  <strong style={{ color: "var(--danger)" }}>{criticalCount.toLocaleString()}</strong>
+                  <strong>{criticalCount.toLocaleString()}</strong>
                 </div>
-                <ProgressBar value={criticalCount} max={Math.max(totalDevices, 1)} color="var(--danger)" />
-                <span className="muted" style={{ fontSize: 11 }}>{totalDevices > 0 ? ((criticalCount / totalDevices) * 100).toFixed(1) : 0}%</span>
+                <ProgressBar value={criticalCount} max={Math.max(totalDevices, 1)} />
+                <span className="muted">{totalDevices > 0 ? ((criticalCount / totalDevices) * 100).toFixed(1) : 0}%</span>
               </div>
               <div className="health-row">
                 <div className="health-meta">
                   <span>Offline</span>
                   <strong>{offlineCount}</strong>
                 </div>
-                <ProgressBar value={offlineCount} max={Math.max(totalDevices, 1)} color="var(--line)" />
-                <span className="muted" style={{ fontSize: 11 }}>{totalDevices > 0 ? ((offlineCount / totalDevices) * 100).toFixed(1) : 0}%</span>
+                <ProgressBar value={offlineCount} max={Math.max(totalDevices, 1)} />
+                <span className="muted">{totalDevices > 0 ? ((offlineCount / totalDevices) * 100).toFixed(1) : 0}%</span>
               </div>
             </div>
           </Panel>
@@ -331,26 +331,26 @@ function FleetDashboard() {
               <div className="health-row">
                 <div className="health-meta">
                   <span>Successful Deployments</span>
-                  <strong style={{ color: "var(--success)" }}>{(otaStats.data?.successful_deployments ?? 0).toLocaleString()}</strong>
+                  <strong>{(otaStats.data?.successful_deployments ?? 0).toLocaleString()}</strong>
                 </div>
-                <ProgressBar value={otaStats.data?.successful_deployments ?? 0} max={Math.max(otaStats.data?.total_deployments ?? 0, 1)} color="var(--success)" />
-                <span className="muted" style={{ fontSize: 11 }}>{(otaStats.data?.success_rate ?? 0).toFixed(1)}%</span>
+                <ProgressBar value={otaStats.data?.successful_deployments ?? 0} max={Math.max(otaStats.data?.total_deployments ?? 0, 1)} />
+                <span className="muted">{(otaStats.data?.success_rate ?? 0).toFixed(1)}%</span>
               </div>
               <div className="health-row">
                 <div className="health-meta">
                   <span>Failed Deployments</span>
-                  <strong style={{ color: "var(--danger)" }}>{(otaStats.data?.failed_deployments ?? 0).toLocaleString()}</strong>
+                  <strong>{(otaStats.data?.failed_deployments ?? 0).toLocaleString()}</strong>
                 </div>
-                <ProgressBar value={otaStats.data?.failed_deployments ?? 0} max={Math.max(otaStats.data?.total_deployments ?? 0, 1)} color="var(--danger)" />
-                <span className="muted" style={{ fontSize: 11 }}>{otaStats.data?.total_deployments ? (((otaStats.data.failed_deployments / otaStats.data.total_deployments) * 100).toFixed(1)) : "0.0"}%</span>
+                <ProgressBar value={otaStats.data?.failed_deployments ?? 0} max={Math.max(otaStats.data?.total_deployments ?? 0, 1)} />
+                <span className="muted">{otaStats.data?.total_deployments ? (((otaStats.data.failed_deployments / otaStats.data.total_deployments) * 100).toFixed(1)) : "0.0"}%</span>
               </div>
               <div className="health-row">
                 <div className="health-meta">
                   <span>Devices Pending Update</span>
                   <strong>{(otaStats.data?.devices_pending_update ?? 0).toLocaleString()}</strong>
                 </div>
-                <ProgressBar value={otaStats.data?.devices_pending_update ?? 0} max={Math.max(totalDevices, 1)} color="var(--warning)" />
-                <span className="muted" style={{ fontSize: 11 }}>Active fleet</span>
+                <ProgressBar value={otaStats.data?.devices_pending_update ?? 0} max={Math.max(totalDevices, 1)} />
+                <span className="muted">Active fleet</span>
               </div>
             </div>
           </Panel>
