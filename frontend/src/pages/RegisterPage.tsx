@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { request } from "../services/http";
-import { Mail, KeyRound, User, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
+import { Activity, ArrowRight, ShieldCheck, AlertCircle, Mail, KeyRound, User } from "lucide-react";
 
 export function RegisterPage() {
   const [name, setName] = useState("");
@@ -13,7 +13,6 @@ export function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Password requirements warnings
   const isPasswordShort = password.length > 0 && password.length < 8;
   const isPasswordTooLong = password.length > 128;
   const passwordsMatch = password === confirmPassword;
@@ -56,237 +55,144 @@ export function RegisterPage() {
   };
 
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      minHeight: "100vh",
-      background: "radial-gradient(circle at top, #1e1b4b, #09090b)",
-      padding: "20px"
-    }}>
-      <div style={{
-        maxWidth: 420,
-        width: "100%",
-        background: "rgba(15, 23, 42, 0.4)",
-        backdropFilter: "blur(12px)",
-        border: "1px solid rgba(255, 255, 255, 0.05)",
-        borderRadius: "16px",
-        padding: "40px 32px",
-        boxShadow: "0 20px 25px -5px rgba(0,0,0,0.5)"
-      }}>
-        {/* Brand Header */}
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
-          <div style={{
-            width: 48,
-            height: 48,
-            borderRadius: "12px",
-            margin: "0 auto 16px",
-            background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 0 20px rgba(99, 102, 241, 0.4)"
-          }}>
-            <ShieldCheck size={24} style={{ color: "#fff" }} />
-          </div>
-          <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 6px", letterSpacing: "-0.5px" }}>
-            Create an Account
-          </h2>
-          <p className="muted" style={{ fontSize: "14px", margin: 0 }}>
-            Register to start managing your fleet of IoT devices
+    <div className="auth-shell">
+      <aside className="auth-aside">
+        <Link className="brand" to="/">
+          <span className="brand-mark">
+            <Activity size={14} strokeWidth={1.5} aria-hidden />
+          </span>
+          <strong>ARGUS</strong>
+        </Link>
+
+        <div>
+          <span className="eyebrow">Create your account</span>
+          <h1>Start operating a fleet in minutes.</h1>
+          <p>
+            Register an operator account to provision workspaces, register devices,
+            and ship firmware updates with confidence.
           </p>
+          <div className="auth-bullets">
+            <span>Workspaces &middot; Sessions &middot; OTA</span>
+            <span>AI-assisted anomaly correlation</span>
+            <span>Self-hosted, no vendor lock-in</span>
+          </div>
         </div>
 
-        {error && (
-          <div style={{
-            background: "rgba(239, 68, 68, 0.1)",
-            border: "1px solid rgba(239, 68, 68, 0.2)",
-            borderRadius: "8px",
-            padding: "12px 16px",
-            color: "#f87171",
-            fontSize: "13px",
-            marginBottom: "24px",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px"
-          }}>
-            <AlertCircle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
+        <div className="auth-aside-footer">
+          <span>ARGUS / v2</span>
+          <Link to="/about" className="t-link">About</Link>
+        </div>
+      </aside>
 
-        {success && (
-          <div style={{
-            background: "rgba(16, 185, 129, 0.1)",
-            border: "1px solid rgba(16, 185, 129, 0.2)",
-            borderRadius: "8px",
-            padding: "12px 16px",
-            color: "#34d399",
-            fontSize: "13px",
-            marginBottom: "24px",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px"
-          }}>
-            <ShieldCheck size={16} />
-            <span>Registration successful! Redirecting to login...</span>
-          </div>
-        )}
+      <section className="auth-form">
+        <div className="auth-form-inner">
+          <span className="auth-eyebrow">Register</span>
+          <h2>Create an account.</h2>
+          <p className="sub">Set up an operator profile to manage your fleet.</p>
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Full Name */}
-          <div className="form-group">
-            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px" }}>
-              Full Name
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Jane Doe"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px 10px 40px",
-                  fontSize: "14px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "8px",
-                  color: "inherit",
-                  outline: "none",
-                  boxSizing: "border-box"
-                }}
-              />
-              <User size={16} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--faint)" }} />
+          {error && (
+            <div className="alert">
+              <AlertCircle size={16} aria-hidden />
+              <span>{error}</span>
             </div>
-          </div>
+          )}
 
-          {/* Email address */}
-          <div className="form-group">
-            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px" }}>
-              Email Address
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px 10px 40px",
-                  fontSize: "14px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "8px",
-                  color: "inherit",
-                  outline: "none",
-                  boxSizing: "border-box"
-                }}
-              />
-              <Mail size={16} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--faint)" }} />
+          {success && (
+            <div className="alert">
+              <ShieldCheck size={16} aria-hidden />
+              <span>Registration successful. Redirecting to login…</span>
             </div>
-          </div>
+          )}
 
-          {/* Password */}
-          <div className="form-group">
-            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px" }}>
-              Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Minimum 8 characters"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px 10px 40px",
-                  fontSize: "14px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "8px",
-                  color: "inherit",
-                  outline: "none",
-                  boxSizing: "border-box"
-                }}
-              />
-              <KeyRound size={16} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--faint)" }} />
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>Full Name</label>
+              <div className="auth-input-wrap">
+                <User size={15} strokeWidth={1.5} className="auth-input-icon" aria-hidden />
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jane Doe"
+                  autoComplete="name"
+                />
+              </div>
             </div>
-            {isPasswordShort && (
-              <span style={{ display: "block", fontSize: "11px", color: "#f87171", marginTop: "4px" }}>
-                Password must be at least 8 characters long.
-              </span>
-            )}
-            {isPasswordTooLong && (
-              <span style={{ display: "block", fontSize: "11px", color: "#f87171", marginTop: "4px" }}>
-                Password cannot exceed 128 characters.
-              </span>
-            )}
-          </div>
 
-          {/* Confirm Password */}
-          <div className="form-group">
-            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px" }}>
-              Confirm Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm password"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px 10px 40px",
-                  fontSize: "14px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "8px",
-                  color: "inherit",
-                  outline: "none",
-                  boxSizing: "border-box"
-                }}
-              />
-              <KeyRound size={16} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--faint)" }} />
+            <div className="form-group">
+              <label>Email Address</label>
+              <div className="auth-input-wrap">
+                <Mail size={15} strokeWidth={1.5} className="auth-input-icon" aria-hidden />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                />
+              </div>
             </div>
-            {!passwordsMatch && confirmPassword.length > 0 && (
-              <span style={{ display: "block", fontSize: "11px", color: "#f87171", marginTop: "4px" }}>
-                Passwords do not match.
-              </span>
-            )}
-          </div>
 
-          <button
-            type="submit"
-            className="button primary"
-            disabled={isLoading || isPasswordShort || isPasswordTooLong || !passwordsMatch}
-            style={{
-              padding: "12px",
-              fontSize: "14px",
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              marginTop: "8px"
-            }}
-          >
-            {isLoading ? "Registering..." : <>Register <ArrowRight size={16} /></>}
-          </button>
-        </form>
+            <div className="form-group">
+              <label>Password</label>
+              <div className="auth-input-wrap">
+                <KeyRound size={15} strokeWidth={1.5} className="auth-input-icon" aria-hidden />
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Minimum 8 characters"
+                  autoComplete="new-password"
+                />
+              </div>
+              {isPasswordShort && (
+                <span className="input-error">Password must be at least 8 characters.</span>
+              )}
+              {isPasswordTooLong && (
+                <span className="input-error">Password cannot exceed 128 characters.</span>
+              )}
+            </div>
 
-        <p className="muted" style={{ textAlign: "center", fontSize: "14px", marginTop: "32px", marginBottom: 0 }}>
-          Already have an account?{" "}
-          <Link to="/login" style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none" }}>
-            Sign In here
-          </Link>
-        </p>
-      </div>
+            <div className="form-group">
+              <label>Confirm Password</label>
+              <div className="auth-input-wrap">
+                <KeyRound size={15} strokeWidth={1.5} className="auth-input-icon" aria-hidden />
+                <input
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm password"
+                  autoComplete="new-password"
+                />
+              </div>
+              {!passwordsMatch && confirmPassword.length > 0 && (
+                <span className="input-error">Passwords do not match.</span>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="btn-inverse auth-button"
+              disabled={isLoading || isPasswordShort || isPasswordTooLong || !passwordsMatch}
+            >
+              {isLoading ? "Registering..." : (
+                <>
+                  Register
+                  <ArrowRight size={15} strokeWidth={1.5} />
+                </>
+              )}
+            </button>
+          </form>
+
+          <p className="footnote">
+            Already have an account? <Link to="/login">Sign in here</Link>
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

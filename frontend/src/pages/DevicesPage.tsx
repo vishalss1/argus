@@ -211,7 +211,7 @@ export function DevicesPage() {
                     <StatusChip value={editDevice.status} />
                   </div>
                 )}
-                {formError && <p className="muted field full" style={{ color: "var(--danger)" }}>{formError}</p>}
+                {formError && <p className="form-message error field full">{formError}</p>}
               </div>
             </div>
             <div className="drawer-footer">

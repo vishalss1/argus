@@ -9,9 +9,6 @@ import {
   Brain,
   Briefcase,
   Cpu,
-  FileText,
-  Gauge,
-  RadioTower,
   Rocket,
   Send,
   Settings,
@@ -52,12 +49,12 @@ const bottomLinks = [
 function NavGroup({ label, links }: { label: string; links: { to: string; label: string; icon: LucideIcon }[] }) {
   return (
     <div className="nav-group">
-      <span>{label}</span>
+      {label && <span>{label}</span>}
       {links.map((link) => {
         const Icon = link.icon;
         return (
           <NavLink key={link.to + link.label} to={link.to}>
-            <Icon size={16} aria-hidden />
+            <Icon size={15} aria-hidden />
             {link.label}
           </NavLink>
         );
@@ -82,37 +79,21 @@ function WorkspaceOnboarding() {
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "70vh", padding: "40px 20px" }}>
-      <div style={{ maxWidth: 560, width: "100%", textAlign: "center" }}>
-        <div style={{
-          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
-          background: "linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.15))",
-          border: "1px solid rgba(99,102,241,0.3)",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <Briefcase size={36} style={{ color: "var(--accent)" }} />
+    <div className="onboarding-shell">
+      <div className="onboarding-inner">
+        <div className="onboarding-mark">
+          <Briefcase size={32} strokeWidth={1.5} />
         </div>
 
-        <h1 style={{ fontSize: "28px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
-          Welcome to ARGUS
-        </h1>
-        <p className="muted" style={{ fontSize: "16px", lineHeight: 1.6, margin: "0 0 36px", maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
+        <span className="eyebrow">Get started</span>
+        <h1 className="onboarding-title">Welcome to ARGUS</h1>
+        <p className="onboarding-sub">
           Create your first workspace to organize devices, run sessions, and monitor your fleet in real time.
         </p>
 
-        <form onSubmit={handleCreate} style={{
-          background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "12px",
-          padding: "28px", textAlign: "left"
-        }}>
-          <h3 style={{ margin: "0 0 20px", fontSize: "16px", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-            <Plus size={18} style={{ color: "var(--accent)" }} />
-            Create Workspace
-          </h3>
-
-          <div className="form-group" style={{ marginBottom: "16px" }}>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "6px", color: "var(--faint)" }}>
-              Workspace Name
-            </label>
+        <form onSubmit={handleCreate} className="onboarding-form">
+          <div className="form-group">
+            <label>Workspace Name</label>
             <input
               type="text"
               value={name}
@@ -120,66 +101,45 @@ function WorkspaceOnboarding() {
               placeholder="e.g. Factory Floor Alpha"
               required
               autoFocus
-              style={{
-                width: "100%", padding: "10px 14px", fontSize: "14px",
-                background: "var(--surface-2)", border: "1px solid var(--line)",
-                borderRadius: "8px", color: "inherit", outline: "none",
-                boxSizing: "border-box"
-              }}
             />
           </div>
 
-          <div className="form-group" style={{ marginBottom: "24px" }}>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "6px", color: "var(--faint)" }}>
-              Description
-            </label>
+          <div className="form-group">
+            <label>Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional — describe what this workspace monitors"
               rows={3}
-              style={{
-                width: "100%", padding: "10px 14px", fontSize: "14px",
-                background: "var(--surface-2)", border: "1px solid var(--line)",
-                borderRadius: "8px", color: "inherit", outline: "none", resize: "vertical",
-                boxSizing: "border-box"
-              }}
             />
           </div>
 
           <button
             type="submit"
-            className="button primary"
+            className="btn-inverse auth-button"
             disabled={createWorkspace.isPending || !name.trim()}
-            style={{ width: "100%", padding: "12px", fontSize: "15px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
             {createWorkspace.isPending ? (
               "Creating..."
             ) : (
               <>
                 Get Started
-                <ArrowRight size={16} />
+                <ArrowRight size={15} />
               </>
             )}
           </button>
         </form>
 
-        <div style={{
-          display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginTop: "32px"
-        }}>
+        <div className="onboarding-bullets">
           {[
-            { icon: <Briefcase size={18} />, label: "Organize Devices", desc: "Group by project" },
-            { icon: <Rocket size={18} />, label: "Run Sessions", desc: "Monitor in real time" },
-            { icon: <RefreshCw size={18} />, label: "OTA Updates", desc: "Deploy firmware" }
+            { icon: <Briefcase size={16} strokeWidth={1.5} />, label: "Organize Devices", desc: "Group by project" },
+            { icon: <Rocket size={16} strokeWidth={1.5} />, label: "Run Sessions", desc: "Monitor in real time" },
+            { icon: <RefreshCw size={16} strokeWidth={1.5} />, label: "OTA Updates", desc: "Deploy firmware" }
           ].map((item) => (
-            <div key={item.label} style={{
-              padding: "16px 12px", borderRadius: "10px",
-              background: "rgba(255,255,255,0.02)", border: "1px solid var(--line)",
-              textAlign: "center"
-            }}>
-              <div style={{ color: "var(--accent)", marginBottom: "8px" }}>{item.icon}</div>
-              <div style={{ fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>{item.label}</div>
-              <div className="muted" style={{ fontSize: "11px" }}>{item.desc}</div>
+            <div key={item.label} className="onboarding-bullet">
+              <div className="onboarding-bullet-mark">{item.icon}</div>
+              <div className="onboarding-bullet-label">{item.label}</div>
+              <div className="muted onboarding-bullet-desc">{item.desc}</div>
             </div>
           ))}
         </div>
@@ -207,9 +167,9 @@ export function AppLayout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <NavLink className="brand sidebar-brand" to="/">
+        <NavLink className="sidebar-brand" to="/">
           <span className="brand-mark">
-            <Activity size={16} aria-hidden />
+            <Activity size={14} strokeWidth={1.5} aria-hidden />
           </span>
           <span>
             <strong>ARGUS</strong>
@@ -218,35 +178,20 @@ export function AppLayout() {
         </NavLink>
 
         {/* Scrollable Navigation links */}
-        <div style={{ flex: 1, overflowY: "auto", paddingBottom: "16px" }}>
+        <div className="sidebar-nav">
           {hasWorkspaces && (
-            <div className="workspace-selector-nav" style={{ padding: "16px", borderBottom: "1px solid var(--line)", marginBottom: "16px" }}>
-              <label style={{ display: "block", fontSize: "10px", fontWeight: 600, color: "var(--faint)", textTransform: "uppercase", marginBottom: "6px", letterSpacing: "0.5px" }}>
-                Active Workspace
-              </label>
-              <div style={{ position: "relative" }}>
+            <div className="workspace-selector-nav">
+              <label>Active Workspace</label>
+              <div className="workspace-selector-wrap">
                 <select
                   value={selectedWorkspaceId}
                   onChange={(e) => setSelectedWorkspaceId(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "8px 28px 8px 12px",
-                    background: "var(--surface-2)",
-                    border: "1px solid var(--line)",
-                    borderRadius: "6px",
-                    color: "var(--text)",
-                    fontSize: "13px",
-                    outline: "none",
-                    appearance: "none",
-                    cursor: "pointer",
-                    fontWeight: 500
-                  }}
                 >
                   {workspaces.map(ws => (
                     <option key={ws.id} value={ws.id}>{ws.name}</option>
                   ))}
                 </select>
-                <Briefcase size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--faint)", pointerEvents: "none" }} />
+                <Briefcase size={13} className="workspace-selector-icon" aria-hidden />
               </div>
             </div>
           )}
@@ -258,33 +203,19 @@ export function AppLayout() {
         </div>
 
         {/* Fixed Footer with Operator Card & Logout */}
-        <div style={{ borderTop: "1px solid var(--line)", background: "#101318", padding: "14px 14px 16px" }}>
-          <div className="operator-card" style={{ margin: "0 0 12px" }}>
+        <div className="sidebar-footer">
+          <div className="operator-card">
             <div className="operator-avatar">{initials}</div>
-            <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
-              <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "13px", fontWeight: 600 }}>{user?.name || "Operator"}</strong>
-              <small style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--faint)", fontSize: "11px", marginTop: "2px" }}>{user?.email || "No email"}</small>
+            <div className="operator-meta">
+              <strong>{user?.name || "Operator"}</strong>
+              <small>{user?.email || "No email"}</small>
             </div>
           </div>
           <button
             onClick={logout}
-            style={{
-              width: "100%",
-              padding: "10px",
-              fontSize: "13px",
-              fontWeight: 600,
-              background: "rgba(239, 68, 68, 0.1)",
-              border: "1px solid rgba(239, 68, 68, 0.2)",
-              borderRadius: "6px",
-              color: "#f87171",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px"
-            }}
+            className="btn-inverse sidebar-logout"
           >
-            <LogOut size={14} />
+            <LogOut size={14} strokeWidth={1.5} />
             Logout
           </button>
         </div>

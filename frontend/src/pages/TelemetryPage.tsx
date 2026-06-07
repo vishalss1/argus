@@ -31,31 +31,16 @@ import type { Telemetry } from "../types/api";
 
 function SessionRequiredPrompt({ title, description }: { title: string; description: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "40px 20px" }}>
-      <div style={{ maxWidth: 500, width: "100%", textAlign: "center" }}>
-        <div style={{
-          width: 80, height: 80, borderRadius: "20px", margin: "0 auto 28px",
-          background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(245,158,11,0.1))",
-          border: "1px solid rgba(239,68,68,0.3)",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <Play size={36} style={{ color: "var(--danger)" }} />
+    <div className="onboarding-shell">
+      <div className="onboarding-inner" style={{ maxWidth: 500 }}>
+        <div className="onboarding-mark">
+          <Play size={32} strokeWidth={1.5} />
         </div>
-
-        <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 12px", letterSpacing: "-0.5px" }}>
-          {title}
-        </h2>
-        <p className="muted" style={{ fontSize: "15px", lineHeight: 1.6, margin: "0 0 28px" }}>
-          {description}
-        </p>
-
-        <Link
-          to="/workspaces"
-          className="button primary"
-          style={{ padding: "12px 24px", fontSize: "15px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "8px", textDecoration: "none" }}
-        >
+        <h2 className="onboarding-title" style={{ fontSize: 32 }}>{title}</h2>
+        <p className="onboarding-sub">{description}</p>
+        <Link to="/workspaces" className="btn-inverse auth-button" style={{ display: "inline-flex", maxWidth: 260, margin: "0 auto" }}>
           Go to Workspaces
-          <ArrowRight size={16} />
+          <ArrowRight size={15} strokeWidth={1.5} />
         </Link>
       </div>
     </div>
@@ -105,10 +90,10 @@ function TelemetryChart({ data, metricKey, title, unit, color, timeframe }: Char
 
   if (filteredData.length === 0) {
     return (
-      <div className="chart-card-obs" style={{ height: 215, display: "grid", placeItems: "center" }}>
-        <div style={{ textAlign: "center", color: "var(--muted)" }}>
-          <Info size={20} style={{ marginBottom: 6, opacity: 0.5 }} />
-          <p style={{ margin: 0, fontSize: 12 }}>No {title} data in this window</p>
+      <div className="chart-card-obs telemetry-chart-empty-wrap">
+        <div className="telemetry-empty-center">
+          <Info size={20} strokeWidth={1.5} />
+          <p>No {title} data in this window</p>
         </div>
       </div>
     );
@@ -143,18 +128,18 @@ function TelemetryChart({ data, metricKey, title, unit, color, timeframe }: Char
     <div className="chart-card-obs">
       <div className="chart-card-obs-header">
         <div>
-          <h3 style={{ fontSize: 13, color: "var(--muted)", fontWeight: 600 }}>{title}</h3>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 4 }}>
-            <span style={{ fontSize: 20, fontWeight: 700 }}>{currentVal.toFixed(1)}</span>
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>{unit}</span>
+          <h3 className="telemetry-chart-title">{title}</h3>
+          <div className="telemetry-chart-current">
+            <span className="telemetry-chart-val">{currentVal.toFixed(1)}</span>
+            <span className="telemetry-chart-unit">{unit}</span>
           </div>
         </div>
       </div>
-      
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", overflow: "visible" }}>
+
+      <svg viewBox={`0 0 ${width} ${height}`} className="telemetry-chart-svg">
         <defs>
           <linearGradient id={`gradient-${metricKey}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.18" />
             <stop offset="100%" stopColor={color} stopOpacity="0.0" />
           </linearGradient>
         </defs>
@@ -231,9 +216,7 @@ function isUptimeKey(key: string): boolean {
 }
 
 function BatteryIcon({ level }: { level: number }) {
-  if (level > 80) return <Battery size={15} style={{ color: "var(--success)" }} />;
-  if (level > 40) return <Battery size={15} style={{ color: "var(--warning)" }} />;
-  return <Battery size={15} style={{ color: "var(--danger)" }} />;
+  return <Battery size={15} strokeWidth={1.5} />;
 }
 
 function RSSISignal({ rssi }: { rssi: number }) {
@@ -243,20 +226,9 @@ function RSSISignal({ rssi }: { rssi: number }) {
   else if (rssi > -80) bars = 2;
   else if (rssi > -90) bars = 1;
   return (
-    <div style={{ display: "inline-flex", gap: 2, alignItems: "flex-end", height: 12 }}>
-      {[1, 2, 3, 4].map(b => (
-        <span
-          key={b}
-          style={{
-            display: "block",
-            width: 3,
-            height: b * 3,
-            borderRadius: 1,
-            backgroundColor: b <= bars ? "var(--success)" : "var(--line)"
-          }}
-        />
-      ))}
-    </div>
+    <span className={`signal-bars strength-${bars}`}>
+      <span /><span /><span /><span />
+    </span>
   );
 }
 
@@ -585,7 +557,7 @@ export function TelemetryPage() {
     return (
       <div className="workspace">
         <div className="empty-state">
-          <Clock className="animate-spin" size={24} />
+          <Clock className="animate-spin" size={24} strokeWidth={1.5} />
           <h3>Initializing Context</h3>
           <p>Assembling fleet intelligence from operational memory...</p>
         </div>
@@ -648,7 +620,7 @@ export function TelemetryPage() {
       {/* Selector sticky bar */}
       <div className="sticky-selector-bar">
         <label>
-          <Cpu size={16} className="text-accent" />
+          <Cpu size={14} strokeWidth={1.5} />
           <span>Monitor Device</span>
           <select value={deviceID} onChange={(event) => setDeviceID(event.target.value)}>
             <option value="">Select monitored device</option>
@@ -659,10 +631,10 @@ export function TelemetryPage() {
             ))}
           </select>
         </label>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div className="sticky-selector-actions">
           {deviceID && (
-            <button className="button compact secondary" onClick={() => setShowRawPayload(true)}>
-              <Code size={14} /> View Raw Payload
+            <button className="button secondary compact" onClick={() => setShowRawPayload(true)}>
+              <Code size={13} strokeWidth={1.5} /> View Raw Payload
             </button>
           )}
           {deviceID && (
@@ -670,7 +642,7 @@ export function TelemetryPage() {
               className={`button compact ${showSimulation ? "secondary" : "primary"}`}
               onClick={() => setShowSimulation(!showSimulation)}
             >
-              <Terminal size={14} /> Simulator
+              <Terminal size={13} strokeWidth={1.5} /> Simulator
             </button>
           )}
         </div>
@@ -769,12 +741,7 @@ export function TelemetryPage() {
                   {numericMetricKeys.map(key => {
                     const unit = getMetricUnit(key);
                     const label = formatMetricLabel(key);
-                    
-                    let color = "#4f8cff";
-                    if (key.toLowerCase().includes("temp")) color = "#f0525f";
-                    else if (key.toLowerCase().includes("heap") || key.toLowerCase().includes("mem")) color = "#22c878";
-                    else if (key.toLowerCase().includes("cpu")) color = "#e3a62f";
-                    else if (key.toLowerCase().includes("battery") || key.toLowerCase().includes("bat")) color = "#a855f7";
+                    const color = "var(--text-primary)";
 
                     return (
                       <TelemetryChart
@@ -880,14 +847,8 @@ export function TelemetryPage() {
                     </strong>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
                       <BatteryIcon level={currentBattery} />
-                      <div style={{ flex: 1, height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden" }}>
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${currentBattery}%`,
-                            background: currentBattery < 20 ? "var(--danger)" : currentBattery < 50 ? "var(--warning)" : "var(--success)"
-                          }}
-                        />
+                      <div className="progress-track" style={{ flex: 1, height: 4 }}>
+                        <div className="progress-fill" style={{ width: `${currentBattery}%` }} />
                       </div>
                     </div>
                   </div>
@@ -898,14 +859,8 @@ export function TelemetryPage() {
                       <span>CPU Core Load</span>
                       <span>{currentCPU.toFixed(1)}%</span>
                     </strong>
-                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${currentCPU}%`,
-                          background: currentCPU > 85 ? "var(--danger)" : currentCPU > 60 ? "var(--warning)" : "var(--success)"
-                        }}
-                      />
+                    <div className="progress-track" style={{ width: "100%", height: 4 }}>
+                      <div className="progress-fill" style={{ width: `${currentCPU}%` }} />
                     </div>
                   </div>
                 )}
@@ -915,14 +870,8 @@ export function TelemetryPage() {
                       <span>RAM Memory Usage</span>
                       <span>{currentRAM.toFixed(1)}%</span>
                     </strong>
-                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${currentRAM}%`,
-                          background: currentRAM > 85 ? "var(--danger)" : currentRAM > 60 ? "var(--warning)" : "var(--success)"
-                        }}
-                      />
+                    <div className="progress-track" style={{ width: "100%", height: 4 }}>
+                      <div className="progress-fill" style={{ width: `${currentRAM}%` }} />
                     </div>
                   </div>
                 )}
@@ -932,14 +881,8 @@ export function TelemetryPage() {
                       <span>Heap Free Memory</span>
                       <span>{(currentHeap / 1024).toFixed(1)} KB</span>
                     </strong>
-                    <div style={{ height: 6, background: "var(--line-soft)", borderRadius: 3, overflow: "hidden", width: "100%" }}>
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${Math.min(100, (currentHeap / 280000) * 100)}%`,
-                          background: currentHeap < 40000 ? "var(--danger)" : "var(--accent)"
-                        }}
-                      />
+                    <div className="progress-track" style={{ width: "100%", height: 4 }}>
+                      <div className="progress-fill" style={{ width: `${Math.min(100, (currentHeap / 280000) * 100)}%` }} />
                     </div>
                   </div>
                 )}
@@ -953,7 +896,7 @@ export function TelemetryPage() {
                 {/* Render extra dynamically discovered telemetry attributes */}
                 {extraMetricKeys.length > 0 && (
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
-                    <h4 style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: 0.5 }}>Extra Attributes</h4>
+                    <h4 className="telemetry-section-title">Extra Attributes</h4>
                     <div className="detail-card-list">
                       {extraMetricKeys.map(key => {
                         const val = latestMetrics[key];
@@ -997,7 +940,7 @@ export function TelemetryPage() {
                     2
                   )}
                   rows={10}
-                  style={{ fontFamily: "var(--font-mono)", fontSize: "12px", background: "#0d1015" }}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: "12px", background: "transparent" }}
                 />
               </label>
               {simError && <div className="form-message error field full">{simError}</div>}
