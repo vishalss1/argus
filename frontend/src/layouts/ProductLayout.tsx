@@ -10,17 +10,17 @@ const productLinks = [
 
 export function ProductLayout() {
   return (
-    <div className="site-shell">
-      <header className="topbar">
+    <div className="site-shell site-shell--landing">
+      <header className="topbar topbar--landing">
         <NavLink className="brand" to="/">
-          <span className="brand-mark">
-            <Activity size={20} aria-hidden />
+          <span className="brand-mark brand-mark--landing">
+            <Activity size={18} strokeWidth={1.6} aria-hidden />
           </span>
           <span>
             <strong>ARGUS</strong>
           </span>
         </NavLink>
-        <nav className="topnav" aria-label="Primary navigation">
+        <nav className="topnav topnav--landing" aria-label="Primary navigation">
           {productLinks.map((link) => (
             <NavLink key={link.to} to={link.to} end={link.to === "/"}>
               {link.label}
@@ -28,7 +28,7 @@ export function ProductLayout() {
           ))}
         </nav>
         <div className="topbar-right">
-          <NavLink className="btn-inverse" to="/dashboard">
+          <NavLink className="topbar-cta" to="/dashboard">
             Dashboard <ArrowRight size={13} aria-hidden />
           </NavLink>
         </div>
