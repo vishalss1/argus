@@ -302,18 +302,21 @@ function ParticleCanvas() {
     // Hero nodes — large bloom anchors, scattered organically
     const HEROES = new Set([28, 29, 35, 36, 42, 43, 49, 56]);
 
-    const nodes = P.map(([px, py, depth]) => ({
-      x: px * w,
-      y: py * h,
-      depth: Math.max(0.15, 1.0 - (px * 0.65)), // bright left, dim right
-    }));
+// Deterministic "random" using index so it's stable every render
+const BIG_NODES = new Set([4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,3,9,15,21,62]);
+const nodes = P.map(([px, py], i) => {
+  const depth = Math.max(0.15, 1.0 - (px * 0.65));
+  // Front nodes (low x = high depth) get bigger, plus a few background ones
+  const isBig = BIG_NODES.has(i);
+  return { x: px * w, y: py * h, depth, isBig };
+});
 
-    // Scale network up by 1.08x from its centroid
+    // Scale network up from its centroid
     const cx = nodes.reduce((s,n) => s + n.x, 0) / nodes.length;
     const cy = nodes.reduce((s,n) => s + n.y, 0) / nodes.length;
     nodes.forEach(n => {
       n.x = cx + (n.x - cx) * 1.08;
-      n.y = cy + (n.y - cy) * 1.08;
+      n.y = cy + (n.y - cy) * 1.32; // stretch vertically
     });
 
     // Clamp nodes to stay within canvas with 4% padding
@@ -349,7 +352,7 @@ function ParticleCanvas() {
       }
     }
 
-    // DRAW EDGES — opacity driven by average depth of two endpoints
+    // DRAW EDGES — fire/torch non-uniform glow effect
     ctx.shadowBlur = 0;
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
@@ -359,52 +362,130 @@ function ParticleCanvas() {
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         if (d < T) nbrs.push({j, d});
       }
-      nbrs.sort((x,y) => x.d - y.d);
-      for (const {j, d} of nbrs.slice(0, 6)) {
+      nbrs.sort((x, y) => x.d - y.d);
+
+      // Organic disconnection — outer/background nodes randomly have fewer connections
+      const maxConn = a.isBig ? 6 :
+                      a.depth > 0.65 ? 4 :
+                      a.depth > 0.40 ? 3 :
+                      (i % 2 === 0) ? 2 : 1;
+
+      // Randomly skip some edges entirely for outer nodes — creates isolated segments
+      const candidates = nbrs.filter((_, idx) => {
+        // Force disconnection by index — creates organic isolated clusters
+        if (a.isBig) return true;
+        if (a.depth > 0.8) return ((i + idx) % 7) !== 0; // skip ~14%
+        if (a.depth > 0.55) return ((i * 3 + idx * 7) % 5) !== 0; // skip ~20%
+        if (a.depth > 0.35) return ((i * 11 + idx * 5) % 3) !== 0; // skip ~33%
+        return ((i + idx) % 2) === 0; // outer nodes: skip HALF their edges
+      });
+
+      for (const {j, d} of candidates.slice(0, maxConn)) {
         const b = nodes[j];
         const avgDepth = (a.depth + b.depth) / 2;
         const distFactor = 1 - d / T;
+
+        // Base faint edge
         const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
-        const opA = Math.min(distFactor * a.depth * 0.30, 0.35);
-        const opB = Math.min(distFactor * b.depth * 0.30, 0.35);
-        grad.addColorStop(0, `rgba(255,255,255,${opA})`);
-        grad.addColorStop(1, `rgba(255,255,255,${opB})`);
+        grad.addColorStop(0, `rgba(255,255,255,${Math.min(distFactor * a.depth * 0.30, 0.35)})`);
+        grad.addColorStop(1, `rgba(255,255,255,${Math.min(distFactor * b.depth * 0.30, 0.35)})`);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.strokeStyle = grad;
         ctx.lineWidth = 0.4 + avgDepth * 0.4;
-        ctx.shadowBlur = avgDepth * 8;           // edge glow scaled by depth
-        ctx.shadowColor = `rgba(255,255,255,${avgDepth * 0.4})`;
+        ctx.shadowBlur = 0;
         ctx.stroke();
-        ctx.shadowBlur = 0;                       // reset after each edge
+
+        // Fire glow — only on edges connected to big nodes or high-depth
+        const shouldGlow = (a.isBig || b.isBig) || avgDepth > 0.72;
+        if (shouldGlow) {
+          // Draw 3 segments along the edge with varying glow intensity
+          // simulates non-uniform torch light — brightest near the big node
+          const steps = 5;
+          for (let s = 0; s < steps; s++) {
+            const t0 = s / steps;
+            const t1 = (s + 1) / steps;
+            const x0 = a.x + (b.x - a.x) * t0;
+            const y0 = a.y + (b.y - a.y) * t0;
+            const x1 = a.x + (b.x - a.x) * t1;
+            const y1 = a.y + (b.y - a.y) * t1;
+
+            // Intensity peaks near whichever endpoint is bigger/brighter
+            const tMid = (t0 + t1) / 2;
+            const nearA = 1 - tMid;
+            const nearB = tMid;
+            const intensityA = a.isBig ? nearA * 0.9 : nearA * a.depth * 0.5;
+            const intensityB = b.isBig ? nearB * 0.9 : nearB * b.depth * 0.5;
+            const segIntensity = Math.max(intensityA, intensityB) * distFactor;
+
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
+            ctx.strokeStyle = `rgba(255,255,255,${Math.min(segIntensity * 0.6, 0.55)})`;
+            ctx.lineWidth = 0.5 + segIntensity * 1.5;
+            ctx.shadowBlur = segIntensity * 18;
+            ctx.shadowColor = `rgba(255,255,255,${segIntensity * 0.8})`;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+          }
+        }
       }
     }
 
     // DRAW REGULAR NODES — size and glow scaled by depth
     for (let i = 0; i < nodes.length; i++) {
       if (HEROES.has(i)) continue;
-      const {x, y, depth} = nodes[i];
+      const {x, y, depth, isBig} = nodes[i];
 
-      if (depth > 0.7) {
-        // Left/bright nodes — double glow pass
+      if (isBig) {
+        // NO filled circles at large radius — that creates the ring look
+        // Instead: draw only the core, let shadowBlur do ALL the work
+
+        // Pass 1 — extreme outer bloom (pure shadow, invisible fill)
         ctx.beginPath();
-        ctx.arc(x, y, 2.5 + depth, 0, Math.PI * 2);
-        ctx.shadowBlur = 30 + depth * 20;
-        ctx.shadowColor = 'rgba(255,255,255,0.9)';
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+        ctx.shadowBlur = 80 + depth * 40;
+        ctx.shadowColor = `rgba(255,255,255,${0.25 + depth * 0.2})`;
+        ctx.fillStyle = 'rgba(255,255,255,0)'; // transparent — only shadow renders
         ctx.fill();
-      }
 
-      const r = 1.0 + depth * 1.6;
-      const blur = 10 + depth * 20;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.shadowBlur = blur;
-      ctx.shadowColor = `rgba(255,255,255,${0.4 + depth * 0.6})`;
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      ctx.shadowBlur = 0;
+        // Pass 2 — mid bloom
+        ctx.beginPath();
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+        ctx.shadowBlur = 35 + depth * 20;
+        ctx.shadowColor = `rgba(255,255,255,${0.5 + depth * 0.3})`;
+        ctx.fillStyle = 'rgba(255,255,255,0)';
+        ctx.fill();
+
+        // Pass 3 — tight inner glow
+        ctx.beginPath();
+        ctx.arc(x, y, 2.0 + depth * 0.8, 0, Math.PI * 2);
+        ctx.shadowBlur = 16 + depth * 10;
+        ctx.shadowColor = '#ffffff';
+        ctx.fillStyle = `rgba(255,255,255,${0.6 + depth * 0.4})`;
+        ctx.fill();
+
+        // Pass 4 — pinpoint hot core
+        ctx.beginPath();
+        ctx.arc(x, y, 1.2, 0, Math.PI * 2);
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#ffffff';
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+      } else {
+        // Normal node
+        const r = 1.2 + depth * 1.6;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.shadowBlur = 10 + depth * 20;
+        ctx.shadowColor = `rgba(255,255,255,${0.4 + depth * 0.6})`;
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
     }
 
     // DRAW HERO NODES — 3-layer bloom
