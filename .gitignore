@@ -25,5 +25,4 @@ dist
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
-images/
 *test*
