@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	segmentio "github.com/segmentio/kafka-go"
 	"github.com/vishalss1/argus/internal/ai/actions"
@@ -725,6 +725,17 @@ func monitorPresence(ctx context.Context, s *devicedomain.PresenceService, timeo
 	}
 }
 
+const (
+	telemetryLiveMsgChanSize     = 1000
+	telemetryLiveCommitBatchSize = 100
+	telemetryLiveCommitInterval  = 1 * time.Second
+	telemetryLiveRedisBatchSize  = 100
+	telemetryLiveMaxBatchWait    = 1 * time.Second
+	telemetryLiveWorkspaceTTL    = 60 * time.Second
+	telemetryLiveSessionTTL      = 30 * time.Second
+	telemetryLiveWorkers         = 4
+)
+
 func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemetryRepo *redis.TelemetryRepository, redisClient *redis.Client, kafkaProducer *kafka.Producer) {
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
@@ -764,78 +775,91 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 		}
 	}
 
-	var batch []segmentio.Message
-	const maxBatchSize = 1000
-	const maxBatchWait = 1 * time.Second
-
-	commitTimer := time.NewTimer(maxBatchWait)
-	defer commitTimer.Stop()
-
-	flushBatch := func(flushCtx context.Context) {
-		defer func() {
-			if !commitTimer.Stop() {
-				select {
-				case <-commitTimer.C:
-				default:
-				}
-			}
-			commitTimer.Reset(maxBatchWait)
-		}()
-
-		if len(batch) == 0 {
-			return
-		}
-		start := time.Now()
-		err := consumer.CommitMessages(flushCtx, batch...)
-		duration := time.Since(start).Seconds()
-		session.TelemetryConsumerCommitDurationSeconds.Observe(duration)
-		if err != nil {
-			log.Printf("[LIVE CONSUMER] failed to commit batch of %d messages: %v", len(batch), err)
-		} else {
-			session.TelemetryConsumerBatchCommitsTotal.Inc()
-			log.Printf("[LIVE CONSUMER] successfully committed batch of %d messages in %.4fs", len(batch), duration)
-		}
-		batch = batch[:0]
-	}
-
-	var redisBatch []segmentio.Message
-	pipe := redisClient.Client().Pipeline()
-
-	flushRedisBatch := func(flushCtx context.Context) {
-		if len(redisBatch) == 0 {
-			return
-		}
-		pipeStart := time.Now()
-		cmds, execErr := pipe.Exec(flushCtx)
-		pipeDuration := time.Since(pipeStart).Seconds()
-
-		// Observability metrics
-		session.TelemetryRedisPipelineDurationSeconds.Observe(pipeDuration)
-		session.TelemetryPipelineMessagesTotal.Add(float64(len(redisBatch)))
-		session.RedisPipelineBatchesTotal.Inc()
-		session.RedisPipelineCommandsTotal.Add(float64(len(cmds)))
-
-		if execErr != nil {
-			log.Printf("[LIVE CONSUMER] error executing pipeline batch of %d: %v", len(redisBatch), execErr)
-			session.TelemetryConsumerProcessingFailuresTotal.Add(float64(len(redisBatch)))
-			if kafkaProducer != nil {
-				for _, m := range redisBatch {
-					_ = kafkaProducer.PublishDLQ(flushCtx, cfg.KafkaTelemetryTopic, m.Key, m.Value, execErr.Error())
-				}
-			}
-		}
-
-		batch = append(batch, redisBatch...)
-		redisBatch = redisBatch[:0]
-
-		if len(batch) >= maxBatchSize {
-			flushBatch(flushCtx)
-		}
-	}
-
-	msgChan := make(chan segmentio.Message, 2000)
+	// Channels
+	msgChan := make(chan segmentio.Message, telemetryLiveMsgChanSize)
+	commitChan := make(chan segmentio.Message, telemetryLiveMsgChanSize)
 	errChan := make(chan error, 1)
 
+	// Pipeline work item — workers send these to a dedicated pipeline goroutine
+	type pipelineItem struct {
+		msg       segmentio.Message
+		deviceID  string
+		sessionID string
+		telemetry telemetrydomain.Telemetry
+	}
+	pipelineChan := make(chan pipelineItem, telemetryLiveMsgChanSize)
+
+	// Dedicated pipeline goroutine: single-writer to Redis pipeline
+	pipelineDone := make(chan struct{})
+	go func() {
+		defer close(pipelineDone)
+		pipe := redisClient.Client().Pipeline()
+		var redisBatch []segmentio.Message
+
+		flushPipeline := func(flushCtx context.Context) {
+			if len(redisBatch) == 0 {
+				return
+			}
+			session.TelemetryConsumerRedisBatchSize.Observe(float64(len(redisBatch)))
+			pipeStart := time.Now()
+			
+			cmds, execErr := pipe.Exec(flushCtx)
+			
+			pipeDuration := time.Since(pipeStart).Seconds()
+
+			session.TelemetryRedisPipelineDurationSeconds.Observe(pipeDuration)
+			session.TelemetryPipelineMessagesTotal.Add(float64(len(redisBatch)))
+			session.RedisPipelineBatchesTotal.Inc()
+			session.RedisPipelineCommandsTotal.Add(float64(len(cmds)))
+
+			if execErr != nil {
+				log.Printf("[LIVE CONSUMER] error executing pipeline batch of %d: %v", len(redisBatch), execErr)
+				session.TelemetryConsumerProcessingFailuresTotal.Add(float64(len(redisBatch)))
+				if kafkaProducer != nil {
+					for _, m := range redisBatch {
+						_ = kafkaProducer.PublishDLQ(flushCtx, cfg.KafkaTelemetryTopic, m.Key, m.Value, execErr.Error())
+					}
+				}
+			}
+
+			for _, m := range redisBatch {
+				select {
+				case commitChan <- m:
+				case <-flushCtx.Done():
+					return
+				}
+			}
+			redisBatch = redisBatch[:0]
+		}
+
+		pipelineFlushTicker := time.NewTicker(500 * time.Millisecond)
+		defer pipelineFlushTicker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				flushPipeline(context.Background())
+				return
+			case item := <-pipelineChan:
+				payload, _ := json.Marshal(item.telemetry)
+				if err := telemetryRepo.SessionTrackPipeline(ctx, pipe, item.sessionID, item.deviceID, time.Now().Unix(), payload); err != nil {
+					log.Printf("[LIVE CONSUMER] failed to pipeline SessionTrack: %v", err)
+				}
+				redisBatch = append(redisBatch, item.msg)
+				if len(redisBatch) >= telemetryLiveRedisBatchSize {
+					flushPipeline(ctx)
+				}
+			case <-pipelineFlushTicker.C:
+				flushPipeline(ctx)
+			}
+		}
+	}()
+
+	// Expose metrics ticker
+	metricsTicker := time.NewTicker(1 * time.Second)
+	defer metricsTicker.Stop()
+
+	// Fetcher Goroutine
 	go func() {
 		for {
 			msg, err := consumer.FetchMessage(ctx)
@@ -843,7 +867,10 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 				if ctx.Err() != nil {
 					return
 				}
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+				}
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -855,76 +882,163 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 		}
 	}()
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("[LIVE CONSUMER] context cancelled, flushing pending offsets...")
-			flushRedisBatch(context.Background())
-			flushBatch(context.Background())
-			return
-		case err := <-errChan:
-			log.Printf("[LIVE CONSUMER] fetch error: %v", err)
-		case msg := <-msgChan:
-			var t telemetrydomain.Telemetry
-			if err := json.Unmarshal(msg.Value, &t); err != nil {
-				log.Printf("[LIVE CONSUMER] decode error: %v", err)
-				session.TelemetryConsumerDroppedMessagesTotal.Inc()
-				// Drop invalid messages
-				_ = consumer.CommitMessages(ctx, msg)
-				continue
+	// Commit Worker Goroutine
+	commitWorkerDone := make(chan struct{})
+	go func() {
+		defer close(commitWorkerDone)
+		var commitBatch []segmentio.Message
+		commitTicker := time.NewTicker(telemetryLiveCommitInterval)
+		defer commitTicker.Stop()
+
+		flushCommit := func(flushCtx context.Context) {
+			if len(commitBatch) == 0 {
+				return
 			}
-
-			session.TelemetryConsumerMessagesTotal.Inc()
-
-			// Determine device workspace and active session
-			var workspaceID string
-			var sessionID string
-			wsKey := fmt.Sprintf("device:%s:workspace", t.DeviceID)
-
-			if cachedWS, ok := getLocalCache(wsKey); ok {
-				workspaceID = cachedWS
+			session.TelemetryConsumerCommitBatchSize.Observe(float64(len(commitBatch)))
+			start := time.Now()
+			
+			err := consumer.CommitMessages(flushCtx, commitBatch...)
+			
+			duration := time.Since(start).Seconds()
+			session.TelemetryConsumerCommitDurationSeconds.Observe(duration)
+			if err != nil {
+				log.Printf("[LIVE CONSUMER] failed to commit batch of %d messages: %v", len(commitBatch), err)
 			} else {
-				cachedWS, err := redisClient.Client().Get(ctx, wsKey).Result()
-				if err == nil && cachedWS != "" {
-					workspaceID = cachedWS
-					setLocalCache(wsKey, workspaceID, 10*time.Second)
-				}
+				session.TelemetryConsumerBatchCommitsTotal.Inc()
 			}
+			commitBatch = commitBatch[:0]
+		}
 
-			if workspaceID != "" {
-				sessionKey := fmt.Sprintf("workspace:%s:active_session", workspaceID)
-				if sID, ok := getLocalCache(sessionKey); ok {
-					sessionID = sID
+		for {
+			select {
+			case <-ctx.Done():
+				flushCommit(context.Background())
+				return
+			case msg := <-commitChan:
+				commitBatch = append(commitBatch, msg)
+				if len(commitBatch) >= telemetryLiveCommitBatchSize {
+					flushCommit(ctx)
+				}
+			case <-commitTicker.C:
+				flushCommit(ctx)
+			}
+		}
+	}()
+
+	// Worker pool
+	var workerWg sync.WaitGroup
+	for w := 0; w < telemetryLiveWorkers; w++ {
+		workerWg.Add(1)
+		go func(workerID int) {
+			defer workerWg.Done()
+			for msg := range msgChan {
+				msgStart := time.Now()
+
+				// Stage 1: Deserialize
+				var t telemetrydomain.Telemetry
+				if err := json.Unmarshal(msg.Value, &t); err != nil {
+					log.Printf("[LIVE CONSUMER] decode error: %v", err)
+					session.TelemetryConsumerDroppedMessagesTotal.Inc()
+					select {
+					case commitChan <- msg:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+
+				session.TelemetryConsumerMessagesTotal.Inc()
+
+				// Stage 2: Workspace lookup
+				var workspaceID string
+				var sessionID string
+				wsKey := fmt.Sprintf("device:%s:workspace", t.DeviceID)
+
+				if cachedWS, ok := getLocalCache(wsKey); ok {
+					workspaceID = cachedWS
+					session.TelemetryStageCacheHitRatio.WithLabelValues("workspace", "hit").Inc()
 				} else {
-					sID, err := redisClient.Client().Get(ctx, sessionKey).Result()
-					if err == nil && sID != "" {
+					cachedWS, err := redisClient.Client().Get(ctx, wsKey).Result()
+					if err == nil && cachedWS != "" {
+						workspaceID = cachedWS
+						setLocalCache(wsKey, workspaceID, telemetryLiveWorkspaceTTL)
+					}
+					session.TelemetryStageCacheHitRatio.WithLabelValues("workspace", "miss").Inc()
+				}
+
+				// Stage 3: Session lookup
+				if workspaceID != "" {
+					sessionKey := fmt.Sprintf("workspace:%s:active_session", workspaceID)
+					if sID, ok := getLocalCache(sessionKey); ok {
 						sessionID = sID
-						setLocalCache(sessionKey, sessionID, 2*time.Second)
+						session.TelemetryStageCacheHitRatio.WithLabelValues("session", "hit").Inc()
+					} else {
+						sID, err := redisClient.Client().Get(ctx, sessionKey).Result()
+						if err == nil && sID != "" {
+							sessionID = sID
+							setLocalCache(sessionKey, sessionID, telemetryLiveSessionTTL)
+						}
+						session.TelemetryStageCacheHitRatio.WithLabelValues("session", "miss").Inc()
 					}
 				}
-			}
 
-			if sessionID != "" {
-				// 1. Set latest telemetry in Redis using pipeline
-				if err := telemetryRepo.SetLatestPipeline(ctx, pipe, t.DeviceID, t); err != nil {
-					log.Printf("[LIVE CONSUMER] failed to pipeline SetLatest: %v", err)
+				// Stage 4: Pipeline queue
+				if sessionID != "" {
+					item := pipelineItem{
+						msg:       msg,
+						deviceID:  t.DeviceID,
+						sessionID: sessionID,
+						telemetry: t,
+					}
+					select {
+					case pipelineChan <- item:
+					case <-ctx.Done():
+						return
+					}
+				} else {
+					select {
+					case commitChan <- msg:
+					case <-ctx.Done():
+						return
+					}
 				}
 
-				redisBatch = append(redisBatch, msg)
-				if len(redisBatch) >= 100 {
-					flushRedisBatch(ctx)
-				}
-			} else {
-				batch = append(batch, msg)
-				if len(batch) >= maxBatchSize {
-					flushBatch(ctx)
-				}
+				session.TelemetryConsumerMessageProcessingDuration.Observe(time.Since(msgStart).Seconds())
 			}
-		case <-commitTimer.C:
-			flushRedisBatch(ctx)
-			flushBatch(ctx)
-		}
+		}(w)
 	}
+
+	session.TelemetryConsumerWorkerCount.Set(float64(telemetryLiveWorkers))
+
+	// Periodic metrics
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-metricsTicker.C:
+				session.TelemetryConsumerChanDepth.Set(float64(len(msgChan)))
+				session.TelemetryConsumerWorkerQueueDepth.Set(float64(len(msgChan)))
+				session.TelemetryConsumerCommitQueueDepth.Set(float64(len(commitChan)))
+			}
+		}
+	}()
+
+	log.Printf("[LIVE CONSUMER] worker pool started with %d workers", telemetryLiveWorkers)
+
+	// Block until context cancellation
+	<-ctx.Done()
+	log.Printf("[LIVE CONSUMER] context cancelled, flushing pending operations...")
+
+	close(msgChan)
+	workerWg.Wait()
+	close(pipelineChan)
+	<-pipelineDone
+
+	close(commitChan)
+	<-commitWorkerDone
+
+	log.Printf("[LIVE CONSUMER] shutdown complete")
 }
 
 func toFloat(val interface{}) (float64, bool) {
@@ -1355,18 +1469,12 @@ func runCorrelation(ctx context.Context, redisClient *redis.Client, eventRepo ev
 	if err != nil || len(activeSessions) == 0 {
 		return
 	}
-	if len(activeSessions) > 100 {
-		activeSessions = activeSessions[:100]
-	}
 
 	for _, sessionID := range activeSessions {
 		incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
 		incidentKeys, err := rdb.SMembers(ctx, incidentsSetKey).Result()
 		if err != nil || len(incidentKeys) == 0 {
 			continue
-		}
-		if len(incidentKeys) > 1000 {
-			incidentKeys = incidentKeys[:1000]
 		}
 
 		vals, err := rdb.MGet(ctx, incidentKeys...).Result()

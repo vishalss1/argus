@@ -29,7 +29,10 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		DB:       cfg.DB,
 	})
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := client.Ping(pingCtx).Err(); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("connect redis: %w", err)
 	}

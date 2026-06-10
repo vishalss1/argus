@@ -156,6 +156,7 @@ func Load() *Config {
 	if cfg.RedisAddr == "" {
 		cfg.RedisAddr = "localhost:6379"
 	}
+	log.Printf("Loaded Redis Address: %s", cfg.RedisAddr)
 	if redisDB := strings.TrimSpace(os.Getenv("REDIS_DB")); redisDB != "" {
 		parsed, err := strconv.Atoi(redisDB)
 		if err != nil {

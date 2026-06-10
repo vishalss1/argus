@@ -2526,10 +2526,9 @@ input[type="file"]::file-selector-button:hover {
   padding: 48px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   min-height: 100vh;
 }
-.auth-aside .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-primary); }
+.auth-aside .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-primary); margin-bottom: 40px; }
 .auth-aside .brand .brand-mark {
   display: inline-flex;
   align-items: center;
@@ -2562,33 +2561,8 @@ input[type="file"]::file-selector-button:hover {
   line-height: 1.6;
   max-width: 380px;
 }
-.auth-aside .auth-bullets {
-  margin-top: 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.auth-aside .auth-bullets span::before {
-  content: "—";
-  margin-right: 12px;
-  color: var(--text-primary);
-}
-.auth-aside-footer {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
+.auth-aside .auth-bullets { display: none; }
+.auth-aside-footer { display: none; }
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -2621,7 +2595,7 @@ input[type="file"]::file-selector-button:hover {
   margin: 0 0 32px;
   line-height: 1.6;
 }
-.auth-form .form-group { margin-bottom: 20px; display: flex; flex-direction: column; gap: 6px; }
+.auth-form .form-group { margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px; }
 .auth-form .form-group label {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -2630,11 +2604,11 @@ input[type="file"]::file-selector-button:hover {
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
-.auth-form .form-group input,
-.auth-form .form-group textarea {
+.auth-form .form-group input {
   font-family: var(--font-body);
-  font-size: 13px;
-  padding: 10px 12px;
+  font-size: 14px;
+  height: 42px;
+  padding: 0 14px;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-primary);
@@ -2642,8 +2616,8 @@ input[type="file"]::file-selector-button:hover {
   outline: none;
   transition: border-color 150ms ease;
 }
-.auth-form .form-group input:focus,
-.auth-form .form-group textarea:focus { border-color: var(--text-primary); }
+.auth-form .form-group input:focus { border-color: var(--text-primary); }
+.auth-form .form-group input::placeholder { color: var(--text-muted); }
 .auth-form .form-group .input-error {
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -2651,7 +2625,7 @@ input[type="file"]::file-selector-button:hover {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.auth-form .auth-button { width: 100%; justify-content: center; padding: 14px; margin-top: 8px; }
+.auth-form .auth-button { width: 100%; justify-content: center; height: 42px; padding: 0 14px; margin-top: 16px; }
 .auth-form .footnote {
   margin-top: 32px;
   font-size: 13px;
@@ -2992,33 +2966,6 @@ input[type="file"]::file-selector-button:hover {
 }
 
 /* ── Auth input with icon (login/register) ── */
-.auth-input-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-.auth-input-wrap input {
-  width: 100%;
-  padding-left: 38px;
-  font-family: var(--font-body);
-  font-size: 13px;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  height: 38px;
-  outline: none;
-  border-radius: 0;
-  transition: border-color 150ms ease;
-}
-.auth-input-wrap input:focus { border-color: var(--text-primary); }
-.auth-input-wrap input::placeholder { color: var(--text-muted); }
-.auth-input-wrap .auth-input-icon {
-  position: absolute;
-  left: 12px;
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
 /* ── Modal internal layout ── */
 .modal-form {
   display: flex;
@@ -3784,96 +3731,77 @@ input[type="file"]::file-selector-button:hover {
   .lp-sub, .lp-sub-wide { margin-bottom: 48px; }
 }
 
-/* ── SYSTEM FLOW (7 stages + wavy river) ────────────────────────────── */
+/* ── SYSTEM FLOW (horizontal architecture cards) ────────────────────── */
 .lp-system-flow { padding-bottom: 140px; }
 .lp-flow-wrap {
   width: 100%;
-  position: relative;
 }
-.lp-flow {
-  position: relative;
+.lp-flow-cards {
+  display: flex;
+  flex-direction: row;
   width: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.lp-flow-svg {
-  width: 100%;
-  height: auto;
-  display: block;
-  overflow: visible;
-}
-.lp-flow-stages {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.lp-flow-stage {
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
+.lp-flow-card {
+  flex: 1;
+  min-width: 0;
+  padding: 40px 24px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  width: 130px;
+  gap: 6px;
+  transition: border-color 200ms ease;
 }
-.lp-flow-icon {
-  display: grid;
-  place-items: center;
-  background: #080808;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+.lp-flow-card:last-child { border-right: none; }
+.lp-flow-card:hover {
+  border-right-color: rgba(255, 255, 255, 0.2);
+}
+.lp-flow-card:hover + .lp-flow-card {
+  border-left-color: rgba(255, 255, 255, 0.2);
+}
+.lp-flow-card-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.25);
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.lp-flow-card-label {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 22px;
+  letter-spacing: -0.01em;
   color: #ffffff;
-  margin-bottom: 14px;
-  position: relative;
-  z-index: 2;
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.06);
-  /* Hexagonal silhouette using clip-path */
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  -webkit-clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  padding: 10px;
+  line-height: 1.25;
 }
-.lp-flow-label {
+.lp-flow-card-sub {
   font-family: var(--font-body);
   font-size: 13px;
-  font-weight: 500;
-  color: #ffffff;
-  letter-spacing: -0.005em;
-  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1.45;
+  margin-top: 2px;
 }
-.lp-flow-sub {
-  font-family: var(--font-body);
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 4px;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-@media (max-width: 1100px) {
-  .lp-flow-stage { width: 110px; }
-  .lp-flow-label { font-size: 12px; }
-  .lp-flow-sub { font-size: 10.5px; }
-}
-@media (max-width: 860px) {
-  .lp-flow-wrap { overflow-x: auto; }
-  .lp-flow-svg { min-width: 900px; }
-  .lp-flow-stages { min-width: 900px; }
-}
-@media (max-width: 700px) {
-  /* 2-column wrap fallback */
-  .lp-flow-wrap { overflow: visible; }
-  .lp-flow-svg { display: none; }
-  .lp-flow-stages {
-    position: static;
-    inset: auto;
-    pointer-events: auto;
+
+@media (max-width: 960px) {
+  .lp-flow-cards {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 32px 16px;
+    grid-template-columns: repeat(2, 1fr);
+    border-bottom: none;
   }
-  .lp-flow-stage {
-    position: static;
-    transform: none;
-    width: auto;
+  .lp-flow-card {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 32px 20px;
   }
-  .lp-flow-icon { margin-bottom: 10px; }
+  .lp-flow-card:nth-child(even) {
+    border-right: none;
+  }
+  .lp-flow-card-label { font-size: 20px; }
+}
+@media (max-width: 560px) {
+  .lp-flow-cards { grid-template-columns: 1fr; }
+  .lp-flow-card { padding: 28px 20px; }
 }
 
 /* ── PILLARS / DL / PRINCIPLES / TECH (matching aesthetic) ──────────── */

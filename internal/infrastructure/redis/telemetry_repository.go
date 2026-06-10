@@ -37,15 +37,26 @@ func (r *TelemetryRepository) SetLatest(ctx context.Context, deviceID string, t 
 	return nil
 }
 
-func (r *TelemetryRepository) SetLatestPipeline(ctx context.Context, pipe goredis.Pipeliner, deviceID string, t telemetry.Telemetry) error {
-	key := fmt.Sprintf("device:%s:latest", deviceID)
+func (r *TelemetryRepository) SessionTrackPipeline(ctx context.Context, pipe goredis.Pipeliner, sessionID, deviceID string, nowUnix int64, latestPayload []byte) error {
+	devsKey := fmt.Sprintf("session:%s:devices", sessionID)
+	stateKey := fmt.Sprintf("session:%s:device:%s:state", sessionID, deviceID)
+	latestKey := fmt.Sprintf("device:%s:latest", deviceID)
 
-	data, err := json.Marshal(t)
-	if err != nil {
-		return fmt.Errorf("marshal telemetry: %w", err)
-	}
+	// Since we are optimizing for readability and simplicity at 1K devices,
+	// we will just use native pipeline commands rather than a complex Lua script.
+	// The stopped check is handled asynchronously by the drain window in manager.go.
+	pipe.Set(ctx, latestKey, latestPayload, r.ttl)
+	pipe.HSet(ctx, stateKey, "last_seen", nowUnix)
+	pipe.HIncrBy(ctx, stateKey, "sample_count", 1)
+	
+	// Add to session devices. If it's the first time (SAdd returns 1), we could initialize more, 
+	// but pipeline commands don't return until Exec. We will rely on HSetNX to lazily init.
+	pipe.SAdd(ctx, devsKey, deviceID)
+	pipe.HSetNX(ctx, stateKey, "first_seen", nowUnix)
+	pipe.HSetNX(ctx, stateKey, "warning_incidents_count", 0)
+	pipe.HSetNX(ctx, stateKey, "critical_incidents_count", 0)
+	pipe.HSetNX(ctx, stateKey, "worst_severity", "healthy")
 
-	pipe.Set(ctx, key, data, r.ttl)
 	return nil
 }
 

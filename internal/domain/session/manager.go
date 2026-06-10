@@ -159,21 +159,29 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 		return nil, err
 	}
 
-	// 2. Read runtime state from Redis
+	// 2. Signal stopped to pipeline goroutine (prevents race where pipeline recreates keys after cleanup)
 	rdb := m.redisClient.Client()
+	rdb.Set(ctx, fmt.Sprintf("session:%s:stopped", id), "1", 60*time.Second)
+
+	// Drain delay: allow in-flight pipeline flushes to complete and observe the
+	// stopped key before we snapshot artifact data. The live consumer's pipeline
+	// goroutine flushes every 500ms — one full tick guarantees any message that
+	// was enqueued before the stopped key was set either:
+	//   (a) already flushed (and the LUA script wrote 0 because stoppedKey existed),
+	//   (b) or will be caught by the next tick inside this window.
+	select {
+	case <-ctx.Done():
+		// Context cancelled, skip drain — snapshot may be incomplete but
+		// the stop key is already set for future writes.
+	case <-time.After(1 * time.Second):
+	}
 
 	// Fetch all participating devices
 	devices, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
-	if len(devices) > 1000 {
-		devices = devices[:1000]
-	}
 	deviceCount := len(devices)
 
 	// Fetch all metric keys recorded for this session from Redis
 	metricKeys, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:metrics", id)).Result()
-	if len(metricKeys) > 100 {
-		metricKeys = metricKeys[:100]
-	}
 
 	// Gather Device Summaries using Pipelined HGetAll
 	deviceSummaries := make(map[string]DeviceSummaryArtifact)
@@ -258,9 +266,6 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	// Fetch Active Incidents (still open) from Redis
 	incidentsSetKey := fmt.Sprintf("session:%s:incidents", id)
 	activeIncidentKeys, _ := rdb.SMembers(ctx, incidentsSetKey).Result()
-	if len(activeIncidentKeys) > 1000 {
-		activeIncidentKeys = activeIncidentKeys[:1000]
-	}
 	if len(activeIncidentKeys) > 0 {
 		vals, err := rdb.MGet(ctx, activeIncidentKeys...).Result()
 		if err == nil {
@@ -446,6 +451,7 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	SessionArtifactSizeBytes.Observe(float64(len(artifactBytes)))
 
 	// 5. Cleanup Redis State
+	stoppedKey := fmt.Sprintf("session:%s:stopped", id)
 	var keysToDelete []string
 	keysToDelete = append(keysToDelete,
 		fmt.Sprintf("session:%s:active", id),
@@ -512,13 +518,18 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	}
 
 	// Scan for any other keys matching session:{id}:* to ensure a complete cleanup (no leaks)
+	// Exclude stoppedKey so the Lua script can still check it during pipeline drain
 	var sessionKeys []string
 	var sessionCursor uint64
 	sessionPattern := fmt.Sprintf("session:%s:*", id)
 	for {
 		keys, nextCursor, err := rdb.Scan(ctx, sessionCursor, sessionPattern, 250).Result()
 		if err == nil && len(keys) > 0 {
-			sessionKeys = append(sessionKeys, keys...)
+			for _, k := range keys {
+				if k != stoppedKey {
+					sessionKeys = append(sessionKeys, k)
+				}
+			}
 		}
 		sessionCursor = nextCursor
 		if sessionCursor == 0 {
@@ -540,6 +551,9 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 
 	// Remove session from active sessions set
 	rdb.SRem(ctx, "sessions:active", id)
+
+	// Ensure stopped key survives cleanup so pipeline goroutine's Lua script still sees it
+	rdb.Set(ctx, stoppedKey, "1", 60*time.Second)
 
 	// Delete all session keys in batches of 1000 using a single pipeline
 	if len(keysToDelete) > 0 {

@@ -115,7 +115,7 @@ func (r *WorkspaceRepository) UnassignDevice(ctx context.Context, workspaceID st
 }
 
 func (r *WorkspaceRepository) ListDevices(ctx context.Context, workspaceID string) ([]workspace.DeviceSummary, error) {
-	query := `SELECT id, name, type, status, firmware_version, last_seen FROM devices WHERE workspace_id = $1 ORDER BY name LIMIT 1000`
+	query := `SELECT id, name, type, status, firmware_version, last_seen FROM devices WHERE workspace_id = $1 ORDER BY name`
 	rows, err := r.db.QueryContext(ctx, query, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace devices: %w", err)

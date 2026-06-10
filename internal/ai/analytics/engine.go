@@ -168,7 +168,16 @@ func (e *Engine) getActiveSessionID(ctx context.Context, deviceID string) (strin
 func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 	sessionID, err := e.getActiveSessionID(ctx, t.DeviceID)
 	if err != nil {
-		// If there's no active session, skip analysis
+		return nil
+	}
+
+	// Gate: if the session has been stopped, skip all writes.
+	// The live consumer's SessionTrackPipeline LUA script also checks this key,
+	// but the analytics engine runs in a separate process (ai-worker) and must
+	// independently refuse late writes to keep artifact data consistent.
+	stoppedKey := fmt.Sprintf("session:%s:stopped", sessionID)
+	exists, err := e.redisClient.Exists(ctx, stoppedKey).Result()
+	if err == nil && exists > 0 {
 		return nil
 	}
 
@@ -193,7 +202,6 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 	}
 	e.mu.Unlock()
 
-	// Update basic Redis session indexes and device state in a pipeline
 	pipe := e.redisClient.Pipeline()
 
 	historyKey := fmt.Sprintf("session:%s:device:%s:telemetry_history", sessionID, t.DeviceID)
@@ -206,20 +214,6 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 		pipe.ZRemRangeByScore(ctx, historyKey, "-inf", fmt.Sprintf("%d", time.Now().Add(-24*time.Hour).UnixMilli()))
 		pipe.Expire(ctx, historyKey, 25*time.Hour)
 	}
-
-	devsKey := fmt.Sprintf("session:%s:devices", sessionID)
-	pipe.SAdd(ctx, devsKey, t.DeviceID)
-	pipe.Expire(ctx, devsKey, 24*time.Hour)
-
-	devStateKey := fmt.Sprintf("session:%s:device:%s:state", sessionID, t.DeviceID)
-	nowUnix := time.Now().Unix()
-	pipe.HSetNX(ctx, devStateKey, "first_seen", nowUnix)
-	pipe.HSet(ctx, devStateKey, "last_seen", nowUnix)
-	pipe.HIncrBy(ctx, devStateKey, "sample_count", 1)
-	pipe.HSetNX(ctx, devStateKey, "warning_incidents_count", 0)
-	pipe.HSetNX(ctx, devStateKey, "critical_incidents_count", 0)
-	pipe.HSetNX(ctx, devStateKey, "worst_severity", "healthy")
-	pipe.Expire(ctx, devStateKey, 24*time.Hour)
 
 	metricsIndexKey := fmt.Sprintf("session:%s:metrics", sessionID)
 

@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-argus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-argus}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5433:5432"
     volumes:
       - argus_postgres_data:/var/lib/postgresql/data
 
@@ -27,22 +27,22 @@ services:
       - start
       - --overprovisioned
       - --smp
-      - "1"
+      - "4"
       - --memory
-      - 512M
+      - 4G
       - --reserve-memory
       - 0M
       - --node-id
       - "0"
       - --check=false
       - --kafka-addr
-      - PLAINTEXT://0.0.0.0:9092
+      - INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
       - --advertise-kafka-addr
-      - PLAINTEXT://localhost:${KAFKA_PORT:-9092}
+      - INTERNAL://redpanda:9092,EXTERNAL://127.0.0.1:9092
       - --set
       - log_retention_ms=3600000
     ports:
-      - "${KAFKA_PORT:-9092}:9092"
+      - "9092:19092"
 
   redis:
     image: redis:7-alpine
@@ -125,6 +125,55 @@ services:
     depends_on:
       - prometheus
       - loki
+
+  api:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    container_name: argus-api
+    environment:
+      - DATABASE_URL=postgres://argus:argus@postgres:5432/argus?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_TELEMETRY_TOPIC=telemetry.raw
+      - KAFKA_INCIDENT_TOPIC=telemetry.incidents
+      - MINIO_ENDPOINT=minio:9000
+      - MQTT_BROKER_URL=tcp://mosquitto:1883
+      - PORT=8080
+      - WORKER_PROFILES=api,telemetry,alerts
+      - JWT_ACCESS_EXPIRY=24h
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+      - redpanda
+      - minio
+      - mosquitto
+    restart: always
+
+  ai-worker:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    container_name: argus-ai-worker
+    entrypoint: ["/app/ai-worker"]
+    environment:
+      - DATABASE_URL=postgres://argus:argus@postgres:5432/argus?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_TELEMETRY_TOPIC=telemetry.raw
+      - KAFKA_INCIDENT_TOPIC=telemetry.incidents
+      - MINIO_ENDPOINT=minio:9000
+      - MQTT_BROKER_URL=tcp://mosquitto:1883
+      - WORKER_PROFILES=summary
+      - JWT_ACCESS_EXPIRY=24h
+    depends_on:
+      - postgres
+      - redis
+      - redpanda
+      - minio
+    restart: always
 
 volumes:
   argus_postgres_data:
