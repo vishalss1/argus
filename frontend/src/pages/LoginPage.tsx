@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { request } from "../services/http";
-import { Activity, ArrowRight, ShieldAlert, Mail, KeyRound } from "lucide-react";
+import { Activity, ArrowRight, ShieldAlert } from "lucide-react";
 
 export function LoginPage() {
   const [email, setEmail] = useState("");
@@ -46,20 +46,8 @@ export function LoginPage() {
         <div>
           <span className="eyebrow">Fleet Operating System</span>
           <h1>Observe every device. Command any fleet.</h1>
-          <p>
-            ARGUS is the control plane for distributed IoT — real-time telemetry,
-            versioned firmware rollouts, and intelligent automation.
-          </p>
-          <div className="auth-bullets">
-            <span>Postgres &middot; TimescaleDB &middot; MQTT</span>
-            <span>Sub-second observability</span>
-            <span>Open architecture, self-hosted</span>
-          </div>
-        </div>
-
-        <div className="auth-aside-footer">
-          <span>ARGUS / v2</span>
-          <Link to="/about" className="t-link">About</Link>
+          <p>Secure access to the ARGUS control plane.</p>
+          <p>Device management, telemetry, OTA delivery and fleet operations.</p>
         </div>
       </aside>
 
@@ -79,32 +67,26 @@ export function LoginPage() {
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Email Address</label>
-              <div className="auth-input-wrap">
-                <Mail size={15} strokeWidth={1.5} className="auth-input-icon" aria-hidden />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                />
-              </div>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
             </div>
 
             <div className="form-group">
               <label>Password</label>
-              <div className="auth-input-wrap">
-                <KeyRound size={15} strokeWidth={1.5} className="auth-input-icon" aria-hidden />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                />
-              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
             </div>
 
             <button

@@ -41,15 +41,40 @@ deployments/compose/    Local Docker Compose setup and observability config
 
 ## Architecture
 
-The code follows a layered approach:
+ARGUS uses a straightforward pipeline optimized for single-node deployment (comfortably handling 1,000 devices and 100 concurrent users).
 
+```text
+Devices
+   ↓ MQTT
+Mosquitto
+   ↓
+Kafka
+   ↓
+Telemetry Consumer
+   ↓
+Redis (live state)
+   ↓
+Session Artifact
+   ↓
+PostgreSQL + MinIO
+   ↓
+AI Analysis
+```
+
+The code follows a layered approach:
 - HTTP handlers decode requests and call services
 - Domain services contain business rules and validation
 - Repository interfaces live in the domain layer
 - Infrastructure packages implement those interfaces
 - `internal/app/bootstrap.go` wires everything together
 
-Telemetry and command flows can optionally be decorated with Kafka publishing. Telemetry can also be ingested from MQTT. Shadow state is stored in Redis, and firmware artifacts are stored in MinIO.
+## Validated Scale
+
+- 1,000 devices
+- 1 hour sessions
+- Real-time telemetry ingestion
+- Session artifact generation
+- AI-powered analysis
 
 ## Runtime Behavior
 

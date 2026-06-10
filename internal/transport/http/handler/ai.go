@@ -287,22 +287,12 @@ func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	if len(activeSessions) > 100 {
-		activeSessions = activeSessions[:100]
-	}
 
 	var allIncidentKeys []string
 	for _, sessionID := range activeSessions {
-		if len(allIncidentKeys) >= 1000 {
-			break
-		}
 		incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
 		keys, err := h.redisClient.Client().SMembers(ctx, incidentsSetKey).Result()
 		if err == nil && len(keys) > 0 {
-			remaining := 1000 - len(allIncidentKeys)
-			if len(keys) > remaining {
-				keys = keys[:remaining]
-			}
 			allIncidentKeys = append(allIncidentKeys, keys...)
 		}
 	}

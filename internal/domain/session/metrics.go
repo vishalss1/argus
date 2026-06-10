@@ -6,6 +6,30 @@ import (
 )
 
 var (
+	TelemetryStageCacheHitRatio = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "telemetry_stage_cache_hit_ratio_total",
+		Help: "Cache hit/miss counter for workspace and session lookups",
+	}, []string{"cache", "result"})
+	TelemetryConsumerMessageProcessingDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "telemetry_consumer_message_processing_duration_seconds",
+		Help:    "Total time to process one message in the consumer loop",
+		Buckets: prometheus.DefBuckets,
+	})
+	TelemetryConsumerChanDepth = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "telemetry_consumer_chan_depth",
+		Help: "Current depth of the msgChan buffer",
+	})
+	TelemetryConsumerBatchSize = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "telemetry_consumer_batch_size",
+		Help:    "Size of committed batches",
+		Buckets: prometheus.ExponentialBuckets(1, 2, 12),
+	})
+	TelemetryConsumerRedisBatchSize = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "telemetry_consumer_redis_batch_size",
+		Help:    "Size of Redis pipeline batches",
+		Buckets: prometheus.ExponentialBuckets(1, 2, 10),
+	})
+
 	SessionsCreatedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "argus_sessions_created_total",
 		Help: "The total number of sessions created",
@@ -87,6 +111,29 @@ var (
 	TelemetryConsumerDuplicateMessagesTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "telemetry_consumer_duplicate_messages_total",
 		Help: "Total number of duplicate telemetry messages detected by the consumer",
+	})
+
+	// Worker pool metrics
+	TelemetryConsumerWorkerCount = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "telemetry_consumer_worker_count",
+		Help: "Number of active worker goroutines processing messages",
+	})
+	TelemetryConsumerWorkerQueueDepth = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "telemetry_consumer_worker_queue_depth",
+		Help: "Current depth of the worker input queue",
+	})
+	TelemetryConsumerWorkerUtilization = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "telemetry_consumer_worker_utilization",
+		Help: "Worker utilization percentage (0-100)",
+	})
+	TelemetryConsumerCommitQueueDepth = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "telemetry_consumer_commit_queue_depth",
+		Help: "Current depth of the commit queue",
+	})
+	TelemetryConsumerCommitBatchSize = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "telemetry_consumer_commit_batch_size",
+		Help:    "Size of async commit batches",
+		Buckets: prometheus.ExponentialBuckets(1, 2, 12),
 	})
 )
 
