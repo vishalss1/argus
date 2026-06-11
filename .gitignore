@@ -4,7 +4,6 @@ certs/*
 data/*
 cmd/gen-certs/*
 cmd/ota-keygen/*
-.antigravitycli
 .claude
 *.exe
 report.md
@@ -22,3 +21,6 @@ dist
 vite.config.js
 vite.config.d.ts
 *test*
+
+*.md
+!README.md

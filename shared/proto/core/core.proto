@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package argus.core.v1;
+option go_package = "github.com/vishalss1/argus/shared/proto/core";
+
+import "google/protobuf/timestamp.proto";
+
+service CoreService {
+  // Coarse-grained endpoint to retrieve all context about a device for rule/AI analysis.
+  // Combines device registry, workspace membership, active session status, policy configuration, and usage plans.
+  rpc GetDeviceContext(GetDeviceContextRequest) returns (DeviceContextResponse);
+
+  // Coarse-grained endpoint to execute commands on devices (e.g. reboot, config update)
+  rpc ExecuteCommand(ExecuteCommandRequest) returns (ExecuteCommandResponse);
+
+  // Coarse-grained endpoint to check and retrieve remediation policies for a given action and device.
+  rpc GetPolicy(GetPolicyRequest) returns (PolicyResponse);
+
+  // Coarse-grained endpoint to record or update execution of action/policy
+  rpc RecordExecution(RecordExecutionRequest) returns (RecordExecutionResponse);
+}
+
+message GetDeviceContextRequest {
+  string device_id = 1;
+}
+
+message DeviceContextResponse {
+  // Device Registry Info
+  string device_id = 1;
+  string name = 2;
+  string type = 3;
+  string firmware_version = 4;
+  string status = 5; // e.g. "online", "offline"
+  string metadata_json = 6;
+  google.protobuf.Timestamp last_seen = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+
+  // Workspace Info
+  string workspace_id = 10;
+  string workspace_name = 11;
+  string workspace_description = 12;
+
+  // Active Session Info (if any)
+  string active_session_id = 13;
+  string active_session_status = 14; // e.g. "RUNNING"
+  google.protobuf.Timestamp active_session_started_at = 15;
+
+  // Usage Stats / Tenant limits
+  string tenant_id = 16;
+  string billing_plan = 17; // e.g. "FREE", "PRO"
+  int32 devices_used = 18;
+  int32 max_devices_allowed = 19;
+}
+
+message ExecuteCommandRequest {
+  string device_id = 1;
+  string command_type = 2; // e.g., "reboot", "restart_service", "config_update"
+  string payload_json = 3;
+  string issued_by_user_id = 4;
+  string session_id = 5; // Optional, if executed during a session
+}
+
+message ExecuteCommandResponse {
+  string command_id = 1;
+  string status = 2; // e.g. "PENDING", "DISPATCHED"
+  google.protobuf.Timestamp issued_at = 3;
+}
+
+message GetPolicyRequest {
+  string action = 1; // e.g. "reboot_device"
+  string device_id = 2;
+}
+
+message PolicyResponse {
+  string policy_id = 1;
+  string action = 2;
+  repeated string allowed_devices = 3;
+  bool requires_approval = 4;
+  int32 max_per_day = 5;
+  int32 current_executions_today = 6;
+}
+
+message RecordExecutionRequest {
+  string id = 1; // If empty, creates new; otherwise updates existing status/approved_by
+  string action = 2;
+  string device_id = 3;
+  string incident_id = 4; // Optional
+  string status = 5; // pending, approved, rejected, executed, failed
+  string suggested_by = 6;
+  string approved_by = 7; // Optional
+  string metadata = 8;
+}
+
+message RecordExecutionResponse {
+  string id = 1;
+  string status = 2;
+}
+

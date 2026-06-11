@@ -19,12 +19,75 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/joho/godotenv"
 	goredis "github.com/redis/go-redis/v9"
 	segmentio "github.com/segmentio/kafka-go"
-	"github.com/vishalss1/argus/internal/config"
 
 	_ "github.com/lib/pq"
 )
+
+type Config struct {
+	DatabaseURL          string
+	Port                 string
+	KafkaBrokers         []string
+	KafkaTelemetryTopic  string
+	KafkaAIWorkerGroupID string
+	RedisAddr            string
+	RedisPassword        string
+	RedisDB              int
+	HTTPSTLSCertFile     string
+	HTTPSTLSKeyFile      string
+}
+
+func loadConfig() *Config {
+	_ = godotenv.Load(".env")
+
+	cfg := &Config{
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		Port:                os.Getenv("PORT"),
+		KafkaBrokers:        splitCSV(os.Getenv("KAFKA_BROKERS")),
+		KafkaTelemetryTopic: os.Getenv("KAFKA_TELEMETRY_TOPIC"),
+		RedisAddr:           os.Getenv("REDIS_ADDR"),
+		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
+		HTTPSTLSCertFile:    os.Getenv("HTTPS_TLS_CERT_FILE"),
+		HTTPSTLSKeyFile:     os.Getenv("HTTPS_TLS_KEY_FILE"),
+	}
+
+	if cfg.Port == "" {
+		cfg.Port = "8080"
+	}
+	if cfg.KafkaTelemetryTopic == "" {
+		cfg.KafkaTelemetryTopic = "argus.telemetry"
+	}
+	cfg.KafkaAIWorkerGroupID = os.Getenv("KAFKA_AI_WORKER_GROUP_ID")
+	if cfg.KafkaAIWorkerGroupID == "" {
+		cfg.KafkaAIWorkerGroupID = "argus-ai-worker"
+	}
+	if cfg.RedisAddr == "" {
+		cfg.RedisAddr = "localhost:6379"
+	}
+	if redisDB := strings.TrimSpace(os.Getenv("REDIS_DB")); redisDB != "" {
+		if parsed, err := strconv.Atoi(redisDB); err == nil {
+			cfg.RedisDB = parsed
+		}
+	}
+	return cfg
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	var values []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
+}
 
 type SessionResponse struct {
 	ID          string `json:"id"`
@@ -33,18 +96,18 @@ type SessionResponse struct {
 }
 
 type Checkpoint struct {
-	Time       time.Duration
-	Published  int64
-	Consumed   int64
-	Processed  int64
-	Lag        int64
-	CPU        float64
-	Memory     float64
-	RedisCPU   float64
-	RedisMem   float64
-	RedisP50   float64
-	RedisP95   float64
-	RedisP99   float64
+	Time      time.Duration
+	Published int64
+	Consumed  int64
+	Processed int64
+	Lag       int64
+	CPU       float64
+	Memory    float64
+	RedisCPU  float64
+	RedisMem  float64
+	RedisP50  float64
+	RedisP95  float64
+	RedisP99  float64
 }
 
 func main() {
@@ -62,7 +125,7 @@ func main() {
 	fmt.Printf("Extra Payload:     %d bytes\n", *payloadSizeFlag)
 	fmt.Println("==================================================")
 
-	cfg := config.Load()
+	cfg := loadConfig()
 
 	// 1. Database Connection
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
@@ -82,15 +145,18 @@ func main() {
 	}
 
 	scheme := "http"
-	if cfg.HTTPSTLSCertFile != "" && cfg.HTTPSTLSKeyFile != "" {
-		scheme = "https"
-	}
 	apiHost := os.Getenv("API_HOST")
 	if apiHost == "" {
 		apiHost = "localhost"
 	}
 	baseURL := fmt.Sprintf("%s://%s:%s/api", scheme, apiHost, cfg.Port)
 	fmt.Printf("Using API Endpoint: %s\n", baseURL)
+
+	telemetryMetricsPort := os.Getenv("TELEMETRY_METRICS_PORT")
+	if telemetryMetricsPort == "" {
+		telemetryMetricsPort = "8081"
+	}
+	coreMetricsPort := cfg.Port
 
 	kafkaAddr := "localhost:9092"
 	if len(cfg.KafkaBrokers) > 0 {
@@ -200,7 +266,7 @@ func main() {
 	fmt.Println("Session started successfully.")
 
 	// Pre-test metrics snapshot
-	preCPU, preMem, _, preConsumed, preDropped, preFailures, preDuplicates, err := getAppMetrics(httpClient, scheme, apiHost, cfg.Port)
+	preCPU, preMem, _, preConsumed, preDropped, preFailures, preDuplicates, err := getAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
 	if err != nil {
 		fmt.Printf("Warning: Failed to fetch initial app metrics: %v\n", err)
 	}
@@ -210,8 +276,8 @@ func main() {
 		fmt.Printf("Warning: Failed to fetch initial Redis stats: %v\n", err)
 	}
 
-	preArtifactGenDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, cfg.Port, "session_artifact_generation_duration_seconds_sum")
-	preStopDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, cfg.Port, "session_stop_duration_seconds_sum")
+	preArtifactGenDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_artifact_generation_duration_seconds_sum")
+	preStopDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_stop_duration_seconds_sum")
 
 	// 6. Kafka/Redpanda Async Writer Config
 	fmt.Printf("Connecting to Kafka at %s...\n", kafkaAddr)
@@ -395,7 +461,7 @@ func main() {
 		}
 
 		// A. App Stats
-		cpu, rss, goroutines, consumed, dropped, failures, _, err := getAppMetrics(httpClient, scheme, apiHost, cfg.Port)
+		cpu, rss, goroutines, consumed, dropped, failures, _, err := getAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
 		if err == nil {
 			cpuDelta := cpu - prevCPUTime
 			cpuUtil := (cpuDelta / elapsedSecs) * 100.0
@@ -562,13 +628,13 @@ func main() {
 	fmt.Printf("Session stopped successfully in %s.\n", stopDuration)
 
 	// Fetch final Prometheus metrics
-	_, postMem, _, postConsumed, postDropped, postFailures, postDuplicates, err := getAppMetrics(httpClient, scheme, apiHost, cfg.Port)
+	_, postMem, _, postConsumed, postDropped, postFailures, postDuplicates, err := getAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
 	if err != nil {
 		fmt.Printf("Failed to fetch post metrics: %v\n", err)
 	}
 
 	// Retrieve session artifact metrics
-	cumulativeArtifactGenDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, cfg.Port, "session_artifact_generation_duration_seconds_sum")
+	cumulativeArtifactGenDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_artifact_generation_duration_seconds_sum")
 	postArtifactGenDuration := cumulativeArtifactGenDuration - preArtifactGenDuration
 	if postArtifactGenDuration < 0 {
 		postArtifactGenDuration = 0
@@ -688,10 +754,10 @@ func main() {
 	avgRedisP95, _ := computeStats(redisP95Series)
 	avgRedisP99, _ := computeStats(redisP99Series)
 
-	e2eP50, e2eP95, e2eP99 := getHistogramPercentiles(httpClient, scheme, apiHost, cfg.Port, "telemetry_consumer_message_processing_duration_seconds", "")
-	fetchP50, fetchP95, fetchP99 := getHistogramPercentiles(httpClient, scheme, apiHost, cfg.Port, "telemetry_stage_fetch_duration_seconds", "")
-	commitP50, commitP95, commitP99 := getHistogramPercentiles(httpClient, scheme, apiHost, cfg.Port, "telemetry_consumer_commit_duration_seconds", "")
-	gcP50, gcP95, gcP99 := getHistogramPercentiles(httpClient, scheme, apiHost, cfg.Port, "go_gc_duration_seconds", "")
+	e2eP50, e2eP95, e2eP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_consumer_message_processing_duration_seconds", "")
+	fetchP50, fetchP95, fetchP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_stage_fetch_duration_seconds", "")
+	commitP50, commitP95, commitP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_consumer_commit_duration_seconds", "")
+	gcP50, gcP95, gcP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "go_gc_duration_seconds", "")
 
 	// Lua Stats
 	var avgLuaLatency float64
@@ -869,7 +935,7 @@ func main() {
 	reportBuilder.WriteString(fmt.Sprintf("Artifact Duration: %.4f sec\n", postArtifactGenDuration))
 	reportBuilder.WriteString(fmt.Sprintf("Cleanup Duration: %.4f sec\n", stopDuration.Seconds()-postArtifactGenDuration))
 	// Fetch StopSession latency from Prometheus histogram
-	cumulativeStopDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, cfg.Port, "session_stop_duration_seconds_sum")
+	cumulativeStopDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_stop_duration_seconds_sum")
 
 	postStopDuration := cumulativeStopDuration - preStopDuration
 	if postStopDuration < 0 {
@@ -1082,7 +1148,7 @@ func getUserIDFromToken(accessToken string) string {
 	return claims.Sub
 }
 
-func cleanupDB(db *sql.DB, cfg *config.Config, kafkaAddr string) {
+func cleanupDB(db *sql.DB, cfg *Config, kafkaAddr string) {
 	_, _ = db.Exec("DELETE FROM tenant_usage")
 	_, _ = db.Exec("DELETE FROM session_artifacts WHERE session_id IN (SELECT id FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001')")
 	_, _ = db.Exec("DELETE FROM session_statistics WHERE session_id IN (SELECT id FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001')")
