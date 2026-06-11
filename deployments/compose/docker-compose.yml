@@ -47,6 +47,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: argus-redis
+    command: redis-server --appendonly yes
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -88,6 +89,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - argus_prometheus_data:/prometheus
 
   loki:
@@ -126,11 +128,11 @@ services:
       - prometheus
       - loki
 
-  api:
+  core-service:
     build:
       context: ../../
-      dockerfile: Dockerfile
-    container_name: argus-api
+      dockerfile: services/core-service/Dockerfile
+    container_name: argus-core-service
     environment:
       - DATABASE_URL=postgres://argus:argus@postgres:5432/argus?sslmode=disable
       - REDIS_ADDR=redis:6379
@@ -142,37 +144,55 @@ services:
       - PORT=8080
       - WORKER_PROFILES=api,telemetry,alerts
       - JWT_ACCESS_EXPIRY=24h
+      - TELEMETRY_SERVICE_GRPC_ADDR=telemetry-service:50052
+      - GRPC_PORT=50051
     ports:
       - "8080:8080"
+      - "50051:50051"
     depends_on:
       - postgres
       - redis
       - redpanda
       - minio
       - mosquitto
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: always
 
-  ai-worker:
+  telemetry-service:
     build:
       context: ../../
-      dockerfile: Dockerfile
-    container_name: argus-ai-worker
-    entrypoint: ["/app/ai-worker"]
+      dockerfile: services/telemetry-service/Dockerfile
+    container_name: argus-telemetry-service
     environment:
       - DATABASE_URL=postgres://argus:argus@postgres:5432/argus?sslmode=disable
       - REDIS_ADDR=redis:6379
       - KAFKA_BROKERS=redpanda:9092
       - KAFKA_TELEMETRY_TOPIC=telemetry.raw
       - KAFKA_INCIDENT_TOPIC=telemetry.incidents
-      - MINIO_ENDPOINT=minio:9000
-      - MQTT_BROKER_URL=tcp://mosquitto:1883
-      - WORKER_PROFILES=summary
-      - JWT_ACCESS_EXPIRY=24h
+      - KAFKA_AI_WORKER_GROUP_ID=argus-ai-worker
+      - CORE_SERVICE_GRPC_ADDR=core-service:50051
+      - GRPC_PORT=50052
+      - PORT=8081
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    ports:
+      - "50052:50052"
+      - "8081:8081"
     depends_on:
       - postgres
       - redis
       - redpanda
-      - minio
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: always
 
 volumes:
