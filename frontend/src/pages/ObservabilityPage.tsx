@@ -1,4 +1,4 @@
-import { Activity, ExternalLink, RefreshCw } from "lucide-react";
+import { Activity, RefreshCw } from "lucide-react";
 import { EmptyState, ErrorState, PageHeader, Panel, StatCard, StatusChip } from "../components/ui";
 import { useHealth, useMetrics } from "../hooks/useArgusData";
 import { parsePrometheusMetrics } from "../services/api";
@@ -21,7 +21,7 @@ export function ObservabilityPage() {
         <StatCard label="API Health" value={health.isError ? "Offline" : health.isLoading ? "Checking" : "Active"} tone={health.isError ? "danger" : health.isLoading ? "warning" : "success"} />
         <StatCard label="Metric Samples" value={samples.length} detail="Active metric samples" />
         <StatCard label="HTTP Samples" value={httpSamples.length} />
-        <StatCard label="Grafana" value="Available" detail="Monitoring console" tone="info" />
+        <StatCard label="System" value={health.isError ? "Offline" : "Active"} tone={health.isError ? "danger" : "success"} />
       </div>
       <div className="split">
         <Panel title="API Status" subtitle="Backend application service status">
@@ -32,10 +32,10 @@ export function ObservabilityPage() {
             </div>
           )}
         </Panel>
-        <Panel title="External Consoles" subtitle="System Monitoring Consoles">
+        <Panel title="Service Status" subtitle="API service health">
           <div className="settings-list">
-            <a className="settings-row" href="http://localhost:3000" target="_blank" rel="noreferrer"><span><strong>Grafana</strong><p className="muted">System analytics dashboards and visualization panels.</p></span><ExternalLink size={16} /></a>
-            <a className="settings-row" href="http://localhost:9090" target="_blank" rel="noreferrer"><span><strong>Prometheus</strong><p className="muted">Exposes raw metrics and runtime statistics.</p></span><ExternalLink size={16} /></a>
+            <div className="settings-row"><span><strong>API Service</strong><p className="muted">Core API and fleet management service.</p></span></div>
+            <div className="settings-row"><span><strong>Ingestion Service</strong><p className="muted">Telemetry ingestion and event processing.</p></span></div>
           </div>
         </Panel>
       </div>

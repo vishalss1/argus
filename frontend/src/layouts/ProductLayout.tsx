@@ -2,9 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { Activity, ArrowRight } from "lucide-react";
 
 const productLinks = [
-  { to: "/", label: "Platform" },
-  { to: "/architecture", label: "Architecture" },
-  { to: "/documentation", label: "Documentation" },
+  { to: "/", label: "Home" },
   { to: "/about", label: "About" }
 ];
 

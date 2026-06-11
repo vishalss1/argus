@@ -23,13 +23,6 @@ const philosophy = [
   { name: "Operational visibility", desc: "Metrics, traces, logs and shadow state on every action. No black boxes." }
 ];
 
-const capabilities = ["Registry", "Telemetry", "OTA", "Rules", "Commands", "Analytics"];
-
-const techStack = [
-  "Go", "PostgreSQL", "TimescaleDB", "Redis", "MinIO", "Redpanda",
-  "MQTT", "NATS", "Prometheus", "Grafana", "Loki", "Docker", "Kubernetes"
-];
-
 export function AboutPage() {
   return (
     <>
@@ -82,60 +75,6 @@ export function AboutPage() {
                 <div className="dl-desc">{p.desc}</div>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container">
-          <p className="t-eyebrow">Capabilities</p>
-          <h2 className="t-h1" style={{ maxWidth: 720, marginBottom: 64 }}>
-            Core capabilities.
-          </h2>
-          <div className="tech-list" style={{ gap: 0 }}>
-            {capabilities.map((c, idx) => (
-              <span key={c} className="tech-item">
-                {c}
-                {idx < capabilities.length - 1 && <span className="tech-sep" aria-hidden>·</span>}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container">
-          <p className="t-eyebrow">Technology</p>
-          <h2 className="t-h1" style={{ maxWidth: 720, marginBottom: 64 }}>
-            Built with.
-          </h2>
-          <div className="tech-cluster">
-            <span className="tech-prompt">$</span>
-            <span className="tech-name">go</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">postgresql</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">timescaledb</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">redis</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">minio</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">redpanda</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">mqtt</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">nats</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">prometheus</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">grafana</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">loki</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">docker</span>
-            <span className="tech-sep">·</span>
-            <span className="tech-name">kubernetes</span>
           </div>
         </div>
       </section>
