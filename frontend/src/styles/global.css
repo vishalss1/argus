@@ -550,8 +550,9 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 240px minmax(0,1fr);
-  min-height: 100vh;
+  height: 100vh;
   background: var(--background);
+  overflow: hidden;
 }
 
 /* ── Sidebar ── */
@@ -568,6 +569,7 @@ button {
 }
 
 .sidebar-brand {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -667,6 +669,7 @@ button {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Operator card ── */
@@ -722,6 +725,8 @@ button {
   padding: 32px 24px;
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ── Page header ── */
@@ -1876,6 +1881,12 @@ input[type="file"]::file-selector-button:hover {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 24px;
+  min-width: 0;
+}
+
+.split > * {
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ── Panels / cards ── */
@@ -2055,14 +2066,15 @@ input[type="file"]::file-selector-button:hover {
 }
 
 /* ── Health list ── */
-.health-list { display: flex; flex-direction: column; gap: 16px; }
+.health-list { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .health-row {
   display: grid;
-  grid-template-columns: 1fr 200px 50px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 120px) 44px;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
+  min-width: 0;
 }
 .health-row:last-child { border-bottom: none; }
 .health-row .health-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -2852,6 +2864,7 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .sidebar-footer {
+  flex-shrink: 0;
   border-top: 1px solid var(--border);
   background: var(--background);
   padding: 14px 14px 16px;
