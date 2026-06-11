@@ -3,15 +3,12 @@ import { AppLayout } from "../layouts/AppLayout";
 import { ProductLayout } from "../layouts/ProductLayout";
 import { AboutPage } from "../pages/AboutPage";
 import { AlertsPage } from "../pages/AlertsPage";
-import { ArchitecturePage } from "../pages/ArchitecturePage";
+import { SettingsPage } from "../pages/SettingsPage";
 import { CommandsPage } from "../pages/CommandsPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DevicesPage } from "../pages/DevicesPage";
-import { DocumentationPage } from "../pages/DocumentationPage";
 import { LandingPage } from "../pages/LandingPage";
-import { ObservabilityPage } from "../pages/ObservabilityPage";
 import { OTAPage } from "../pages/OTAPage";
-import { SettingsPage } from "../pages/SettingsPage";
 import { WorkspacesPage } from "../pages/WorkspacesPage";
 import { SessionDashboardPage } from "../pages/SessionDashboardPage";
 import { SessionReportPage } from "../pages/SessionReportPage";
@@ -68,8 +65,6 @@ export function App() {
       {/* Marketing / Landing Public Routes */}
       <Route element={<ProductLayout />}>
         <Route index element={<LandingPage />} />
-        <Route path="architecture" element={<ArchitecturePage />} />
-        <Route path="documentation" element={<DocumentationPage />} />
         <Route path="about" element={<AboutPage />} />
       </Route>
 
@@ -91,7 +86,6 @@ export function App() {
           <Route path="ota" element={<OTAPage />} />
           <Route path="commands" element={<CommandsPage />} />
           <Route path="alerts" element={<AlertsPage />} />
-          <Route path="observability" element={<ObservabilityPage />} />
           <Route path="ai" element={<AIPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

@@ -5,7 +5,6 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
-  BookOpen,
   Brain,
   Briefcase,
   Cpu,
@@ -42,8 +41,7 @@ const observeLinks = [
 ];
 
 const bottomLinks = [
-  { to: "/settings", label: "Settings", icon: Settings },
-  { to: "/documentation", label: "Documentation", icon: BookOpen }
+  { to: "/settings", label: "Settings", icon: Settings }
 ];
 
 function NavGroup({ label, links }: { label: string; links: { to: string; label: string; icon: LucideIcon }[] }) {
