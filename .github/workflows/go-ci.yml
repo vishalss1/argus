@@ -35,8 +35,8 @@ jobs:
 
       - name: Build CMDs
         run: |
-          go build -v ./services/core-service/cmd/api
-          go build -v ./services/telemetry-service/cmd
+          go build -v -o core-service ./services/core-service/cmd/api
+          go build -v -o telemetry-service ./services/telemetry-service/cmd
 
       - name: Run Tests
         run: |
