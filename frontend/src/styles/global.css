@@ -614,6 +614,10 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-nav > .nav-group:last-of-type {
+  border-bottom: none;
+}
+
 .nav-group > span {
   display: block;
   padding: 4px 8px 8px;
@@ -4294,8 +4298,39 @@ input[type="file"]::file-selector-button:hover {
   .proof-metric-caption {
     max-width: 100%;
   }
+}/* Custom styling for select options to keep them dark-themed */
+select option {
+  background-color: var(--surface) !important;
+  color: var(--text-primary) !important;
 }
 
+/* AI Device Select Wrap */
+.ai-device-select-wrap {
+  position: relative;
+  display: inline-block;
+}
 
+.ai-device-select {
+  min-width: 180px;
+  height: 32px;
+  padding: 0 32px 0 12px; /* Extra padding on right for the icon */
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
 
-
+.ai-device-select-icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}

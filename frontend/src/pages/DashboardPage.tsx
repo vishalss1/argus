@@ -279,7 +279,7 @@ function FleetDashboard() {
           )}
         </Panel>
         <div className="grid">
-          <Panel title="Recent Alerts" actions={<Link to="/alerts" className="t-link">View All</Link>}>
+          <Panel title="Recent Alerts" actions={<Link to="/automations" className="t-link">View All</Link>}>
             {eventEntries.length === 0 ? (
               <EmptyState title="No alerts" description="No alerts have been generated." />        
             ) : (

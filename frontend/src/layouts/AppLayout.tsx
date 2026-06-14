@@ -32,19 +32,18 @@ const monitorLinks = [
 const controlLinks = [
   { to: "/commands", label: "Commands", icon: Send },
   { to: "/ota", label: "OTA Updates", icon: Rocket },
-  { to: "/alerts", label: "Automations", icon: Workflow }
+  { to: "/automations", label: "Automations", icon: Workflow }
 ];
 
 const observeLinks = [
-  { to: "/ai", label: "AI Insights", icon: Brain },
-  { to: "/alerts", label: "Alerts", icon: AlertTriangle }
+  { to: "/ai", label: "AI Insights", icon: Brain }
 ];
 
-const bottomLinks = [
-  { to: "/settings", label: "Settings", icon: Settings }
-];
+const bottomLinks: { to: string; label: string; icon: any }[] = [];
+
 
 function NavGroup({ label, links }: { label: string; links: { to: string; label: string; icon: LucideIcon }[] }) {
+  if (links.length === 0) return null;
   return (
     <div className="nav-group">
       {label && <span>{label}</span>}

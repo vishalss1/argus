@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { api } from "../services/api";
 import { SemanticEvent, ReasoningResponse } from "../types/api";
 import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard, Pagination } from "../components/ui";
-import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle } from "lucide-react";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, ChevronDown } from "lucide-react";
 import { useDeviceStatus, useSessionActiveIncidents, useSessions } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 
@@ -108,16 +108,19 @@ const AIPage: React.FC = () => {
         description={activeSession ? "Real-time operational reasoning, root-cause analysis, and incident correlation." : "Operational health analysis from persisted device state. Start a session to add live anomaly correlation."}
         actions={
           <div className="ai-page-actions">
-            <select
-              value={deviceID}
-              onChange={(e) => setDeviceID(e.target.value)}
-              className="ai-device-select"
-            >
-              <option value="">All Devices</option>
-              {workspaceDevices.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+            <div className="ai-device-select-wrap">
+              <select
+                value={deviceID}
+                onChange={(e) => setDeviceID(e.target.value)}
+                className="ai-device-select"
+              >
+                <option value="">All Devices</option>
+                {workspaceDevices.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="ai-device-select-icon" />
+            </div>
             <div className="live-badge online"><span className="live-dot" />Local Inference</div>
           </div>
         }
@@ -126,7 +129,7 @@ const AIPage: React.FC = () => {
       <div className="stat-grid four" style={{ marginBottom: 18 }}>
         <StatCard
           label={deviceID ? "Device Status" : "Active Devices"}
-          value={deviceID ? (statusInfo?.status.toUpperCase() || "OFFLINE") : workspaceDevices.length}
+          value={deviceID ? ((statusInfo?.status || "OFFLINE").toUpperCase()) : workspaceDevices.length}
           detail={deviceID ? "Current device connection state" : "Monitored devices in session"}
           tone={deviceID ? (statusInfo?.status === "online" ? "success" : "neutral") : "neutral"}
         />
@@ -134,7 +137,7 @@ const AIPage: React.FC = () => {
           label="Worst Severity"
           value={
             deviceID 
-              ? (statusInfo?.severity.toUpperCase() || "HEALTHY")
+              ? ((statusInfo?.severity || "HEALTHY").toUpperCase())
               : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "CRITICAL" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "WARNING" : "HEALTHY"))
           }
           detail="Highest active anomaly level"
@@ -154,7 +157,7 @@ const AIPage: React.FC = () => {
           label="Warning / Critical Counts"
           value={
             deviceID
-              ? `${statusInfo?.open_incidents.filter(inc => inc.severity === "warning").length ?? 0} / ${statusInfo?.open_incidents.filter(inc => inc.severity === "critical").length ?? 0}`
+              ? `${statusInfo?.open_incidents?.filter(inc => inc.severity === "warning").length ?? 0} / ${statusInfo?.open_incidents?.filter(inc => inc.severity === "critical").length ?? 0}`
               : `${activeIncidents?.filter(i => i.severity === "warning").length ?? 0} / ${activeIncidents?.filter(i => i.severity === "critical").length ?? 0}`
           }
           detail="Warning vs Critical alerts"
