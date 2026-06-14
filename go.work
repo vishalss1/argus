@@ -1,0 +1,8 @@
+go 1.26.3
+
+use (
+	.
+	./services/core-service
+	./services/telemetry-service
+	./shared
+)

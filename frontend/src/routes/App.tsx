@@ -85,7 +85,7 @@ export function App() {
           <Route path="devices" element={<DevicesPage />} />
           <Route path="ota" element={<OTAPage />} />
           <Route path="commands" element={<CommandsPage />} />
-          <Route path="alerts" element={<AlertsPage />} />
+          <Route path="automations" element={<AlertsPage />} />
           <Route path="ai" element={<AIPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
