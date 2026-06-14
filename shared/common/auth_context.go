@@ -5,9 +5,10 @@ import "context"
 type contextKey string
 
 const (
-	WorkspaceIDKey contextKey = "workspace_id"
-	UserIDKey      contextKey = "user_id"
+	WorkspaceIDKey   contextKey = "workspace_id"
+	UserIDKey        contextKey = "user_id"
 	CorrelationIDKey contextKey = "correlation_id"
+	RequestIDKey     contextKey = "request_id"
 )
 
 // WithWorkspaceID injects the workspace ID into context
@@ -40,5 +41,16 @@ func WithCorrelationID(ctx context.Context, correlationID string) context.Contex
 // GetCorrelationID retrieves the correlation ID from context
 func GetCorrelationID(ctx context.Context) (string, bool) {
 	val, ok := ctx.Value(CorrelationIDKey).(string)
+	return val, ok
+}
+
+// WithRequestID injects the request ID into context
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, RequestIDKey, requestID)
+}
+
+// GetRequestID retrieves the request ID from context
+func GetRequestID(ctx context.Context) (string, bool) {
+	val, ok := ctx.Value(RequestIDKey).(string)
 	return val, ok
 }

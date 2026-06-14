@@ -40,7 +40,9 @@ import (
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/postgres"
 	redisinfra "github.com/vishalss1/argus/telemetry/internal/infrastructure/redis"
+	"github.com/vishalss1/argus/telemetry/internal/infrastructure/telemetry"
 	telemetrygrpc "github.com/vishalss1/argus/telemetry/internal/transport/grpc"
+	"go.uber.org/zap"
 )
 
 type Server struct {
@@ -48,14 +50,24 @@ type Server struct {
 	redisClient *redisinfra.Client
 	grpcServer  *grpc.Server
 	httpServer  *http.Server
-	coreClient  *grpcinfra.CoreClient
-	cancel      context.CancelFunc
+	coreClient    *grpcinfra.CoreClient
+	embedProvider *embedding.LocalProvider
+	cancel        context.CancelFunc
 	wg          sync.WaitGroup
 }
 
 func Bootstrap() (*Server, error) {
 	cfg := config.Load()
 	appCtx, cancel := context.WithCancel(context.Background())
+
+	logger, _ := zap.NewProduction()
+	
+	// Initialize Telemetry
+	_, err := telemetry.Init("telemetry-service")
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to init telemetry: %w", err)
+	}
 
 	server := &Server{
 		cancel: cancel,
@@ -88,8 +100,12 @@ func Bootstrap() (*Server, error) {
 	}
 
 	deviceRepo := grpcinfra.NewDeviceRepository(coreClient, redisClient)
-	embedProvider := embedding.NewOllamaProvider(cfg.OllamaBaseURL, cfg.OllamaEmbedModel)
-	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
+	embedProvider, err := embedding.NewLocalProvider(cfg.Embedding.ModelPath, cfg.Embedding.Dimension)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to init local embedding provider: %w", err)
+	}
+	server.embedProvider = embedProvider
 
 	vectorStore := postgres.NewVectorStore(database)
 	eventRepo := postgres.NewEventRepository(database)
@@ -97,6 +113,9 @@ func Bootstrap() (*Server, error) {
 	contextService := ctxdomain.NewService(contextRepo, deviceRepo)
 
 	embedSvc := memory.NewEmbeddingService(embedProvider, vectorStore, cfg.EmbeddingQueueSize)
+	embedSvc.StartWorkers(appCtx, cfg.EmbeddingWorkers, &server.wg)
+
+	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
 
 	ruleRepo := postgres.NewRuleRepository(database)
 	ruleService := ruledomain.NewService(ruleRepo, deviceRepo)
@@ -117,7 +136,26 @@ func Bootstrap() (*Server, error) {
 	}
 	ruleService.SetLimiter(redisinfra.NewAlertLimiter(redisClient))
 
-	queryEngine := query.NewEngine(embedProvider, aiProvider, vectorStore, eventRepo, contextRepo, deviceRepo, redisClient, cfg.RAGSimilarityThreshold)
+	planner := query.NewPlanner()
+	snapshotBuilder := query.NewSnapshotBuilder(deviceRepo, eventRepo, contextRepo, redisClient)
+	
+	// Temporarily construct engine early for handlers that still need it for helpers
+	queryEngine := query.NewEngine(planner, nil, deviceRepo, redisClient, aiProvider, logger)
+	
+	fleetService := redisinfra.NewFleetService(redisClient, deviceRepo)
+	fleetHandler := query.NewFleetSummaryHandler(fleetService, aiProvider, logger)
+	deviceHandler := query.NewDeviceHealthHandler(snapshotBuilder, queryEngine)
+	incidentHandler := query.NewIncidentHandler(snapshotBuilder, queryEngine)
+	historicalHandler := query.NewHistoricalAnalysisHandler(embedProvider, vectorStore, eventRepo, contextRepo, aiProvider, logger, float32(cfg.Embedding.SimilarityLimit))
+
+	router := query.NewRouter(fleetHandler, deviceHandler, incidentHandler, historicalHandler)
+	if err := router.Validate(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("invalid query router configuration: %w", err)
+	}
+
+	// Now that router is built, rebuild engine with it
+	queryEngine = query.NewEngine(planner, router, deviceRepo, redisClient, aiProvider, logger)
 
 	grpcPort := osGetEnv("GRPC_PORT", "50052")
 	lis, err := net.Listen("tcp", ":"+grpcPort)
@@ -129,7 +167,8 @@ func Bootstrap() (*Server, error) {
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(correlationServerUnaryInterceptor),
 	)
-	telemetryGRPCServer := telemetrygrpc.NewServer(queryEngine, eventRepo, contextService, ruleService, redisClient)
+	deviceService := redisinfra.NewDeviceService(redisClient)
+	telemetryGRPCServer := telemetrygrpc.NewServer(queryEngine, eventRepo, contextService, ruleService, redisClient, deviceService, fleetService)
 	pb.RegisterTelemetryIntelligenceServiceServer(grpcServer, telemetryGRPCServer)
 
 	// Register standard gRPC Health check server
@@ -248,6 +287,9 @@ func (s *Server) Close() error {
 	}
 	s.wg.Wait()
 
+	if s.embedProvider != nil {
+		_ = s.embedProvider.Close()
+	}
 	if s.coreClient != nil {
 		s.coreClient.Close()
 	}

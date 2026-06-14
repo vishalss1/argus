@@ -200,66 +200,41 @@ const AIPage: React.FC = () => {
             {reasoning && (
               <div className="ai-results">
                 <div className="ai-reasoning-panel">
-                <div className="ai-reasoning-header">
-                  <div>
-                    <span className="ai-result-intent">{reasoning.intent.replace(/_/g, " ")}</span>
-                    <h3>Operational Analysis</h3>
+                  <div className="ai-reasoning-header">
+                    <div>
+                      <span className="ai-result-intent">{reasoning.intent?.replace(/_/g, " ") || "UNKNOWN"}</span>
+                      <h3>Operational Analysis</h3>
+                    </div>
                   </div>
-                  <span className={`ai-confidence-badge ${reasoning.confidence > 0 ? '' : 'low-confidence'}`}>
-                    {(reasoning.confidence * 100).toFixed(0)}% CONFIDENCE
-                  </span>
-                </div>
-                
-                  <p className="ai-reasoning-summary">{reasoning.summary}</p>
+                  <p className="ai-reasoning-summary">{reasoning.response}</p>
                 </div>
 
-                {reasoning.device_summary && (
-                  <div className="ai-result-card health">
-                    <div className="ai-result-card-header">
-                      <span><Heart size={15} /> Device Health Summary</span>
-                      <StatusChip value={reasoning.device_summary.severity} />
-                    </div>
-                    <div className="ai-health-score">
-                      <strong>{reasoning.device_summary.healthScore}</strong><span>/100</span>
-                      <div><b>{reasoning.device_summary.deviceName}</b><small>{reasoning.device_summary.deviceStatus} · {reasoning.device_summary.openIncidents} open · {reasoning.device_summary.recentIncidents} recent</small></div>
-                    </div>
-                    <ul className="ai-evidence-list">
-                      {reasoning.device_summary.keyFindings.map((finding, i) => <li key={i} className="ai-evidence-item"><Activity size={12} className="ai-evidence-icon" /><span>{finding}</span></li>)}
-                    </ul>
-                  </div>
-                )}
-
-                {reasoning.root_cause_analysis && (
+                {reasoning.sources && reasoning.sources.length > 0 && (
                   <div className="ai-result-card root-cause">
-                    <div className="ai-result-card-header"><span><AlertTriangle size={15} /> Root Cause Analysis</span><b>{reasoning.root_cause_analysis.confidence}%</b></div>
-                    <p className="ai-primary-cause">{reasoning.root_cause_analysis.primaryCause}</p>
-                    <span className="ai-evidence-title">Evidence Chain</span>
+                    <div className="ai-result-card-header">
+                      <span><ShieldCheck size={15} /> Sources & Evidence</span>
+                    </div>
                     <ul className="ai-evidence-list">
-                      {reasoning.root_cause_analysis.supportingEvidence.map((ev, i) => <li key={i} className="ai-evidence-item"><ShieldCheck size={12} className="ai-evidence-icon" /><span>{ev}</span></li>)}
+                      {reasoning.sources.map((src, i) => (
+                        <li key={i} className="ai-evidence-item">
+                          <Activity size={12} className="ai-evidence-icon" />
+                          <span>{src}</span>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 )}
 
-                <div className="ai-result-card actions">
-                  <div className="ai-result-card-header"><span><CheckCircle size={15} /> Recommended Actions</span></div>
-                  {reasoning.remediations?.map(remediation => (
-                    <div className="ai-remediation-reasoning" key={remediation.pattern}>
-                      <b>{remediation.pattern}</b>
-                      <span>{remediation.reasoning}</span>
+                {reasoning.actions && reasoning.actions.length > 0 && (
+                  <div className="ai-result-card actions">
+                    <div className="ai-result-card-header">
+                      <span><CheckCircle size={15} /> Recommended Actions</span>
                     </div>
-                  ))}
-                  <div className="ai-suggestions-list">
-                    {(reasoning.suggested_actions ?? []).map((action, i) => <div key={i} className="ai-remediation-item"><b>{i + 1}</b><span>{action}</span><ArrowRight size={10} /></div>)}
-                  </div>
-                </div>
-
-                {reasoning.related_devices && reasoning.related_devices.length > 0 && (
-                  <div className="ai-result-card related">
-                    <div className="ai-result-card-header"><span><Zap size={15} /> Related Devices</span></div>
-                    {reasoning.related_devices.map(device => (
-                      <div className="ai-related-device" key={device.deviceId}>
-                        <div><b>{device.deviceName}</b><small>{device.sharedPatterns.join(" · ")}</small></div>
-                        <strong>{device.similarity}%</strong>
+                    {reasoning.actions.map((act) => (
+                      <div className="ai-remediation-reasoning" key={act.suggestion_id}>
+                        <b>{act.action}</b>
+                        <span>{act.description}</span>
+                        {act.device_id && <small style={{display: 'block', marginTop: '4px', opacity: 0.7}}>Device: {act.device_id}</small>}
                       </div>
                     ))}
                   </div>

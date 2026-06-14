@@ -178,7 +178,8 @@ services:
       - CORE_SERVICE_GRPC_ADDR=core-service:50051
       - GRPC_PORT=50052
       - PORT=8081
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBED_MODEL_PATH=/app/models/all-MiniLM-L6-v2
+      - EMBED_DIMENSION=384
       - GROQ_API_KEY=${GROQ_API_KEY}
     ports:
       - "50052:50052"
@@ -193,7 +194,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    restart: always
+    restart: unless-stopped
+
 
 volumes:
   argus_postgres_data:

@@ -46,7 +46,6 @@ message QueryAIRequest {
 message QueryAIResponse {
   string response = 1;
   string intent = 2;
-  double confidence = 3;
   repeated string sources = 4;
   repeated ActionSuggestion actions = 5;
 }

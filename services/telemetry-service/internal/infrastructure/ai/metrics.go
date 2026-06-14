@@ -56,6 +56,27 @@ var (
 		},
 		[]string{"provider"},
 	)
+	QueriesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_ai_queries_total",
+			Help: "Total number of AI queries processed by source type.",
+		},
+		[]string{"source"},
+	)
+	QueryFailuresTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "argus_ai_failures_total",
+			Help: "Total number of AI query failures across all handlers.",
+		},
+	)
+	QueryDurationSeconds = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "argus_ai_duration_seconds",
+			Help:    "Latency of AI queries by source type in seconds.",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30},
+		},
+		[]string{"source"},
+	)
 	EmbeddingQueueDepth = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "argus_ai_embedding_queue_depth",
@@ -86,5 +107,32 @@ var (
 			Help: "Total number of background backfill reconciliation runs.",
 		},
 		[]string{"status"},
+	)
+	EmbedModelInfo = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "argus_ai_embed_model_info",
+			Help: "Information about the loaded embedding model.",
+		},
+		[]string{"model", "dimension"},
+	)
+	EmbedRequestsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "argus_ai_embed_requests_total",
+			Help: "Total number of embedding requests.",
+		},
+	)
+	EmbedDurationSeconds = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "argus_ai_embed_duration_seconds",
+			Help:    "Latency of the embedding generation in seconds.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5},
+		},
+	)
+	EmbedErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "argus_ai_embed_errors_total",
+			Help: "Total number of embedding request errors.",
+		},
+		[]string{"reason"},
 	)
 )

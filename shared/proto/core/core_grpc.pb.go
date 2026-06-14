@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	CoreService_GetDeviceContext_FullMethodName = "/argus.core.v1.CoreService/GetDeviceContext"
-	CoreService_ExecuteCommand_FullMethodName   = "/argus.core.v1.CoreService/ExecuteCommand"
-	CoreService_GetPolicy_FullMethodName        = "/argus.core.v1.CoreService/GetPolicy"
-	CoreService_RecordExecution_FullMethodName  = "/argus.core.v1.CoreService/RecordExecution"
+	CoreService_GetDeviceContext_FullMethodName    = "/argus.core.v1.CoreService/GetDeviceContext"
+	CoreService_ExecuteCommand_FullMethodName      = "/argus.core.v1.CoreService/ExecuteCommand"
+	CoreService_GetPolicy_FullMethodName           = "/argus.core.v1.CoreService/GetPolicy"
+	CoreService_RecordExecution_FullMethodName     = "/argus.core.v1.CoreService/RecordExecution"
+	CoreService_GetWorkspaceDevices_FullMethodName = "/argus.core.v1.CoreService/GetWorkspaceDevices"
 )
 
 // CoreServiceClient is the client API for CoreService service.
@@ -38,6 +39,8 @@ type CoreServiceClient interface {
 	GetPolicy(ctx context.Context, in *GetPolicyRequest, opts ...grpc.CallOption) (*PolicyResponse, error)
 	// Coarse-grained endpoint to record or update execution of action/policy
 	RecordExecution(ctx context.Context, in *RecordExecutionRequest, opts ...grpc.CallOption) (*RecordExecutionResponse, error)
+	// Retrieve all device IDs belonging to a workspace
+	GetWorkspaceDevices(ctx context.Context, in *GetWorkspaceDevicesRequest, opts ...grpc.CallOption) (*GetWorkspaceDevicesResponse, error)
 }
 
 type coreServiceClient struct {
@@ -84,6 +87,15 @@ func (c *coreServiceClient) RecordExecution(ctx context.Context, in *RecordExecu
 	return out, nil
 }
 
+func (c *coreServiceClient) GetWorkspaceDevices(ctx context.Context, in *GetWorkspaceDevicesRequest, opts ...grpc.CallOption) (*GetWorkspaceDevicesResponse, error) {
+	out := new(GetWorkspaceDevicesResponse)
+	err := c.cc.Invoke(ctx, CoreService_GetWorkspaceDevices_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoreServiceServer is the server API for CoreService service.
 // All implementations must embed UnimplementedCoreServiceServer
 // for forward compatibility
@@ -97,6 +109,8 @@ type CoreServiceServer interface {
 	GetPolicy(context.Context, *GetPolicyRequest) (*PolicyResponse, error)
 	// Coarse-grained endpoint to record or update execution of action/policy
 	RecordExecution(context.Context, *RecordExecutionRequest) (*RecordExecutionResponse, error)
+	// Retrieve all device IDs belonging to a workspace
+	GetWorkspaceDevices(context.Context, *GetWorkspaceDevicesRequest) (*GetWorkspaceDevicesResponse, error)
 	mustEmbedUnimplementedCoreServiceServer()
 }
 
@@ -115,6 +129,9 @@ func (UnimplementedCoreServiceServer) GetPolicy(context.Context, *GetPolicyReque
 }
 func (UnimplementedCoreServiceServer) RecordExecution(context.Context, *RecordExecutionRequest) (*RecordExecutionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordExecution not implemented")
+}
+func (UnimplementedCoreServiceServer) GetWorkspaceDevices(context.Context, *GetWorkspaceDevicesRequest) (*GetWorkspaceDevicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkspaceDevices not implemented")
 }
 func (UnimplementedCoreServiceServer) mustEmbedUnimplementedCoreServiceServer() {}
 
@@ -201,6 +218,24 @@ func _CoreService_RecordExecution_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoreService_GetWorkspaceDevices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWorkspaceDevicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreServiceServer).GetWorkspaceDevices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreService_GetWorkspaceDevices_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreServiceServer).GetWorkspaceDevices(ctx, req.(*GetWorkspaceDevicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoreService_ServiceDesc is the grpc.ServiceDesc for CoreService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -223,6 +258,10 @@ var CoreService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RecordExecution",
 			Handler:    _CoreService_RecordExecution_Handler,
+		},
+		{
+			MethodName: "GetWorkspaceDevices",
+			Handler:    _CoreService_GetWorkspaceDevices_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
