@@ -23,6 +23,12 @@ jobs:
       - name: Verify Dependencies
         run: go mod download
 
+      - name: Install ONNX Runtime 1.23.0
+        run: |
+          curl -sL -o onnxruntime.tgz "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/onnxruntime-linux-x64-1.23.0.tgz"
+          tar -xzf onnxruntime.tgz
+          sudo cp onnxruntime-linux-x64-1.23.0/lib/libonnxruntime.so.1.23.0 /usr/lib/libonnxruntime.so
+
       - name: Build CMDs
         run: |
           go build -v ./cmd/api

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { api } from "../services/api";
 import { SemanticEvent, ReasoningResponse } from "../types/api";
 import { Panel, PageHeader, StatusChip, CopyableID, EmptyState, StatCard, Pagination } from "../components/ui";
-import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle } from "lucide-react";
+import { Brain, Search, Clock, AlertCircle, CheckCircle, ArrowRight, ShieldCheck, Zap, Activity, Heart, AlertTriangle, ChevronDown } from "lucide-react";
 import { useDeviceStatus, useSessionActiveIncidents, useSessions } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 
@@ -108,16 +108,19 @@ const AIPage: React.FC = () => {
         description={activeSession ? "Real-time operational reasoning, root-cause analysis, and incident correlation." : "Operational health analysis from persisted device state. Start a session to add live anomaly correlation."}
         actions={
           <div className="ai-page-actions">
-            <select
-              value={deviceID}
-              onChange={(e) => setDeviceID(e.target.value)}
-              className="ai-device-select"
-            >
-              <option value="">All Devices</option>
-              {workspaceDevices.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+            <div className="ai-device-select-wrap">
+              <select
+                value={deviceID}
+                onChange={(e) => setDeviceID(e.target.value)}
+                className="ai-device-select"
+              >
+                <option value="">All Devices</option>
+                {workspaceDevices.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="ai-device-select-icon" />
+            </div>
             <div className="live-badge online"><span className="live-dot" />Local Inference</div>
           </div>
         }
@@ -126,7 +129,7 @@ const AIPage: React.FC = () => {
       <div className="stat-grid four" style={{ marginBottom: 18 }}>
         <StatCard
           label={deviceID ? "Device Status" : "Active Devices"}
-          value={deviceID ? (statusInfo?.status.toUpperCase() || "OFFLINE") : workspaceDevices.length}
+          value={deviceID ? ((statusInfo?.status || "OFFLINE").toUpperCase()) : workspaceDevices.length}
           detail={deviceID ? "Current device connection state" : "Monitored devices in session"}
           tone={deviceID ? (statusInfo?.status === "online" ? "success" : "neutral") : "neutral"}
         />
@@ -134,7 +137,7 @@ const AIPage: React.FC = () => {
           label="Worst Severity"
           value={
             deviceID 
-              ? (statusInfo?.severity.toUpperCase() || "HEALTHY")
+              ? ((statusInfo?.severity || "HEALTHY").toUpperCase())
               : (activeIncidents && activeIncidents.some(i => i.severity === "critical") ? "CRITICAL" : (activeIncidents && activeIncidents.some(i => i.severity === "warning") ? "WARNING" : "HEALTHY"))
           }
           detail="Highest active anomaly level"
@@ -154,7 +157,7 @@ const AIPage: React.FC = () => {
           label="Warning / Critical Counts"
           value={
             deviceID
-              ? `${statusInfo?.open_incidents.filter(inc => inc.severity === "warning").length ?? 0} / ${statusInfo?.open_incidents.filter(inc => inc.severity === "critical").length ?? 0}`
+              ? `${statusInfo?.open_incidents?.filter(inc => inc.severity === "warning").length ?? 0} / ${statusInfo?.open_incidents?.filter(inc => inc.severity === "critical").length ?? 0}`
               : `${activeIncidents?.filter(i => i.severity === "warning").length ?? 0} / ${activeIncidents?.filter(i => i.severity === "critical").length ?? 0}`
           }
           detail="Warning vs Critical alerts"
@@ -200,66 +203,41 @@ const AIPage: React.FC = () => {
             {reasoning && (
               <div className="ai-results">
                 <div className="ai-reasoning-panel">
-                <div className="ai-reasoning-header">
-                  <div>
-                    <span className="ai-result-intent">{reasoning.intent.replace(/_/g, " ")}</span>
-                    <h3>Operational Analysis</h3>
+                  <div className="ai-reasoning-header">
+                    <div>
+                      <span className="ai-result-intent">{reasoning.intent?.replace(/_/g, " ") || "UNKNOWN"}</span>
+                      <h3>Operational Analysis</h3>
+                    </div>
                   </div>
-                  <span className={`ai-confidence-badge ${reasoning.confidence > 0 ? '' : 'low-confidence'}`}>
-                    {(reasoning.confidence * 100).toFixed(0)}% CONFIDENCE
-                  </span>
-                </div>
-                
-                  <p className="ai-reasoning-summary">{reasoning.summary}</p>
+                  <p className="ai-reasoning-summary">{reasoning.response}</p>
                 </div>
 
-                {reasoning.device_summary && (
-                  <div className="ai-result-card health">
-                    <div className="ai-result-card-header">
-                      <span><Heart size={15} /> Device Health Summary</span>
-                      <StatusChip value={reasoning.device_summary.severity} />
-                    </div>
-                    <div className="ai-health-score">
-                      <strong>{reasoning.device_summary.healthScore}</strong><span>/100</span>
-                      <div><b>{reasoning.device_summary.deviceName}</b><small>{reasoning.device_summary.deviceStatus} · {reasoning.device_summary.openIncidents} open · {reasoning.device_summary.recentIncidents} recent</small></div>
-                    </div>
-                    <ul className="ai-evidence-list">
-                      {reasoning.device_summary.keyFindings.map((finding, i) => <li key={i} className="ai-evidence-item"><Activity size={12} className="ai-evidence-icon" /><span>{finding}</span></li>)}
-                    </ul>
-                  </div>
-                )}
-
-                {reasoning.root_cause_analysis && (
+                {reasoning.sources && reasoning.sources.length > 0 && (
                   <div className="ai-result-card root-cause">
-                    <div className="ai-result-card-header"><span><AlertTriangle size={15} /> Root Cause Analysis</span><b>{reasoning.root_cause_analysis.confidence}%</b></div>
-                    <p className="ai-primary-cause">{reasoning.root_cause_analysis.primaryCause}</p>
-                    <span className="ai-evidence-title">Evidence Chain</span>
+                    <div className="ai-result-card-header">
+                      <span><ShieldCheck size={15} /> Sources & Evidence</span>
+                    </div>
                     <ul className="ai-evidence-list">
-                      {reasoning.root_cause_analysis.supportingEvidence.map((ev, i) => <li key={i} className="ai-evidence-item"><ShieldCheck size={12} className="ai-evidence-icon" /><span>{ev}</span></li>)}
+                      {reasoning.sources.map((src, i) => (
+                        <li key={i} className="ai-evidence-item">
+                          <Activity size={12} className="ai-evidence-icon" />
+                          <span>{src}</span>
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 )}
 
-                <div className="ai-result-card actions">
-                  <div className="ai-result-card-header"><span><CheckCircle size={15} /> Recommended Actions</span></div>
-                  {reasoning.remediations?.map(remediation => (
-                    <div className="ai-remediation-reasoning" key={remediation.pattern}>
-                      <b>{remediation.pattern}</b>
-                      <span>{remediation.reasoning}</span>
+                {reasoning.actions && reasoning.actions.length > 0 && (
+                  <div className="ai-result-card actions">
+                    <div className="ai-result-card-header">
+                      <span><CheckCircle size={15} /> Recommended Actions</span>
                     </div>
-                  ))}
-                  <div className="ai-suggestions-list">
-                    {(reasoning.suggested_actions ?? []).map((action, i) => <div key={i} className="ai-remediation-item"><b>{i + 1}</b><span>{action}</span><ArrowRight size={10} /></div>)}
-                  </div>
-                </div>
-
-                {reasoning.related_devices && reasoning.related_devices.length > 0 && (
-                  <div className="ai-result-card related">
-                    <div className="ai-result-card-header"><span><Zap size={15} /> Related Devices</span></div>
-                    {reasoning.related_devices.map(device => (
-                      <div className="ai-related-device" key={device.deviceId}>
-                        <div><b>{device.deviceName}</b><small>{device.sharedPatterns.join(" · ")}</small></div>
-                        <strong>{device.similarity}%</strong>
+                    {reasoning.actions.map((act) => (
+                      <div className="ai-remediation-reasoning" key={act.suggestion_id}>
+                        <b>{act.action}</b>
+                        <span>{act.description}</span>
+                        {act.device_id && <small style={{display: 'block', marginTop: '4px', opacity: 0.7}}>Device: {act.device_id}</small>}
                       </div>
                     ))}
                   </div>

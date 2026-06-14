@@ -1,0 +1,257 @@
+syntax = "proto3";
+
+package argus.telemetry.v1;
+option go_package = "github.com/vishalss1/argus/shared/proto/telemetry";
+
+import "google/protobuf/timestamp.proto";
+
+service TelemetryIntelligenceService {
+  // Query AI for RAG queries and troubleshooting reasoning
+  rpc QueryAI(QueryAIRequest) returns (QueryAIResponse);
+
+  // Retrieve consolidated telemetry and operational snapshot for a device
+  rpc GetSnapshot(GetSnapshotRequest) returns (DeviceSnapshotResponse);
+
+  // Get active incidents across a workspace or for a specific session
+  rpc ListIncidents(ListIncidentsRequest) returns (ListIncidentsResponse);
+
+  // Get fleet-wide diagnostics summary for a workspace
+  rpc FleetSummary(FleetSummaryRequest) returns (FleetSummaryResponse);
+
+  // Retrieve compiled telemetry aggregates, welford statistics, and incidents
+  // for a session when it stops, and clean up Redis keys.
+  rpc GetSessionTelemetry(GetSessionTelemetryRequest) returns (SessionTelemetryResponse);
+
+  // Coarse-grained Rule Configuration & Retrieval (combines CRUD into fewer APIs)
+  rpc ConfigureRule(ConfigureRuleRequest) returns (RuleResponse);
+  rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+  rpc GetRulesWithAlerts(GetRulesWithAlertsRequest) returns (GetRulesWithAlertsResponse);
+
+  // List historical operational events and logs
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+
+  // Get operational memory history for a device
+  rpc GetDeviceHistory(GetDeviceHistoryRequest) returns (GetDeviceHistoryResponse);
+
+  // Delete telemetry rule
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+}
+
+message QueryAIRequest {
+  string query = 1;
+  string workspace_id = 2;
+  string device_id = 3; // Optional
+}
+
+message QueryAIResponse {
+  string response = 1;
+  string intent = 2;
+  repeated string sources = 4;
+  repeated ActionSuggestion actions = 5;
+}
+
+message ActionSuggestion {
+  string suggestion_id = 1;
+  string action = 2;
+  string device_id = 3;
+  string description = 4;
+  string severity = 5;
+}
+
+message GetSnapshotRequest {
+  string device_id = 1;
+  string workspace_id = 2;
+}
+
+message DeviceSnapshotResponse {
+  string device_id = 1;
+  string status = 2;
+  google.protobuf.Timestamp last_seen = 3;
+  map<string, double> latest_metrics = 4;
+  repeated string active_incident_types = 5;
+  int32 total_incidents_recorded = 6;
+}
+
+message ListIncidentsRequest {
+  string workspace_id = 1;
+  string session_id = 2; // Optional, to filter by session
+  bool active_only = 3;
+}
+
+message ActiveIncident {
+  string device_id = 1;
+  string metric = 2;
+  string type = 3;
+  string severity = 4;
+  google.protobuf.Timestamp started_at = 5;
+  double peak_score = 6;
+  string summary = 7;
+}
+
+message ListIncidentsResponse {
+  repeated ActiveIncident incidents = 1;
+}
+
+message FleetSummaryRequest {
+  string workspace_id = 1;
+}
+
+message FleetSummaryResponse {
+  int32 total_devices = 1;
+  int32 online_devices = 2;
+  int32 active_incidents = 3;
+  string summary_text = 4; // AI-generated fleet diagnostic summary
+}
+
+message GetSessionTelemetryRequest {
+  string session_id = 1;
+  string workspace_id = 2;
+}
+
+message SessionTelemetryResponse {
+  string session_id = 1;
+  int32 duration_seconds = 2;
+  int32 messages_processed = 3;
+  int32 anomaly_count = 4;
+  repeated DeviceSummary device_summaries = 5;
+  repeated SessionIncident incidents_archive = 6;
+  map<string, DeviceMetricAggregates> metrics_aggregates = 7; // deviceID -> metric aggregates
+}
+
+message DeviceSummary {
+  string device_id = 1;
+  string first_seen = 2;
+  string last_seen = 3;
+  int32 sample_count = 4;
+  int32 warning_incidents_count = 5;
+  int32 critical_incidents_count = 6;
+  bool active_at_end = 7;
+}
+
+message SessionIncident {
+  string device_id = 1;
+  string metric = 2;
+  string incident_type = 3;
+  string severity = 4;
+  google.protobuf.Timestamp start_time = 5;
+  google.protobuf.Timestamp resolved_at = 6; // Nullable (if nil, active)
+  int32 occurrences = 7;
+  double peak_score = 8;
+  string summary = 9;
+}
+
+message DeviceMetricAggregates {
+  map<string, MetricAggregate> aggregates = 1; // metric name -> aggregate
+}
+
+message MetricAggregate {
+  int32 count = 1;
+  double min = 2;
+  double max = 3;
+  double average = 4;
+  double variance = 5;
+}
+
+message ConfigureRuleRequest {
+  string rule_id = 1; // If empty, creates a new rule; otherwise updates existing
+  string name = 2;
+  string metric = 3;
+  string operator = 4;
+  double threshold = 5;
+  bool enabled = 6;
+}
+
+message RuleResponse {
+  string id = 1;
+  string name = 2;
+  string metric = 3;
+  string operator = 4;
+  double threshold = 5;
+  bool enabled = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message ListRulesRequest {
+  bool enabled_only = 1;
+}
+
+message ListRulesResponse {
+  repeated RuleResponse rules = 1;
+}
+
+message GetRulesWithAlertsRequest {
+  string workspace_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message AlertResponse {
+  string id = 1;
+  string rule_id = 2;
+  string device_id = 3;
+  string metric = 4;
+  string operator = 5;
+  double threshold = 6;
+  double observed_value = 7;
+  string severity = 8;
+  string message = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message GetRulesWithAlertsResponse {
+  repeated RuleResponse rules = 1;
+  repeated AlertResponse alerts = 2;
+}
+
+message ListEventsRequest {
+  string workspace_id = 1;
+  string device_id = 2; // Optional
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message EventResponse {
+  string id = 1;
+  string device_id = 2;
+  string type = 3;
+  string severity = 4;
+  string title = 5;
+  string summary = 6;
+  string source = 7;
+  double confidence_score = 8;
+  string metadata_json = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message ListEventsResponse {
+  repeated EventResponse events = 1;
+}
+
+message GetDeviceHistoryRequest {
+  string device_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message DeviceHistoryEntry {
+  string id = 1;
+  string device_id = 2;
+  string type = 3;
+  string summary = 4;
+  string data_json = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message GetDeviceHistoryResponse {
+  repeated DeviceHistoryEntry entries = 1;
+}
+
+message DeleteRuleRequest {
+  string rule_id = 1;
+}
+
+message DeleteRuleResponse {
+  bool success = 1;
+}

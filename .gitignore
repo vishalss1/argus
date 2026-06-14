@@ -2,9 +2,9 @@ CLAUDE.md
 .env
 certs/*
 data/*
+models/*
 cmd/gen-certs/*
 cmd/ota-keygen/*
-.antigravitycli
 .claude
 *.exe
 report.md
@@ -15,10 +15,13 @@ firmware_v2.cpp
 register.json
 login.json
 run_benchmark.ps1
-
+*.py
 node_modules
 dist
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
 *test*
+
+*.md
+!README.md

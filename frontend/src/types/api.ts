@@ -211,15 +211,18 @@ export interface OperationalMemory {
 }
 
 export interface ReasoningResponse {
-  summary: string;
-  confidence: number;
-  evidence: string[];
-  suggested_actions: string[];
+  response: string;
   intent: QueryIntent;
-  device_summary?: AIDeviceSummary;
-  root_cause_analysis?: RootCauseAnalysis;
-  remediations?: RemediationAnalysis[];
-  related_devices?: RelatedDevice[];
+  sources: string[];
+  actions: ActionSuggestion[];
+}
+
+export interface ActionSuggestion {
+  suggestion_id: string;
+  action: string;
+  device_id: string;
+  description: string;
+  severity: string;
 }
 
 export type QueryIntent =
