@@ -158,7 +158,7 @@ func (s *Server) ListIncidents(ctx context.Context, req *pb.ListIncidentsRequest
 			DeviceId: inc.DeviceID,
 			Metric:   inc.Metric,
 			Type:     inc.IncidentType,
-			Severity: string(inc.Severity),
+			Severity: inc.Severity.String(),
 			// StartTime, PeakScore, Summary are omitted in IncidentBrief for now
 		})
 	}
