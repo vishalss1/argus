@@ -17,25 +17,32 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.work'
           cache: true
 
       - name: Verify Dependencies
-        run: go mod download
+        run: |
+          cd shared && go mod download
+          cd ../services/core-service && go mod download
+          cd ../telemetry-service && go mod download
 
       - name: Install ONNX Runtime 1.23.0
         run: |
           curl -sL -o onnxruntime.tgz "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/onnxruntime-linux-x64-1.23.0.tgz"
           tar -xzf onnxruntime.tgz
           sudo cp onnxruntime-linux-x64-1.23.0/lib/libonnxruntime.so.1.23.0 /usr/lib/libonnxruntime.so
+          sudo ldconfig
 
       - name: Build CMDs
         run: |
-          go build -v ./cmd/api
-          go build -v ./cmd/ai-worker
+          go build -v ./services/core-service/cmd/api
+          go build -v ./services/telemetry-service/cmd
 
       - name: Run Tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: |
+          cd shared && go test -v -race ./...
+          cd ../services/core-service && go test -v -race ./...
+          cd ../telemetry-service && go test -v -race ./...
 
   frontend:
     name: Frontend CI

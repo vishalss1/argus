@@ -35,7 +35,7 @@ internal/domain/        Domain models, services, interfaces, errors
 internal/infrastructure/ PostgreSQL, Redis, MQTT, Kafka, MinIO, rules, logging
 internal/transport/http/ HTTP router, handlers, DTOs, middleware
 migrations/             Database schema migrations
-docs/swagger/           Generated OpenAPI/Swagger output
+services/core-service/docs/swagger/ Generated OpenAPI/Swagger output
 deployments/compose/    Local Docker Compose setup and observability config
 ```
 
@@ -284,5 +284,5 @@ make swagger
 ## Notes
 
 - The `Dockerfile` is currently empty.
-- `docs/swagger/` is generated output and should not be edited manually.
+- `services/core-service/docs/swagger/` is generated output and should not be edited manually.
 - `report.md` contains a detailed codebase walkthrough if you need the full wiring and file-by-file explanation.
