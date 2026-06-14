@@ -30,14 +30,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/rule.Alert"
+                                "$ref": "#/definitions/telemetry.AlertResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -58,14 +58,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/device.Device"
+                                "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -88,7 +88,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.CreateDeviceRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.CreateDeviceRequest"
                         }
                     }
                 ],
@@ -96,13 +96,52 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/device.Device"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/devices/heartbeat": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Record global device heartbeat",
+                "parameters": [
+                    {
+                        "description": "Heartbeat payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.HeartbeatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -130,19 +169,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/device.Device"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -172,7 +211,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.UpdateDeviceRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateDeviceRequest"
                         }
                     }
                 ],
@@ -180,19 +219,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/device.Device"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -218,13 +257,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -254,20 +293,20 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/command.Command"
+                                "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_command.Command"
                             }
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -297,7 +336,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.SendCommandRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.SendCommandRequest"
                         }
                     }
                 ],
@@ -305,19 +344,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/command.Command"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_command.Command"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -352,135 +391,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/command.Command"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_command.Command"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/devices/{deviceID}/commands/{commandID}/ack": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "commands"
-                ],
-                "summary": "ACK device command",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Device ID",
-                        "name": "deviceID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Command ID",
-                        "name": "commandID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "ACK payload",
-                        "name": "request",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/dto.CommandResultRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/command.Command"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/devices/{deviceID}/commands/{commandID}/nack": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "commands"
-                ],
-                "summary": "NACK device command",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Device ID",
-                        "name": "deviceID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Command ID",
-                        "name": "commandID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "NACK payload",
-                        "name": "request",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/dto.CommandResultRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/command.Command"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -511,7 +434,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/dto.HeartbeatRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.HeartbeatRequest"
                         }
                     }
                 ],
@@ -519,19 +442,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/device.Device"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -561,14 +484,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/ota.Deployment"
+                                "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Deployment"
                             }
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -598,7 +521,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.DeployOTARequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.DeployOTARequest"
                         }
                     }
                 ],
@@ -606,19 +529,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/ota.Manifest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Manifest"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -646,7 +569,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/ota.Manifest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Manifest"
                         }
                     },
                     "204": {
@@ -655,7 +578,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -693,7 +616,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/dto.OTAResultRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.OTAResultRequest"
                         }
                     }
                 ],
@@ -701,19 +624,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/ota.Deployment"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Deployment"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -748,19 +671,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/ota.Manifest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Manifest"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -798,7 +721,7 @@ const docTemplate = `{
                         "name": "request",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/dto.OTAResultRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.OTAResultRequest"
                         }
                     }
                 ],
@@ -806,19 +729,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/ota.Deployment"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Deployment"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -846,19 +769,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shadow.Shadow"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_shadow.Shadow"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -890,7 +813,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.UpdateShadowStateRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateShadowStateRequest"
                         }
                     }
                 ],
@@ -898,13 +821,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shadow.Shadow"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_shadow.Shadow"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -936,7 +859,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.UpdateShadowStateRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateShadowStateRequest"
                         }
                     }
                 ],
@@ -944,13 +867,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/shadow.Shadow"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_shadow.Shadow"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -982,7 +905,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.CreateTelemetryRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.CreateTelemetryRequest"
                         }
                     }
                 ],
@@ -990,19 +913,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/telemetry.Telemetry"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_telemetry.Telemetry"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1023,14 +946,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/ota.FirmwareArtifact"
+                                "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1066,13 +989,13 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/ota.FirmwareArtifact"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1100,13 +1023,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/ota.FirmwareArtifact"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1131,7 +1054,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.ProvisionDeviceRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ProvisionDeviceRequest"
                         }
                     }
                 ],
@@ -1139,19 +1062,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/device.ProvisionResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.ProvisionResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1172,14 +1095,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/rule.Rule"
+                                "$ref": "#/definitions/telemetry.RuleResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1202,7 +1125,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.CreateRuleRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.CreateRuleRequest"
                         }
                     }
                 ],
@@ -1210,13 +1133,13 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/rule.Rule"
+                            "$ref": "#/definitions/telemetry.RuleResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1244,19 +1167,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/rule.Rule"
+                            "$ref": "#/definitions/telemetry.RuleResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1286,7 +1209,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/dto.UpdateRuleRequest"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateRuleRequest"
                         }
                     }
                 ],
@@ -1294,19 +1217,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/rule.Rule"
+                            "$ref": "#/definitions/telemetry.RuleResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1332,13 +1255,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/dto.ErrorResponse"
+                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse"
                         }
                     }
                 }
@@ -1346,7 +1269,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "command.Command": {
+        "github_com_vishalss1_argus_core_internal_domain_command.Command": {
             "type": "object",
             "properties": {
                 "acknowledged_at": {
@@ -1381,7 +1304,7 @@ const docTemplate = `{
                 }
             }
         },
-        "device.Device": {
+        "github_com_vishalss1_argus_core_internal_domain_device.Device": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1410,10 +1333,13 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
                 }
             }
         },
-        "device.ProvisionResponse": {
+        "github_com_vishalss1_argus_core_internal_domain_device.ProvisionResponse": {
             "type": "object",
             "properties": {
                 "device_uuid": {
@@ -1436,199 +1362,7 @@ const docTemplate = `{
                 }
             }
         },
-        "dto.CommandResultRequest": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.CreateDeviceRequest": {
-            "type": "object",
-            "required": [
-                "name",
-                "type"
-            ],
-            "properties": {
-                "firmware_version": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.CreateRuleRequest": {
-            "type": "object",
-            "required": [
-                "metric",
-                "name",
-                "operator"
-            ],
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                },
-                "metric": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "operator": {
-                    "type": "string"
-                },
-                "threshold": {
-                    "type": "number"
-                }
-            }
-        },
-        "dto.CreateTelemetryRequest": {
-            "type": "object",
-            "required": [
-                "metrics"
-            ],
-            "properties": {
-                "metrics": {
-                    "type": "object"
-                },
-                "recorded_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.DeployOTARequest": {
-            "type": "object",
-            "required": [
-                "artifact_id"
-            ],
-            "properties": {
-                "artifact_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.HeartbeatRequest": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.OTAResultRequest": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.ProvisionDeviceRequest": {
-            "type": "object",
-            "required": [
-                "device_type",
-                "hardware_id"
-            ],
-            "properties": {
-                "capabilities": {
-                    "type": "object"
-                },
-                "device_type": {
-                    "type": "string"
-                },
-                "firmware_version": {
-                    "type": "string"
-                },
-                "hardware_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.SendCommandRequest": {
-            "type": "object",
-            "required": [
-                "type"
-            ],
-            "properties": {
-                "payload": {
-                    "type": "object"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.UpdateDeviceRequest": {
-            "type": "object",
-            "properties": {
-                "firmware_version": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.UpdateRuleRequest": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                },
-                "metric": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "operator": {
-                    "type": "string"
-                },
-                "threshold": {
-                    "type": "number"
-                }
-            }
-        },
-        "dto.UpdateShadowStateRequest": {
-            "type": "object",
-            "required": [
-                "state"
-            ],
-            "properties": {
-                "state": {
-                    "type": "object"
-                }
-            }
-        },
-        "ota.Deployment": {
+        "github_com_vishalss1_argus_core_internal_domain_ota.Deployment": {
             "type": "object",
             "properties": {
                 "acknowledged_at": {
@@ -1637,13 +1371,43 @@ const docTemplate = `{
                 "artifact_id": {
                     "type": "string"
                 },
+                "available_at": {
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
                 "device_id": {
                     "type": "string"
                 },
+                "device_name": {
+                    "type": "string"
+                },
+                "downloading_at": {
+                    "type": "string"
+                },
+                "failed_at": {
+                    "type": "string"
+                },
+                "failure_reason": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "flashing_at": {
+                    "type": "string"
+                },
                 "id": {
+                    "type": "string"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "rebooting_at": {
                     "type": "string"
                 },
                 "result_message": {
@@ -1652,12 +1416,18 @@ const docTemplate = `{
                 "status": {
                     "type": "string"
                 },
+                "timed_out_at": {
+                    "type": "string"
+                },
                 "updated_at": {
+                    "type": "string"
+                },
+                "version": {
                     "type": "string"
                 }
             }
         },
-        "ota.FirmwareArtifact": {
+        "github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact": {
             "type": "object",
             "properties": {
                 "checksum_sha256": {
@@ -1678,6 +1448,15 @@ const docTemplate = `{
                 "object_key": {
                     "type": "string"
                 },
+                "signature": {
+                    "type": "string"
+                },
+                "signature_alg": {
+                    "type": "string"
+                },
+                "signing_key_id": {
+                    "type": "string"
+                },
                 "size_bytes": {
                     "type": "integer"
                 },
@@ -1686,7 +1465,7 @@ const docTemplate = `{
                 }
             }
         },
-        "ota.Manifest": {
+        "github_com_vishalss1_argus_core_internal_domain_ota.Manifest": {
             "type": "object",
             "properties": {
                 "checksum_sha256": {
@@ -1713,6 +1492,15 @@ const docTemplate = `{
                 "firmware_id": {
                     "type": "string"
                 },
+                "signature": {
+                    "type": "string"
+                },
+                "signature_alg": {
+                    "type": "string"
+                },
+                "signing_key_id": {
+                    "type": "string"
+                },
                 "size_bytes": {
                     "type": "integer"
                 },
@@ -1721,71 +1509,7 @@ const docTemplate = `{
                 }
             }
         },
-        "rule.Alert": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "device_id": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "metric": {
-                    "type": "string"
-                },
-                "observed_value": {
-                    "type": "number"
-                },
-                "operator": {
-                    "type": "string"
-                },
-                "rule_id": {
-                    "type": "string"
-                },
-                "telemetry_id": {
-                    "type": "string"
-                },
-                "threshold": {
-                    "type": "number"
-                }
-            }
-        },
-        "rule.Rule": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "metric": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "operator": {
-                    "type": "string"
-                },
-                "threshold": {
-                    "type": "number"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "shadow.Shadow": {
+        "github_com_vishalss1_argus_core_internal_domain_shadow.Shadow": {
             "type": "object",
             "properties": {
                 "desired": {
@@ -1808,7 +1532,7 @@ const docTemplate = `{
                 }
             }
         },
-        "telemetry.Telemetry": {
+        "github_com_vishalss1_argus_core_internal_domain_telemetry.Telemetry": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1825,6 +1549,273 @@ const docTemplate = `{
                 },
                 "recorded_at": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.CreateDeviceRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "type"
+            ],
+            "properties": {
+                "firmware_version": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.CreateRuleRequest": {
+            "type": "object",
+            "required": [
+                "metric",
+                "name",
+                "operator"
+            ],
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.CreateTelemetryRequest": {
+            "type": "object",
+            "required": [
+                "metrics"
+            ],
+            "properties": {
+                "metrics": {
+                    "type": "object"
+                },
+                "recorded_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.DeployOTARequest": {
+            "type": "object",
+            "required": [
+                "artifact_id"
+            ],
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.HeartbeatRequest": {
+            "type": "object",
+            "properties": {
+                "device_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.OTAResultRequest": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.ProvisionDeviceRequest": {
+            "type": "object",
+            "required": [
+                "device_type",
+                "hardware_id"
+            ],
+            "properties": {
+                "capabilities": {
+                    "type": "object"
+                },
+                "device_type": {
+                    "type": "string"
+                },
+                "firmware_version": {
+                    "type": "string"
+                },
+                "hardware_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.SendCommandRequest": {
+            "type": "object",
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateDeviceRequest": {
+            "type": "object",
+            "properties": {
+                "firmware_version": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateRuleRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateShadowStateRequest": {
+            "type": "object",
+            "required": [
+                "state"
+            ],
+            "properties": {
+                "state": {
+                    "type": "object"
+                }
+            }
+        },
+        "telemetry.AlertResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "$ref": "#/definitions/timestamppb.Timestamp"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "observed_value": {
+                    "type": "number"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "rule_id": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "number"
+                }
+            }
+        },
+        "telemetry.RuleResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "$ref": "#/definitions/timestamppb.Timestamp"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "threshold": {
+                    "type": "number"
+                },
+                "updated_at": {
+                    "$ref": "#/definitions/timestamppb.Timestamp"
+                }
+            }
+        },
+        "timestamppb.Timestamp": {
+            "type": "object",
+            "properties": {
+                "nanos": {
+                    "description": "Non-negative fractions of a second at nanosecond resolution. Negative\nsecond values with fractions must still have non-negative nanos values\nthat count forward in time. Must be from 0 to 999,999,999\ninclusive.",
+                    "type": "integer"
+                },
+                "seconds": {
+                    "description": "Represents seconds of UTC time since Unix epoch\n1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to\n9999-12-31T23:59:59Z inclusive.",
+                    "type": "integer"
                 }
             }
         }

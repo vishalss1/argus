@@ -1,6 +1,6 @@
 basePath: /
 definitions:
-  command.Command:
+  github_com_vishalss1_argus_core_internal_domain_command.Command:
     properties:
       acknowledged_at:
         type: string
@@ -23,7 +23,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  device.Device:
+  github_com_vishalss1_argus_core_internal_domain_device.Device:
     properties:
       created_at:
         type: string
@@ -43,8 +43,10 @@ definitions:
         type: string
       updated_at:
         type: string
+      workspace_id:
+        type: string
     type: object
-  device.ProvisionResponse:
+  github_com_vishalss1_argus_core_internal_domain_device.ProvisionResponse:
     properties:
       device_uuid:
         type: string
@@ -59,151 +61,50 @@ definitions:
       sampling_interval_ms:
         type: integer
     type: object
-  dto.CommandResultRequest:
-    properties:
-      message:
-        type: string
-    type: object
-  dto.CreateDeviceRequest:
-    properties:
-      firmware_version:
-        type: string
-      metadata:
-        type: object
-      name:
-        type: string
-      status:
-        type: string
-      type:
-        type: string
-    required:
-    - name
-    - type
-    type: object
-  dto.CreateRuleRequest:
-    properties:
-      enabled:
-        type: boolean
-      metric:
-        type: string
-      name:
-        type: string
-      operator:
-        type: string
-      threshold:
-        type: number
-    required:
-    - metric
-    - name
-    - operator
-    type: object
-  dto.CreateTelemetryRequest:
-    properties:
-      metrics:
-        type: object
-      recorded_at:
-        type: string
-    required:
-    - metrics
-    type: object
-  dto.DeployOTARequest:
-    properties:
-      artifact_id:
-        type: string
-    required:
-    - artifact_id
-    type: object
-  dto.ErrorResponse:
-    properties:
-      error:
-        type: string
-    type: object
-  dto.HeartbeatRequest:
-    properties:
-      status:
-        type: string
-    type: object
-  dto.OTAResultRequest:
-    properties:
-      message:
-        type: string
-    type: object
-  dto.ProvisionDeviceRequest:
-    properties:
-      capabilities:
-        type: object
-      device_type:
-        type: string
-      firmware_version:
-        type: string
-      hardware_id:
-        type: string
-    required:
-    - device_type
-    - hardware_id
-    type: object
-  dto.SendCommandRequest:
-    properties:
-      payload:
-        type: object
-      type:
-        type: string
-    required:
-    - type
-    type: object
-  dto.UpdateDeviceRequest:
-    properties:
-      firmware_version:
-        type: string
-      metadata:
-        type: object
-      name:
-        type: string
-      status:
-        type: string
-      type:
-        type: string
-    type: object
-  dto.UpdateRuleRequest:
-    properties:
-      enabled:
-        type: boolean
-      metric:
-        type: string
-      name:
-        type: string
-      operator:
-        type: string
-      threshold:
-        type: number
-    type: object
-  dto.UpdateShadowStateRequest:
-    properties:
-      state:
-        type: object
-    required:
-    - state
-    type: object
-  ota.Deployment:
+  github_com_vishalss1_argus_core_internal_domain_ota.Deployment:
     properties:
       acknowledged_at:
         type: string
       artifact_id:
         type: string
+      available_at:
+        type: string
+      completed_at:
+        type: string
       created_at:
         type: string
       device_id:
         type: string
+      device_name:
+        type: string
+      downloading_at:
+        type: string
+      failed_at:
+        type: string
+      failure_reason:
+        type: string
+      filename:
+        type: string
+      flashing_at:
+        type: string
       id:
+        type: string
+      progress:
+        type: integer
+      rebooting_at:
         type: string
       result_message:
         type: string
       status:
         type: string
+      timed_out_at:
+        type: string
       updated_at:
         type: string
+      version:
+        type: string
     type: object
-  ota.FirmwareArtifact:
+  github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact:
     properties:
       checksum_sha256:
         type: string
@@ -217,12 +118,18 @@ definitions:
         type: string
       object_key:
         type: string
+      signature:
+        type: string
+      signature_alg:
+        type: string
+      signing_key_id:
+        type: string
       size_bytes:
         type: integer
       version:
         type: string
     type: object
-  ota.Manifest:
+  github_com_vishalss1_argus_core_internal_domain_ota.Manifest:
     properties:
       checksum_sha256:
         type: string
@@ -240,54 +147,18 @@ definitions:
         type: string
       firmware_id:
         type: string
+      signature:
+        type: string
+      signature_alg:
+        type: string
+      signing_key_id:
+        type: string
       size_bytes:
         type: integer
       version:
         type: string
     type: object
-  rule.Alert:
-    properties:
-      created_at:
-        type: string
-      device_id:
-        type: string
-      id:
-        type: string
-      message:
-        type: string
-      metric:
-        type: string
-      observed_value:
-        type: number
-      operator:
-        type: string
-      rule_id:
-        type: string
-      telemetry_id:
-        type: string
-      threshold:
-        type: number
-    type: object
-  rule.Rule:
-    properties:
-      created_at:
-        type: string
-      enabled:
-        type: boolean
-      id:
-        type: string
-      metric:
-        type: string
-      name:
-        type: string
-      operator:
-        type: string
-      threshold:
-        type: number
-      updated_at:
-        type: string
-    type: object
-  shadow.Shadow:
+  github_com_vishalss1_argus_core_internal_domain_shadow.Shadow:
     properties:
       desired:
         type: object
@@ -302,7 +173,7 @@ definitions:
       version:
         type: integer
     type: object
-  telemetry.Telemetry:
+  github_com_vishalss1_argus_core_internal_domain_telemetry.Telemetry:
     properties:
       created_at:
         type: string
@@ -314,6 +185,188 @@ definitions:
         type: object
       recorded_at:
         type: string
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.CreateDeviceRequest:
+    properties:
+      firmware_version:
+        type: string
+      id:
+        type: string
+      metadata:
+        type: object
+      name:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    required:
+    - name
+    - type
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.CreateRuleRequest:
+    properties:
+      enabled:
+        type: boolean
+      metric:
+        type: string
+      name:
+        type: string
+      operator:
+        type: string
+      threshold:
+        type: number
+    required:
+    - metric
+    - name
+    - operator
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.CreateTelemetryRequest:
+    properties:
+      metrics:
+        type: object
+      recorded_at:
+        type: string
+    required:
+    - metrics
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.DeployOTARequest:
+    properties:
+      artifact_id:
+        type: string
+    required:
+    - artifact_id
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.HeartbeatRequest:
+    properties:
+      device_id:
+        type: string
+      status:
+        type: string
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.OTAResultRequest:
+    properties:
+      message:
+        type: string
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.ProvisionDeviceRequest:
+    properties:
+      capabilities:
+        type: object
+      device_type:
+        type: string
+      firmware_version:
+        type: string
+      hardware_id:
+        type: string
+    required:
+    - device_type
+    - hardware_id
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.SendCommandRequest:
+    properties:
+      payload:
+        type: object
+      type:
+        type: string
+    required:
+    - type
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateDeviceRequest:
+    properties:
+      firmware_version:
+        type: string
+      metadata:
+        type: object
+      name:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateRuleRequest:
+    properties:
+      enabled:
+        type: boolean
+      metric:
+        type: string
+      name:
+        type: string
+      operator:
+        type: string
+      threshold:
+        type: number
+    type: object
+  github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateShadowStateRequest:
+    properties:
+      state:
+        type: object
+    required:
+    - state
+    type: object
+  telemetry.AlertResponse:
+    properties:
+      created_at:
+        $ref: '#/definitions/timestamppb.Timestamp'
+      device_id:
+        type: string
+      id:
+        type: string
+      message:
+        type: string
+      metric:
+        type: string
+      observed_value:
+        type: number
+      operator:
+        type: string
+      rule_id:
+        type: string
+      severity:
+        type: string
+      threshold:
+        type: number
+    type: object
+  telemetry.RuleResponse:
+    properties:
+      created_at:
+        $ref: '#/definitions/timestamppb.Timestamp'
+      enabled:
+        type: boolean
+      id:
+        type: string
+      metric:
+        type: string
+      name:
+        type: string
+      operator:
+        type: string
+      threshold:
+        type: number
+      updated_at:
+        $ref: '#/definitions/timestamppb.Timestamp'
+    type: object
+  timestamppb.Timestamp:
+    properties:
+      nanos:
+        description: |-
+          Non-negative fractions of a second at nanosecond resolution. Negative
+          second values with fractions must still have non-negative nanos values
+          that count forward in time. Must be from 0 to 999,999,999
+          inclusive.
+        type: integer
+      seconds:
+        description: |-
+          Represents seconds of UTC time since Unix epoch
+          1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to
+          9999-12-31T23:59:59Z inclusive.
+        type: integer
     type: object
 info:
   contact: {}
@@ -330,12 +383,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/rule.Alert'
+              $ref: '#/definitions/telemetry.AlertResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: List rule alerts
       tags:
       - rules
@@ -348,12 +401,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/device.Device'
+              $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: List devices
       tags:
       - devices
@@ -366,18 +419,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.CreateDeviceRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.CreateDeviceRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/device.Device'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Create device
       tags:
       - devices
@@ -395,11 +448,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Delete device
       tags:
       - devices
@@ -416,15 +469,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/device.Device'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get device
       tags:
       - devices
@@ -442,22 +495,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.UpdateDeviceRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateDeviceRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/device.Device'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Update device
       tags:
       - devices
@@ -476,16 +529,16 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/command.Command'
+              $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_command.Command'
             type: array
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: List device commands
       tags:
       - commands
@@ -503,22 +556,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.SendCommandRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.SendCommandRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/command.Command'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_command.Command'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Send command to device
       tags:
       - commands
@@ -541,92 +594,16 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/command.Command'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_command.Command'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get device command
-      tags:
-      - commands
-  /devices/{deviceID}/commands/{commandID}/ack:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Device ID
-        in: path
-        name: deviceID
-        required: true
-        type: string
-      - description: Command ID
-        in: path
-        name: commandID
-        required: true
-        type: string
-      - description: ACK payload
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/dto.CommandResultRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/command.Command'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-      summary: ACK device command
-      tags:
-      - commands
-  /devices/{deviceID}/commands/{commandID}/nack:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Device ID
-        in: path
-        name: deviceID
-        required: true
-        type: string
-      - description: Command ID
-        in: path
-        name: commandID
-        required: true
-        type: string
-      - description: NACK payload
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/dto.CommandResultRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/command.Command'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/dto.ErrorResponse'
-      summary: NACK device command
       tags:
       - commands
   /devices/{deviceID}/heartbeat:
@@ -643,22 +620,22 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/dto.HeartbeatRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.HeartbeatRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/device.Device'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Record device heartbeat
       tags:
       - devices
@@ -677,12 +654,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/ota.Deployment'
+              $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Deployment'
             type: array
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: List device OTA deployments
       tags:
       - ota
@@ -700,22 +677,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.DeployOTARequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.DeployOTARequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/ota.Manifest'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Manifest'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Create OTA deployment manifest for a device
       tags:
       - ota
@@ -738,22 +715,22 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/dto.OTAResultRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.OTAResultRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/ota.Deployment'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Deployment'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: ACK OTA deployment
       tags:
       - ota
@@ -776,15 +753,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/ota.Manifest'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Manifest'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get OTA deployment manifest
       tags:
       - ota
@@ -807,22 +784,22 @@ paths:
         in: body
         name: request
         schema:
-          $ref: '#/definitions/dto.OTAResultRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.OTAResultRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/ota.Deployment'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Deployment'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: NACK OTA deployment
       tags:
       - ota
@@ -840,13 +817,13 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/ota.Manifest'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.Manifest'
         "204":
           description: No Content
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get pending OTA deployment manifest
       tags:
       - ota
@@ -864,15 +841,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shadow.Shadow'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_shadow.Shadow'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get device shadow
       tags:
       - shadows
@@ -891,18 +868,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.UpdateShadowStateRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateShadowStateRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shadow.Shadow'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_shadow.Shadow'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Update desired device shadow state
       tags:
       - shadows
@@ -921,18 +898,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.UpdateShadowStateRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateShadowStateRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/shadow.Shadow'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_shadow.Shadow'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Update reported device shadow state
       tags:
       - shadows
@@ -951,25 +928,50 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.CreateTelemetryRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.CreateTelemetryRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/telemetry.Telemetry'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_telemetry.Telemetry'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Ingest telemetry
       tags:
       - telemetry
+  /devices/heartbeat:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Heartbeat payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.HeartbeatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
+      summary: Record global device heartbeat
+      tags:
+      - devices
   /ota/firmware:
     get:
       produces:
@@ -979,12 +981,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/ota.FirmwareArtifact'
+              $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: List firmware artifacts
       tags:
       - ota
@@ -1008,11 +1010,11 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/ota.FirmwareArtifact'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Upload firmware artifact
       tags:
       - ota
@@ -1030,11 +1032,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/ota.FirmwareArtifact'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_ota.FirmwareArtifact'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get firmware artifact
       tags:
       - ota
@@ -1048,22 +1050,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.ProvisionDeviceRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ProvisionDeviceRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/device.ProvisionResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_domain_device.ProvisionResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Provision device
       tags:
       - devices
@@ -1076,12 +1078,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/rule.Rule'
+              $ref: '#/definitions/telemetry.RuleResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: List telemetry rules
       tags:
       - rules
@@ -1094,18 +1096,18 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.CreateRuleRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.CreateRuleRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/rule.Rule'
+            $ref: '#/definitions/telemetry.RuleResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Create telemetry rule
       tags:
       - rules
@@ -1123,11 +1125,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Delete telemetry rule
       tags:
       - rules
@@ -1144,15 +1146,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/rule.Rule'
+            $ref: '#/definitions/telemetry.RuleResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Get telemetry rule
       tags:
       - rules
@@ -1170,22 +1172,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/dto.UpdateRuleRequest'
+          $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.UpdateRuleRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/rule.Rule'
+            $ref: '#/definitions/telemetry.RuleResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/dto.ErrorResponse'
+            $ref: '#/definitions/github_com_vishalss1_argus_core_internal_transport_http_dto.ErrorResponse'
       summary: Update telemetry rule
       tags:
       - rules
