@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	goredis "github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,6 +18,8 @@ import (
 
 	pb "github.com/vishalss1/argus/shared/proto/telemetry"
 	"github.com/vishalss1/argus/telemetry/internal/ai/query"
+	"github.com/vishalss1/argus/telemetry/internal/domain/device"
+	"github.com/vishalss1/argus/telemetry/internal/domain/fleet"
 	ctxdomain "github.com/vishalss1/argus/telemetry/internal/domain/context"
 	event "github.com/vishalss1/argus/telemetry/internal/domain/event"
 	rule "github.com/vishalss1/argus/telemetry/internal/domain/rule"
@@ -29,6 +33,8 @@ type Server struct {
 	contextService *ctxdomain.Service
 	ruleService    *rule.Service
 	redisClient    *redisinfra.Client
+	deviceService  device.Service
+	fleetService   fleet.Service
 }
 
 func NewServer(
@@ -37,6 +43,8 @@ func NewServer(
 	contextService *ctxdomain.Service,
 	ruleService *rule.Service,
 	redisClient *redisinfra.Client,
+	deviceService device.Service,
+	fleetService fleet.Service,
 ) *Server {
 	return &Server{
 		queryEngine:    queryEngine,
@@ -44,18 +52,34 @@ func NewServer(
 		contextService: contextService,
 		ruleService:    ruleService,
 		redisClient:    redisClient,
+		deviceService:  deviceService,
+		fleetService:   fleetService,
 	}
 }
 
 func (s *Server) QueryAI(ctx context.Context, req *pb.QueryAIRequest) (*pb.QueryAIResponse, error) {
+	tracer := otel.Tracer("telemetry-service")
+	ctx, span := tracer.Start(ctx, "QueryAI")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("device_id", req.DeviceId),
+		attribute.String("workspace_id", req.WorkspaceId),
+	)
+
 	if req.Query == "" {
 		return nil, status.Error(codes.InvalidArgument, "query is required")
 	}
 
-	res, err := s.queryEngine.Ask(ctx, req.Query, req.DeviceId)
+	res, err := s.queryEngine.Ask(ctx, req.Query, req.DeviceId, req.WorkspaceId)
 	if err != nil {
+		span.RecordError(err)
 		return nil, status.Errorf(codes.Internal, "ai query failed: %v", err)
 	}
+
+
+	span.SetAttributes(
+		attribute.String("intent", string(res.Intent)),
+	)
 
 	var actions []*pb.ActionSuggestion
 	for _, rem := range res.Remediations {
@@ -84,7 +108,6 @@ func (s *Server) QueryAI(ctx context.Context, req *pb.QueryAIRequest) (*pb.Query
 	return &pb.QueryAIResponse{
 		Response:   res.Summary,
 		Intent:     string(res.Intent),
-		Confidence: res.Confidence,
 		Sources:    res.Evidence,
 		Actions:    actions,
 	}, nil
@@ -95,168 +118,66 @@ func (s *Server) GetSnapshot(ctx context.Context, req *pb.GetSnapshotRequest) (*
 		return nil, status.Error(codes.InvalidArgument, "device_id is required")
 	}
 
-	rdb := s.redisClient.Client()
-	wsKey := fmt.Sprintf("device:%s:workspace", req.DeviceId)
-	workspaceID, _ := rdb.Get(ctx, wsKey).Result()
-	if workspaceID == "" {
-		workspaceID = req.WorkspaceId
+	snap, err := s.deviceService.GetSnapshot(ctx, req.DeviceId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get device snapshot: %v", err)
 	}
 
-	var sessionID string
-	if workspaceID != "" {
-		sessionKey := fmt.Sprintf("workspace:%s:active_session", workspaceID)
-		sessionID, _ = rdb.Get(ctx, sessionKey).Result()
-	}
-
-	devStateKey := fmt.Sprintf("session:%s:device:%s:state", sessionID, req.DeviceId)
-	state, _ := rdb.HGetAll(ctx, devStateKey).Result()
-
-	deviceStatus := "offline"
 	var lastSeenProto *timestamppb.Timestamp
-	if len(state) > 0 {
-		deviceStatus = "online"
-		if lUnix, err := strconv.ParseInt(state["last_seen"], 10, 64); err == nil {
-			lastSeenProto = timestamppb.New(time.Unix(lUnix, 0).UTC())
-		}
-	}
-
-	latestKey := fmt.Sprintf("device:%s:latest", req.DeviceId)
-	latestJSON, _ := rdb.Get(ctx, latestKey).Result()
-	latestMetricsMap := make(map[string]float64)
-
-	if latestJSON != "" {
-		var t struct {
-			Metrics json.RawMessage `json:"metrics"`
-		}
-		if json.Unmarshal([]byte(latestJSON), &t) == nil {
-			var vals map[string]interface{}
-			if json.Unmarshal(t.Metrics, &vals) == nil {
-				for k, v := range vals {
-					if f, ok := v.(float64); ok {
-						latestMetricsMap[k] = f
-					}
-				}
-			}
-		}
-	}
-
-	var activeIncidentTypes []string
-	var totalIncidents int32 = 0
-	if sessionID != "" {
-		deviceIncidentsSetKey := fmt.Sprintf("session:%s:device:%s:incidents", sessionID, req.DeviceId)
-		targetKeys, _ := rdb.SMembers(ctx, deviceIncidentsSetKey).Result()
-		totalIncidents = int32(len(targetKeys))
-		if len(targetKeys) > 0 {
-			vals, err := rdb.MGet(ctx, targetKeys...).Result()
-			if err == nil {
-				for _, v := range vals {
-					if vStr, ok := v.(string); ok && vStr != "" {
-						var inc struct {
-							IncidentType string `json:"incident_type"`
-						}
-						if json.Unmarshal([]byte(vStr), &inc) == nil {
-							activeIncidentTypes = append(activeIncidentTypes, inc.IncidentType)
-						}
-					}
-				}
-			}
-		}
+	if !snap.LastSeen.IsZero() {
+		lastSeenProto = timestamppb.New(snap.LastSeen)
 	}
 
 	return &pb.DeviceSnapshotResponse{
-		DeviceId:               req.DeviceId,
-		Status:                 deviceStatus,
+		DeviceId:               snap.DeviceID,
+		Status:                 snap.Status,
 		LastSeen:               lastSeenProto,
-		LatestMetrics:          latestMetricsMap,
-		ActiveIncidentTypes:    activeIncidentTypes,
-		TotalIncidentsRecorded: totalIncidents,
+		LatestMetrics:          snap.LatestMetrics,
+		ActiveIncidentTypes:    snap.ActiveIncidentTypes,
+		TotalIncidentsRecorded: int32(snap.TotalIncidentsRecorded),
 	}, nil
 }
 
 func (s *Server) ListIncidents(ctx context.Context, req *pb.ListIncidentsRequest) (*pb.ListIncidentsResponse, error) {
-	var incidentKeys []string
-	rdb := s.redisClient.Client()
+	var incidents []fleet.IncidentBrief
+	var err error
 	if req.SessionId != "" {
-		incidentsSetKey := fmt.Sprintf("session:%s:incidents", req.SessionId)
-		keys, err := rdb.SMembers(ctx, incidentsSetKey).Result()
-		if err == nil && len(keys) > 0 {
-			incidentKeys = append(incidentKeys, keys...)
-		}
+		// For a specific session/device - this is typically rare in ListIncidents overall view, 
+		// but if needed, we'd use deviceService. Let's just use fleetService for all recent incidents for now.
+		incidents, err = s.fleetService.GetRecentIncidents(ctx, req.WorkspaceId, 100)
 	} else {
-		activeSessions, err := rdb.SMembers(ctx, "sessions:active").Result()
-		if err == nil {
-			for _, sessionID := range activeSessions {
-				incidentsSetKey := fmt.Sprintf("session:%s:incidents", sessionID)
-				keys, err := rdb.SMembers(ctx, incidentsSetKey).Result()
-				if err == nil && len(keys) > 0 {
-					incidentKeys = append(incidentKeys, keys...)
-				}
-			}
-		}
+		incidents, err = s.fleetService.GetRecentIncidents(ctx, req.WorkspaceId, 100)
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get incidents: %v", err)
 	}
 
 	var pbIncidents []*pb.ActiveIncident
-	if len(incidentKeys) > 0 {
-		vals, err := rdb.MGet(ctx, incidentKeys...).Result()
-		if err == nil {
-			for _, v := range vals {
-				if vStr, ok := v.(string); ok && vStr != "" {
-					var inc struct {
-						DeviceID     string    `json:"device_id"`
-						Metric       string    `json:"metric"`
-						IncidentType string    `json:"incident_type"`
-						Severity     string    `json:"severity"`
-						StartTime    time.Time `json:"start_time"`
-						PeakScore    float64   `json:"peak_score"`
-						Summary      string    `json:"summary"`
-					}
-					if json.Unmarshal([]byte(vStr), &inc) == nil {
-						pbIncidents = append(pbIncidents, &pb.ActiveIncident{
-							DeviceId:  inc.DeviceID,
-							Metric:    inc.Metric,
-							Type:      inc.IncidentType,
-							Severity:  inc.Severity,
-							StartedAt: timestamppb.New(inc.StartTime),
-							PeakScore: inc.PeakScore,
-							Summary:   inc.Summary,
-						})
-					}
-				}
-			}
-		}
+	for _, inc := range incidents {
+		pbIncidents = append(pbIncidents, &pb.ActiveIncident{
+			DeviceId: inc.DeviceID,
+			Metric:   inc.Metric,
+			Type:     inc.IncidentType,
+			Severity: string(inc.Severity),
+			// StartTime, PeakScore, Summary are omitted in IncidentBrief for now
+		})
 	}
+	
 	return &pb.ListIncidentsResponse{Incidents: pbIncidents}, nil
 }
 
 func (s *Server) FleetSummary(ctx context.Context, req *pb.FleetSummaryRequest) (*pb.FleetSummaryResponse, error) {
-	res, err := s.queryEngine.Ask(ctx, "summarize fleet health", "")
-	var summaryText string
-	if err == nil {
-		summaryText = res.Summary
-	} else {
-		summaryText = "Fleet diagnostics are currently stable. No widespread anomalies detected."
+	health, err := s.fleetService.GetHealthSummary(ctx, req.WorkspaceId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get health summary: %v", err)
 	}
 
-	rdb := s.redisClient.Client()
-	activeSessions, _ := rdb.SMembers(ctx, "sessions:active").Result()
-	var totalDevices, onlineDevices, activeIncidents int32
-
-	for _, sessionID := range activeSessions {
-		devsKey := fmt.Sprintf("session:%s:devices", sessionID)
-		devs, _ := rdb.SMembers(ctx, devsKey).Result()
-		totalDevices += int32(len(devs))
-		onlineDevices += int32(len(devs))
-
-		incidentsKey := fmt.Sprintf("session:%s:incidents", sessionID)
-		incidents, _ := rdb.SMembers(ctx, incidentsKey).Result()
-		activeIncidents += int32(len(incidents))
-	}
-
+	// Deterministic stats; LLM summary would be retrieved via QueryAI with IntentFleetSummary
 	return &pb.FleetSummaryResponse{
-		TotalDevices:    totalDevices,
-		OnlineDevices:   onlineDevices,
-		ActiveIncidents: activeIncidents,
-		SummaryText:     summaryText,
+		TotalDevices:    int32(health.TotalDevices),
+		OnlineDevices:   int32(health.OnlineDevices),
+		ActiveIncidents: int32(health.ActiveIncidents),
+		SummaryText:     "Fleet diagnostics are stable. Deterministic response.",
 	}, nil
 }
 

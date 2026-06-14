@@ -172,3 +172,40 @@ func (r *DeviceRepository) Search(ctx context.Context, terms []string, limit int
 
 	return matchedDevices, nil
 }
+
+func (r *DeviceRepository) GetWorkspaceDevices(ctx context.Context, workspaceID string) ([]string, error) {
+	if workspaceID == "" {
+		return nil, nil
+	}
+
+	var resp *pb.GetWorkspaceDevicesResponse
+	var err error
+	backoff := 500 * time.Millisecond
+
+	for i := 0; i < 3; i++ {
+		resp, err = r.coreClient.Client().GetWorkspaceDevices(ctx, &pb.GetWorkspaceDevicesRequest{
+			WorkspaceId: workspaceID,
+		})
+		if err == nil {
+			break
+		}
+
+		if !isTransientError(err) {
+			return nil, fmt.Errorf("core grpc GetWorkspaceDevices: %w", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+			backoff *= 2
+		}
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("core grpc GetWorkspaceDevices (after 3 retries): %w", err)
+	}
+
+	return resp.DeviceIds, nil
+}
+

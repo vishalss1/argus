@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/vishalss1/argus/core/internal/domain/auth"
 	"github.com/vishalss1/argus/core/internal/transport/http/dto"
 	telemetrygrpc "github.com/vishalss1/argus/core/internal/infrastructure/grpc"
 	pb "github.com/vishalss1/argus/shared/proto/telemetry"
@@ -95,7 +96,9 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch workspace ID from context
 	workspaceID := "00000000-0000-0000-0000-000000000000" // Fallback
-	// Actually we can retrieve workspace ID from request context if injected by middleware
+	if wsID, ok := auth.GetWorkspaceID(r.Context()); ok {
+		workspaceID = wsID
+	}
 
 	resp, err := h.telemetryClient.Client().QueryAI(r.Context(), &pb.QueryAIRequest{
 		Query:       body.Query,

@@ -41,14 +41,12 @@ type Config struct {
 	GroqAPIKey           string
 	GroqModel            string
 	GroqBaseURL          string
-	OllamaBaseURL        string
-	OllamaEmbedModel     string
+	Embedding            EmbeddingConfig
 	WorkerProfiles       string
 	AlertCooldownSeconds int
 	SessionStaleTimeoutHours int
 	KafkaDLQTopic        string
 	KafkaIncidentTopic   string
-	RAGSimilarityThreshold float32
 	EmbeddingQueueSize   int
 	EmbeddingWorkers     int
 	AIQueryAPIKey        string
@@ -59,6 +57,13 @@ type Config struct {
 	JWTRefreshExpiration      time.Duration
 	AuthAuditLogRetentionDays int
 	TelemetryDedupTTL         time.Duration
+}
+
+type EmbeddingConfig struct {
+	Provider        string
+	ModelPath       string
+	Dimension       int
+	SimilarityLimit float64
 }
 
 func Load() *Config {
@@ -92,8 +97,6 @@ func Load() *Config {
 		GroqAPIKey:           os.Getenv("GROQ_API_KEY"),
 		GroqModel:            os.Getenv("GROQ_MODEL"),
 		GroqBaseURL:          os.Getenv("GROQ_BASE_URL"),
-		OllamaBaseURL:        os.Getenv("OLLAMA_BASE_URL"),
-		OllamaEmbedModel:     os.Getenv("OLLAMA_EMBED_MODEL"),
 		WorkerProfiles:       os.Getenv("WORKER_PROFILES"),
 	}
 
@@ -197,22 +200,36 @@ func Load() *Config {
 		cfg.GroqBaseURL = "https://api.groq.com/openai/v1"
 	}
 
-	if cfg.OllamaBaseURL == "" {
-		cfg.OllamaBaseURL = "http://localhost:11434"
+	cfg.Embedding.Provider = os.Getenv("EMBED_PROVIDER")
+	if cfg.Embedding.Provider == "" {
+		cfg.Embedding.Provider = "local"
 	}
-	if cfg.OllamaEmbedModel == "" {
-		cfg.OllamaEmbedModel = "nomic-embed-text"
+
+	cfg.Embedding.ModelPath = os.Getenv("EMBED_MODEL_PATH")
+	if cfg.Embedding.ModelPath == "" {
+		cfg.Embedding.ModelPath = "/app/models/all-MiniLM-L6-v2"
+	}
+
+	embedDimStr := os.Getenv("EMBED_DIMENSION")
+	if embedDimStr != "" {
+		if val, err := strconv.Atoi(embedDimStr); err == nil && val > 0 {
+			cfg.Embedding.Dimension = val
+		} else {
+			cfg.Embedding.Dimension = 384
+		}
+	} else {
+		cfg.Embedding.Dimension = 384
 	}
 
 	thresholdStr := os.Getenv("RAG_SIMILARITY_THRESHOLD")
 	if thresholdStr != "" {
-		if val, err := strconv.ParseFloat(thresholdStr, 32); err == nil {
-			cfg.RAGSimilarityThreshold = float32(val)
+		if val, err := strconv.ParseFloat(thresholdStr, 64); err == nil {
+			cfg.Embedding.SimilarityLimit = val
 		} else {
-			cfg.RAGSimilarityThreshold = 0.5
+			cfg.Embedding.SimilarityLimit = 0.5
 		}
 	} else {
-		cfg.RAGSimilarityThreshold = 0.5
+		cfg.Embedding.SimilarityLimit = 0.5
 	}
 
 	queueSizeStr := os.Getenv("EMBEDDING_QUEUE_SIZE")

@@ -21,13 +21,13 @@ type EmbeddingTask struct {
 }
 
 type EmbeddingService struct {
-	provider    *embedding.OllamaProvider
+	provider    embedding.Provider
 	vectorStore *postgres.VectorStore
 	taskChan    chan EmbeddingTask
 	wg          *sync.WaitGroup
 }
 
-func NewEmbeddingService(provider *embedding.OllamaProvider, vectorStore *postgres.VectorStore, queueSize int) *EmbeddingService {
+func NewEmbeddingService(provider embedding.Provider, vectorStore *postgres.VectorStore, queueSize int) *EmbeddingService {
 	return &EmbeddingService{
 		provider:    provider,
 		vectorStore: vectorStore,

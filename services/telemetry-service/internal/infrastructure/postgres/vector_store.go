@@ -50,7 +50,7 @@ func (s *VectorStore) verifyExtension() {
 	}
 
 	s.enabled = true
-	log.Printf("[VECTOR STORE] pgvector enabled in %s (version %s). 768 dimensions (nomic-embed-text) confirmed.", dbName, version)
+	log.Printf("[VECTOR STORE] pgvector enabled in %s (version %s).", dbName, version)
 }
 
 func (s *VectorStore) Search(ctx context.Context, table string, queryVector []float32, limit int) ([]vectorstore.SearchResult, error) {

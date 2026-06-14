@@ -4,25 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"math"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
-	goredis "github.com/redis/go-redis/v9"
-	"github.com/vishalss1/argus/telemetry/internal/ai/operations"
 	common "github.com/vishalss1/argus/shared/common"
-	ctxdomain "github.com/vishalss1/argus/telemetry/internal/domain/context"
+	"github.com/vishalss1/argus/telemetry/internal/ai/operations"
 	"github.com/vishalss1/argus/telemetry/internal/domain/device"
-	"github.com/vishalss1/argus/telemetry/internal/domain/event"
-	"github.com/vishalss1/argus/telemetry/internal/domain/telemetry"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/ai"
-	"github.com/vishalss1/argus/telemetry/internal/infrastructure/embedding"
-	"github.com/vishalss1/argus/telemetry/internal/infrastructure/postgres"
 	redisinfra "github.com/vishalss1/argus/telemetry/internal/infrastructure/redis"
+	"go.uber.org/zap"
 )
 
 type Response struct {
@@ -36,88 +27,121 @@ type Response struct {
 	Remediations       []operations.Remediation      `json:"remediations,omitempty"`
 	RelatedDevices     []operations.RelatedDevice    `json:"related_devices,omitempty"`
 	OperationalContext *operations.Snapshot          `json:"operational_context,omitempty"`
+	source             responseSource
 }
 
 type Engine struct {
-	embeddingProvider   *embedding.OllamaProvider
-	aiProvider          *ai.GroqProvider
-	vectorStore         *postgres.VectorStore
-	eventRepo           *postgres.EventRepository
-	contextRepo         *postgres.ContextRepository
-	deviceRepo          device.Repository
-	redisClient         *redisinfra.Client
-	similarityThreshold float32
-	summaryAnalyzer     *operations.DeviceSummaryAnalyzer
-	rootCauseAnalyzer   *operations.RootCauseAnalyzer
-	remediationEngine   *operations.RemediationEngine
+	planner           *Planner
+	router            *Router
+	deviceRepo        device.Repository
+	redisClient       *redisinfra.Client
+	aiProvider        *ai.GroqProvider
+	logger            *zap.Logger
+	remediationEngine *operations.RemediationEngine
 }
 
 func NewEngine(
-	embeddingProvider *embedding.OllamaProvider,
-	aiProvider *ai.GroqProvider,
-	vectorStore *postgres.VectorStore,
-	eventRepo *postgres.EventRepository,
-	contextRepo *postgres.ContextRepository,
+	planner *Planner,
+	router *Router,
 	deviceRepo device.Repository,
 	redisClient *redisinfra.Client,
-	similarityThreshold float32,
+	aiProvider *ai.GroqProvider,
+	logger *zap.Logger,
 ) *Engine {
 	return &Engine{
-		embeddingProvider:   embeddingProvider,
-		aiProvider:          aiProvider,
-		vectorStore:         vectorStore,
-		eventRepo:           eventRepo,
-		contextRepo:         contextRepo,
-		deviceRepo:          deviceRepo,
-		redisClient:         redisClient,
-		similarityThreshold: similarityThreshold,
-		summaryAnalyzer:     operations.NewDeviceSummaryAnalyzer(),
-		rootCauseAnalyzer:   operations.NewRootCauseAnalyzer(),
-		remediationEngine:   operations.NewRemediationEngine(),
+		planner:           planner,
+		router:            router,
+		deviceRepo:        deviceRepo,
+		redisClient:       redisClient,
+		aiProvider:        aiProvider,
+		logger:            logger,
+		remediationEngine: operations.NewRemediationEngine(),
 	}
 }
 
-func (e *Engine) Ask(ctx context.Context, queryString, preferredDeviceID string) (*Response, error) {
-	startTime := time.Now()
-	defer func() {
-		common.AIQueryDuration.Observe(time.Since(startTime).Seconds())
-	}()
+func (e *Engine) Ask(ctx context.Context, queryString, preferredDeviceID, workspaceID string) (*Response, error) {
+	requestID, _ := common.GetRequestID(ctx)
+	start := time.Now()
 
-	intent := operations.ClassifyIntent(queryString)
+	e.logger.Info("[AI QUERY]",
+		zap.String("request_id", requestID),
+		zap.String("query", queryString),
+		zap.String("workspace_id", workspaceID),
+	)
 
-	if preferredDeviceID != "" {
-		target, err := e.deviceRepo.GetByID(ctx, preferredDeviceID)
-		if err != nil {
-			return nil, fmt.Errorf("get selected device: %w", err)
-		}
-		snapshot, err := e.buildSnapshot(ctx, *target)
-		if err != nil {
-			return nil, fmt.Errorf("build operational context: %w", err)
-		}
-		return e.analyzeDevice(ctx, queryString, intent, snapshot), nil
-	}
-
-	if intent == operations.IntentFleetSummary || intent == operations.IntentDeviceComparison {
-		return e.analyzeFleet(ctx, intent), nil
-	}
-
-	devices, err := e.deviceRepo.Search(ctx, deviceSearchTerms(queryString), 10)
+	plan, err := e.planner.Build(queryString, preferredDeviceID)
 	if err != nil {
-		return nil, fmt.Errorf("search devices for query resolution: %w", err)
+		return nil, fmt.Errorf("build query plan: %w", err)
 	}
-	target := resolveDevice(queryString, preferredDeviceID, devices)
 
-	if target != nil {
-		snapshot, err := e.buildSnapshot(ctx, *target)
+	e.logger.Info("[AI PLAN]",
+		zap.String("request_id", requestID),
+		zap.String("intent", string(plan.Intent)),
+		zap.Int("fleet_metric", int(plan.FleetMetric)),
+	)
+
+	if preferredDeviceID == "" && plan.Intent != operations.IntentFleetSummary && plan.Intent != operations.IntentUnknown {
+		devices, err := e.deviceRepo.Search(ctx, deviceSearchTerms(queryString), 10)
 		if err != nil {
-			return nil, fmt.Errorf("build operational context: %w", err)
+			return nil, fmt.Errorf("search devices: %w", err)
 		}
-		return e.analyzeDevice(ctx, queryString, intent, snapshot), nil
+		target := resolveDevice(queryString, "", devices)
+		if target != nil {
+			plan.TargetDeviceID = target.ID
+		}
 	}
 
-	return e.semanticFallback(ctx, queryString, intent)
+	handler, err := e.router.Route(plan.Intent)
+	if err != nil {
+		return nil, fmt.Errorf("route query: %w", err)
+	}
+
+	req := QueryRequest{
+		Query:          queryString,
+		Intent:         plan.Intent,
+		FleetMetric:    plan.FleetMetric,
+		TargetDeviceID: plan.TargetDeviceID,
+		WorkspaceID:    workspaceID,
+	}
+
+
+	resp, err := handler.Handle(ctx, req)
+	if err != nil {
+		e.logger.Error("[AI QUERY FAILED]",
+			zap.String("request_id", requestID),
+			zap.Error(err),
+			zap.Duration("latency", time.Since(start)),
+		)
+		ai.QueryFailuresTotal.Inc()
+		return nil, err
+	}
+
+	switch resp.source {
+	case sourceDeterministic:
+		ai.QueriesTotal.WithLabelValues("deterministic").Inc()
+		ai.QueryDurationSeconds.WithLabelValues("deterministic").Observe(time.Since(start).Seconds())
+	case sourceRAG:
+		ai.QueriesTotal.WithLabelValues("rag").Inc()
+		ai.QueryDurationSeconds.WithLabelValues("rag").Observe(time.Since(start).Seconds())
+	case sourceLLM:
+		ai.QueriesTotal.WithLabelValues("llm").Inc()
+		ai.QueryDurationSeconds.WithLabelValues("llm").Observe(time.Since(start).Seconds())
+	default:
+		ai.QueriesTotal.WithLabelValues("unknown").Inc()
+		ai.QueryDurationSeconds.WithLabelValues("unknown").Observe(time.Since(start).Seconds())
+	}
+	common.AIQueryDuration.Observe(time.Since(start).Seconds())
+
+	e.logger.Info("[AI QUERY COMPLETED]",
+		zap.String("request_id", requestID),
+		zap.String("intent", string(plan.Intent)),
+		zap.Duration("latency", time.Since(start)),
+	)
+
+	return resp, nil
 }
 
+/*
 func (e *Engine) analyzeDevice(ctx context.Context, queryString string, intent operations.Intent, snapshot *operations.Snapshot) *Response {
 	summary := e.summaryAnalyzer.Analyze(*snapshot)
 	rca := e.rootCauseAnalyzer.Analyze(*snapshot)
@@ -133,36 +157,32 @@ func (e *Engine) analyzeDevice(ctx context.Context, queryString string, intent o
 		DeviceSummary:      &summary,
 		OperationalContext: snapshot,
 		RelatedDevices:     e.relatedDevices(ctx, *snapshot),
+		source:             sourceDeterministic,
 	}
 	switch intent {
 	case operations.IntentRootCauseAnalysis:
 		response.Summary = rca.PrimaryCause
-		response.Confidence = float64(rca.Confidence) / 100
 		response.Evidence = rca.SupportingEvidence
 		response.SuggestedActions = rca.RecommendedActions
 		response.RootCauseAnalysis = &rca
 	case operations.IntentRemediation:
 		response.Summary = remediationSummary(snapshot.Device.Name, remediations)
-		response.Confidence = float64(rca.Confidence) / 100
 		response.Evidence = rca.SupportingEvidence
 		response.SuggestedActions = flattenActions(remediations, summary.Recommendations)
 		response.RootCauseAnalysis = &rca
 		response.Remediations = remediations
 	case operations.IntentIncidentLookup:
 		response.Summary = fmt.Sprintf("%s has %d open and %d recent incidents.", snapshot.Device.Name, summary.OpenIncidents, summary.RecentIncidents)
-		response.Confidence = 0.85
 		response.Evidence = incidentEvidence(snapshot.IncidentHistory)
 		response.SuggestedActions = summary.Recommendations
 		response.Remediations = remediations
 	default:
 		response.Summary = fmt.Sprintf("%s is %s with a health score of %d/100.", snapshot.Device.Name, summary.Severity, summary.HealthScore)
-		response.Confidence = 0.9
 		response.Evidence = summary.KeyFindings
 		response.SuggestedActions = summary.Recommendations
 	}
 
-	// The deterministic analysis remains authoritative; LLM reasoning enriches the
-	// narrative when available and receives the full structured operational context.
+	// Optional enrichment via LLM
 	if enriched, err := e.reasonOverSnapshot(ctx, queryString, intent, snapshot); err == nil {
 		if enriched.Summary != "" {
 			response.Summary = enriched.Summary
@@ -173,14 +193,14 @@ func (e *Engine) analyzeDevice(ctx context.Context, queryString string, intent o
 		if len(enriched.SuggestedActions) > 0 {
 			response.SuggestedActions = uniqueStrings(append(response.SuggestedActions, enriched.SuggestedActions...), 8)
 		}
-		if enriched.Confidence > response.Confidence {
-			response.Confidence = enriched.Confidence
-		}
+		response.source = sourceLLM
 	} else {
 		log.Printf("[QUERY ENGINE] structured LLM reasoning unavailable, returning deterministic analysis: %v", err)
 	}
+
 	return response
 }
+*/
 
 func (e *Engine) reasonOverSnapshot(ctx context.Context, queryString string, intent operations.Intent, snapshot *operations.Snapshot) (*ai.ReasoningResponse, error) {
 	data, err := json.Marshal(snapshot)
@@ -195,6 +215,7 @@ Output valid JSON with keys: summary, confidence (0-1), evidence (array of strin
 	return e.aiProvider.Reason(ctx, systemPrompt, userPrompt)
 }
 
+/*
 func (e *Engine) buildSnapshot(ctx context.Context, target device.Device) (*operations.Snapshot, error) {
 	snapshot := &operations.Snapshot{
 		Device:           target,
@@ -347,6 +368,7 @@ func (e *Engine) loadActiveIncidents(ctx context.Context, sessionID, deviceID st
 	}
 	return result
 }
+*/
 
 func (e *Engine) loadSessionActiveIncidents(ctx context.Context, sessionID string) []operations.Incident {
 	if sessionID == "" {
@@ -521,6 +543,7 @@ func (e *Engine) activeSessionForContext(ctx context.Context) string {
 	return ""
 }
 
+/*
 func (e *Engine) semanticFallback(ctx context.Context, queryString string, intent operations.Intent) (*Response, error) {
 	retrieved, err := e.RetrieveContext(ctx, queryString)
 	if err != nil {
@@ -543,13 +566,23 @@ func (e *Engine) semanticFallback(ctx context.Context, queryString string, inten
 	}, nil
 }
 
-type Context struct {
-	Events   []event.Event                 `json:"events"`
-	Memories []ctxdomain.OperationalMemory `json:"memories"`
+type OldContext struct {
+	Events    []event.Event                 `json:"events"`
+	Memories  []ctxdomain.OperationalMemory `json:"memories"`
+	LiveStats *LiveStats                    `json:"live_stats,omitempty"`
 }
 
-func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Context, error) {
-	retrieved := &Context{}
+type LiveStats struct {
+	TotalDevices      int    `json:"total_devices"`
+	OnlineDevices     int    `json:"online_devices"`
+	ActiveIncidents   int    `json:"active_incidents"`
+	CriticalIncidents int    `json:"critical_incidents"`
+	WarningIncidents  int    `json:"warning_incidents"`
+	WorstSeverity     string `json:"worst_severity"`
+}
+
+func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*OldContext, error) {
+	retrieved := &OldContext{}
 	seen := make(map[string]bool)
 	uuidRegex := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}`)
 	for _, id := range uuidRegex.FindAllString(queryString, -1) {
@@ -584,6 +617,7 @@ func (e *Engine) RetrieveContext(ctx context.Context, queryString string) (*Cont
 	}
 	return retrieved, nil
 }
+*/
 
 func resolveDevice(query, preferredID string, devices []device.Device) *device.Device {
 	for i := range devices {

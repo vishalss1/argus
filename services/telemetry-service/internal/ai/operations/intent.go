@@ -11,7 +11,7 @@ func ClassifyIntent(query string) Intent {
 		return IntentRootCauseAnalysis
 	case containsAny(q, "compare", "similar pattern", "similar devices", "related devices"):
 		return IntentDeviceComparison
-	case containsAny(q, "fleet", "all devices", "happened recently", "incidents today", "recent incidents"):
+	case containsAny(q, "how many devices", "devices online", "devices active", "active devices", "online devices", "connected devices", "any incidents", "active incidents", "worst severity", "how many warnings", "how many critical", "critical alerts", "fleet", "all devices", "happened recently", "incidents today", "recent incidents", "summarize fleet", "fleet health", "summarize fleet health"):
 		return IntentFleetSummary
 	case containsAny(q, "summarize", "summary", "how is", "health", "doing", "status"):
 		return IntentDeviceSummary

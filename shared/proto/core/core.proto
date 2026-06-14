@@ -18,6 +18,9 @@ service CoreService {
 
   // Coarse-grained endpoint to record or update execution of action/policy
   rpc RecordExecution(RecordExecutionRequest) returns (RecordExecutionResponse);
+
+  // Retrieve all device IDs belonging to a workspace
+  rpc GetWorkspaceDevices(GetWorkspaceDevicesRequest) returns (GetWorkspaceDevicesResponse);
 }
 
 message GetDeviceContextRequest {
@@ -95,5 +98,13 @@ message RecordExecutionRequest {
 message RecordExecutionResponse {
   string id = 1;
   string status = 2;
+}
+
+message GetWorkspaceDevicesRequest {
+  string workspace_id = 1;
+}
+
+message GetWorkspaceDevicesResponse {
+  repeated string device_ids = 1;
 }
 

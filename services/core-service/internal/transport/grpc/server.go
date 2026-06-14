@@ -239,3 +239,24 @@ func (s *Server) RecordExecution(ctx context.Context, req *pb.RecordExecutionReq
 	}, nil
 }
 
+func (s *Server) GetWorkspaceDevices(ctx context.Context, req *pb.GetWorkspaceDevicesRequest) (*pb.GetWorkspaceDevicesResponse, error) {
+	if req.WorkspaceId == "" {
+		return nil, status.Error(codes.InvalidArgument, "workspace_id is required")
+	}
+
+	devices, err := s.workspaceRepo.ListDevices(ctx, req.WorkspaceId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list workspace devices: %v", err)
+	}
+
+	deviceIDs := make([]string, len(devices))
+	for i, d := range devices {
+		deviceIDs[i] = d.ID
+	}
+
+	return &pb.GetWorkspaceDevicesResponse{
+		DeviceIds: deviceIDs,
+	}, nil
+}
+
+
