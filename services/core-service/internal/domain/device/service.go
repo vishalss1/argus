@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -55,6 +56,19 @@ func (s *Service) SetProvisioningConfig(config ProvisioningConfig) {
 	}
 }
 
+func generateDeviceAPIKey() (string, []byte, *string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", nil, nil, fmt.Errorf("generate random bytes: %w", err)
+	}
+	hexStr := hex.EncodeToString(bytes)
+	rawKey := "argus_" + hexStr
+	prefix := rawKey[:8]
+	
+	hash := sha256.Sum256([]byte(rawKey))
+	return rawKey, hash[:], &prefix, nil
+}
+
 func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error) {
 	id := strings.ToLower(strings.TrimSpace(input.ID))
 	if id == "" {
@@ -67,6 +81,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error
 		return nil, errors.New("device id must be a valid uuid")
 	}
 
+	rawKey, hash, prefix, err := generateDeviceAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
 	device := Device{
 		ID:              id,
 		Name:            strings.TrimSpace(input.Name),
@@ -74,6 +93,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error
 		FirmwareVersion: strings.TrimSpace(input.FirmwareVersion),
 		Status:          strings.TrimSpace(input.Status),
 		Metadata:        input.Metadata,
+		APIKeyHash:      hash,
+		APIKeyPrefix:    prefix,
 	}
 
 	if device.Name == "" {
@@ -92,7 +113,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error
 		return nil, errors.New("metadata must be valid JSON")
 	}
 
-	return s.repo.Create(ctx, device)
+	created, err := s.repo.Create(ctx, device)
+	if err != nil {
+		return nil, err
+	}
+
+	created.RawAPIKey = &rawKey
+	return created, nil
 }
 
 func (s *Service) List(ctx context.Context) ([]Device, error) {
@@ -322,5 +349,35 @@ func newDeviceID() (string, error) {
 
 	encoded := hex.EncodeToString(b[:])
 	return fmt.Sprintf("%s-%s-%s-%s-%s", encoded[0:8], encoded[8:12], encoded[12:16], encoded[16:20], encoded[20:32]), nil
+}
+
+func (s *Service) RegenerateAPIKey(ctx context.Context, id string) (*Device, error) {
+	deviceID := strings.TrimSpace(id)
+	if deviceID == "" {
+		return nil, errors.New("device id is required")
+	}
+
+	rawKey, hash, prefix, err := generateDeviceAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	input := UpdateInput{
+		APIKeyHash:   hash,
+		APIKeyPrefix: prefix,
+	}
+
+	updated, err := s.repo.Update(ctx, deviceID, input)
+	if err != nil {
+		return nil, err
+	}
+
+	updated.RawAPIKey = &rawKey
+
+	if s.publisher != nil {
+		s.publisher.PublishDeviceUpdate(ctx, *updated)
+	}
+
+	return updated, nil
 }
 

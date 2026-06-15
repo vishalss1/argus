@@ -11,6 +11,7 @@ type Repository interface {
 	Search(ctx context.Context, terms []string, limit int) ([]Device, error)
 	GetByID(ctx context.Context, id string) (*Device, error)
 	GetByHardwareID(ctx context.Context, hardwareID string) (*Device, error)
+	GetByAPIKeyPrefix(ctx context.Context, prefix string) (*Device, error)
 	Update(ctx context.Context, id string, input UpdateInput) (*Device, error)
 	UpdateHeartbeat(ctx context.Context, id string, status string) (*Device, error)
 	UpdatePresence(ctx context.Context, id string, status string, timestamp time.Time) (*Device, error)

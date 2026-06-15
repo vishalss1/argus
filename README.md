@@ -210,7 +210,7 @@ go run ./cmd/ota-keygen -key-id argus-prod-v1
 
 Store `OTA_SIGNING_PRIVATE_KEY_B64` only in a secret manager or protected server environment. Embed the generated public key in the ESP32 firmware as `ARGUS_ED25519_PUBLIC_KEY_B64`.
 
-ARGUS also works behind a reverse proxy such as Caddy or Nginx. In that mode, terminate TLS at the proxy, proxy to the Go server over localhost HTTP, and set `MINIO_PUBLIC_URL` to the externally reachable HTTPS URL. Native Go TLS is enabled only when both `HTTPS_TLS_CERT_FILE` and `HTTPS_TLS_KEY_FILE` are set.
+ARGUS also works behind a reverse proxy such as Nginx or HAProxy. In that mode, terminate TLS at the proxy, proxy to the Go server over localhost HTTP, and set `MINIO_PUBLIC_URL` to the externally reachable HTTPS URL. Native Go TLS is enabled only when both `HTTPS_TLS_CERT_FILE` and `HTTPS_TLS_KEY_FILE` are set.
 
 OTA authenticity model:
 

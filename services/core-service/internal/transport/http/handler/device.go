@@ -237,3 +237,26 @@ func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// RegenerateAPIKey godoc
+// @Summary Regenerate device API key
+// @Tags devices
+// @Produce json
+// @Param deviceID path string true "Device ID"
+// @Success 200 {object} device.Device
+// @Failure 404 {object} dto.ErrorResponse
+// @Failure 500 {object} dto.ErrorResponse
+// @Router /devices/{deviceID}/regenerate-api-key [post]
+func (h *DeviceHandler) RegenerateAPIKey(w http.ResponseWriter, r *http.Request, id string) {
+	entity, err := h.service.RegenerateAPIKey(r.Context(), id)
+	if errors.Is(err, device.ErrDeviceNotFound) {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, entity)
+}
+

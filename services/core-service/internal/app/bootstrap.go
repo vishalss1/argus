@@ -241,6 +241,7 @@ func Bootstrap() (*Server, error) {
 
 	websocketHandler := transportws.NewHandler(websocketHub, authService)
 	router := transportrouter.New(
+		deviceRepository,
 		deviceHandler,
 		telemetryHandler,
 		shadowHandler,

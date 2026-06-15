@@ -118,7 +118,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
     try {
-      const body = (await response.json()) as ApiErrorBody;
+      const clonedResponse = response.clone();
+      const body = (await clonedResponse.json()) as ApiErrorBody;
       if (body.error) message = body.error;
     } catch {
       const text = await response.text().catch(() => "");

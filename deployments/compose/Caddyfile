@@ -1,8 +1,0 @@
-{
-    admin off
-}
-
-:9000 {
-    tls /certs/fullchain.pem /certs/privkey.pem
-    reverse_proxy argus-minio:9000
-}

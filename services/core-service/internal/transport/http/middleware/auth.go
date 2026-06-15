@@ -2,11 +2,16 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/vishalss1/argus/core/internal/domain/auth"
+	"github.com/vishalss1/argus/core/internal/domain/device"
+	"github.com/vishalss1/argus/shared/common"
 )
 
 // Helper to write JSON error responses
@@ -99,6 +104,57 @@ func WorkspaceAuth(authService *auth.Service) func(http.Handler) http.Handler {
 
 			// Inject workspace_id into context
 			ctx := auth.WithWorkspaceID(r.Context(), workspaceID)
+			ctx = common.WithWorkspaceID(ctx, workspaceID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// DeviceAuth middleware validates X-Device-API-Key header and injects device context
+func DeviceAuth(deviceRepo device.Repository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			apiKey := r.Header.Get("X-Device-API-Key")
+			if apiKey == "" {
+				apiKey = r.URL.Query().Get("api_key")
+			}
+
+			if apiKey == "" {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: device API key missing")
+				return
+			}
+
+			if len(apiKey) < 8 {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: invalid device API key format")
+				return
+			}
+
+			prefix := apiKey[:8]
+			dev, err := deviceRepo.GetByAPIKeyPrefix(r.Context(), prefix)
+			if err != nil {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: invalid device API key")
+				return
+			}
+
+			hash := sha256.Sum256([]byte(apiKey))
+			if subtle.ConstantTimeCompare(hash[:], dev.APIKeyHash) != 1 {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: invalid device API key")
+				return
+			}
+
+			deviceID := chi.URLParam(r, "deviceID")
+			if deviceID != "" && deviceID != dev.ID {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: device ID mismatch")
+				return
+			}
+
+			ctx := r.Context()
+			if dev.WorkspaceID != nil {
+				ctx = auth.WithWorkspaceID(ctx, *dev.WorkspaceID)
+				ctx = common.WithWorkspaceID(ctx, *dev.WorkspaceID)
+			}
+			ctx = context.WithValue(ctx, "device_id", dev.ID)
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -16,6 +16,10 @@ type Device struct {
 	WorkspaceID     *string         `json:"workspace_id,omitempty" db:"workspace_id"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
+
+	APIKeyHash   []byte  `json:"-" db:"api_key_hash"`
+	APIKeyPrefix *string `json:"-" db:"api_key_prefix"`
+	RawAPIKey    *string `json:"api_key,omitempty" db:"-"`
 }
 
 type CreateInput struct {
@@ -33,6 +37,8 @@ type UpdateInput struct {
 	FirmwareVersion *string
 	Status          *string
 	Metadata        *json.RawMessage
+	APIKeyHash      []byte
+	APIKeyPrefix    *string
 }
 
 type HeartbeatInput struct {

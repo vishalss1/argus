@@ -8,12 +8,14 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 	_ "github.com/vishalss1/argus/core/docs/swagger"
 	"github.com/vishalss1/argus/core/internal/domain/auth"
+	"github.com/vishalss1/argus/core/internal/domain/device"
 	"github.com/vishalss1/argus/core/internal/transport/http/handler"
 	authmiddleware "github.com/vishalss1/argus/core/internal/transport/http/middleware"
 	transportws "github.com/vishalss1/argus/core/internal/transport/websocket"
 )
 
 func New(
+	deviceRepo device.Repository,
 	deviceHandler *handler.DeviceHandler,
 	telemetryHandler *handler.TelemetryHandler,
 	shadowHandler *handler.ShadowHandler,
@@ -52,14 +54,32 @@ func New(
 	// Device-facing endpoints (Unauthenticated user-wise, since they connect directly)
 	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
 	apiRouter.Post("/devices/heartbeat", deviceHandler.RecordGlobalHeartbeat)
-	apiRouter.Post("/devices/{deviceID}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
-		deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
-	})
 
 	// WebSocket endpoint (authentication handled post-handshake via message)
 	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
-	apiRouter.Post("/devices/{deviceID}/telemetry", func(w http.ResponseWriter, r *http.Request) {
-		telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+
+	// Device Authenticated Group (devices authenticate using API key)
+	apiRouter.Group(func(r chi.Router) {
+		r.Use(authmiddleware.DeviceAuth(deviceRepo))
+
+		r.Post("/devices/{deviceID}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+			deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
+		})
+		r.Post("/devices/{deviceID}/telemetry", func(w http.ResponseWriter, r *http.Request) {
+			telemetryHandler.IngestTelemetry(w, r, chi.URLParam(r, "deviceID"))
+		})
+		r.Put("/devices/{deviceID}/shadow", func(w http.ResponseWriter, r *http.Request) {
+			shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
+		})
+		r.Put("/devices/{deviceID}/shadow/reported", func(w http.ResponseWriter, r *http.Request) {
+			shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
+		})
+		r.Put("/devices/{deviceID}/shadow/desired", func(w http.ResponseWriter, r *http.Request) {
+			shadowHandler.UpdateDesiredShadow(w, r, chi.URLParam(r, "deviceID"))
+		})
+		r.Get("/devices/{deviceID}/ota/pending", func(w http.ResponseWriter, r *http.Request) {
+			otaHandler.GetPendingDeployment(w, r, chi.URLParam(r, "deviceID"))
+		})
 	})
 
 	// User Authenticated Group
@@ -151,6 +171,9 @@ func New(
 					r.Put("/", func(w http.ResponseWriter, r *http.Request) {
 						deviceHandler.UpdateDevice(w, r, chi.URLParam(r, "deviceID"))
 					})
+					r.Post("/regenerate-api-key", func(w http.ResponseWriter, r *http.Request) {
+						deviceHandler.RegenerateAPIKey(w, r, chi.URLParam(r, "deviceID"))
+					})
 					r.Get("/telemetry/latest", func(w http.ResponseWriter, r *http.Request) {
 						telemetryHandler.GetLatestTelemetry(w, r, chi.URLParam(r, "deviceID"))
 					})
@@ -169,23 +192,11 @@ func New(
 					r.Post("/ota", func(w http.ResponseWriter, r *http.Request) {
 						otaHandler.DeployFirmware(w, r, chi.URLParam(r, "deviceID"))
 					})
-					r.Get("/ota/pending", func(w http.ResponseWriter, r *http.Request) {
-						otaHandler.GetPendingDeployment(w, r, chi.URLParam(r, "deviceID"))
-					})
 					r.Get("/ota/{deploymentID}/manifest", func(w http.ResponseWriter, r *http.Request) {
 						otaHandler.GetManifest(w, r, chi.URLParam(r, "deviceID"), chi.URLParam(r, "deploymentID"))
 					})
 					r.Get("/shadow", func(w http.ResponseWriter, r *http.Request) {
 						shadowHandler.GetShadow(w, r, chi.URLParam(r, "deviceID"))
-					})
-					r.Put("/shadow", func(w http.ResponseWriter, r *http.Request) {
-						shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
-					})
-					r.Put("/shadow/desired", func(w http.ResponseWriter, r *http.Request) {
-						shadowHandler.UpdateDesiredShadow(w, r, chi.URLParam(r, "deviceID"))
-					})
-					r.Put("/shadow/reported", func(w http.ResponseWriter, r *http.Request) {
-						shadowHandler.UpdateReportedShadow(w, r, chi.URLParam(r, "deviceID"))
 					})
 					r.Get("/ai/events", aiHandler.ListDeviceEvents)
 					r.Get("/ai/history", aiHandler.GetDeviceHistory)
