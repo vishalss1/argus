@@ -120,6 +120,29 @@ func (h *OTAHandler) GetFirmware(w http.ResponseWriter, r *http.Request, firmwar
 	writeJSON(w, http.StatusOK, artifact)
 }
 
+// DeleteFirmware godoc
+// @Summary Delete firmware artifact
+// @Tags ota
+// @Produce json
+// @Param firmwareID path string true "Firmware artifact ID"
+// @Success 204 "No Content"
+// @Failure 404 {object} dto.ErrorResponse
+// @Failure 400 {object} dto.ErrorResponse
+// @Router /ota/firmware/{firmwareID} [delete]
+func (h *OTAHandler) DeleteFirmware(w http.ResponseWriter, r *http.Request, firmwareID string) {
+	err := h.service.DeleteFirmware(r.Context(), firmwareID)
+	if errors.Is(err, ota.ErrFirmwareNotFound) {
+		writeError(w, http.StatusNotFound, "firmware artifact not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // DeployFirmware godoc
 // @Summary Create OTA deployment manifest for a device
 // @Tags ota

@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState, useRef } from "react";
-import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon } from "lucide-react";
+import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon, Trash2 } from "lucide-react";
 import {
   CopyableID,
   EmptyState,
@@ -11,7 +11,8 @@ import {
   ProgressBar,
   SelectField,
   StatCard,
-  StatusChip
+  StatusChip,
+  Modal
 } from "../components/ui";
 import {
   useAllDeployments,
@@ -24,7 +25,7 @@ import {
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatBytes, formatDate, stringifyJson } from "../lib/format";
 import { api } from "../services/api";
-import type { Deployment, Manifest } from "../types/api";
+import type { Deployment, Manifest, FirmwareArtifact } from "../types/api";
 
 const STATUS_FILTERS = ["All", "pending", "available", "downloading", "flashing", "rebooting", "acked", "nacked", "timeout"];
 const ACTIVE_STATUSES = new Set(["pending", "available", "downloading", "flashing", "rebooting"]);
@@ -71,6 +72,9 @@ export function OTAPage() {
   const [uploadSuccess, setUploadSuccess] = useState("");
   const [deployError, setDeployError] = useState("");
   const [deploySuccess, setDeploySuccess] = useState("");
+  const [artifactToDelete, setArtifactToDelete] = useState<FirmwareArtifact | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
   const uploadTimeoutRef = useRef<number | null>(null);
   const deployTimeoutRef = useRef<number | null>(null);
   const [query, setQuery] = useState("");
@@ -131,6 +135,21 @@ export function OTAPage() {
       }, 4500);
     } catch (err) {
       setUploadError((err as Error).message);
+    }
+  }
+
+  async function handleDeleteFirmware() {
+    if (!artifactToDelete) return;
+    setDeleteError("");
+    setIsDeleting(true);
+    try {
+      await api.firmware.remove(artifactToDelete.id);
+      await firmware.refetch();
+      setArtifactToDelete(null);
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -199,16 +218,26 @@ export function OTAPage() {
           {firmware.isError ? <ErrorState message={(firmware.error as Error).message} onRetry={() => void firmware.refetch()} /> : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Version</th><th>Filename</th><th>Size</th><th>Uploaded</th></tr></thead>
+                <thead><tr><th>Version</th><th>Filename</th><th>Size</th><th>Uploaded</th><th style={{ width: 60 }}>Actions</th></tr></thead>
                 <tbody>
                   {firmware.isLoading && <LoadingRows rows={4} />}
-                  {!firmware.isLoading && (firmware.data?.length ?? 0) === 0 && <tr><td colSpan={4}><EmptyState title="No firmware artifacts" description="Upload firmware to create deployment manifests." /></td></tr>}
+                  {!firmware.isLoading && (firmware.data?.length ?? 0) === 0 && <tr><td colSpan={5}><EmptyState title="No firmware artifacts" description="Upload firmware to create deployment manifests." /></td></tr>}
                   {firmware.data?.map((artifact) => (
                     <tr key={artifact.id}>
                       <td><strong>{artifact.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={artifact.id} /></div></td>
                       <td>{artifact.filename}</td>
                       <td>{formatBytes(artifact.size_bytes)}</td>
                       <td>{formatDate(artifact.created_at)}</td>
+                      <td>
+                        <button 
+                          className="button compact danger" 
+                          onClick={() => { setArtifactToDelete(artifact); setDeleteError(""); }} 
+                          aria-label={`Delete version ${artifact.version}`}
+                          title="Delete Firmware Artifact"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -334,6 +363,29 @@ export function OTAPage() {
           )}
         </Panel>
       </div>
+
+      <Modal isOpen={Boolean(artifactToDelete)} onClose={() => setArtifactToDelete(null)} title="Delete Firmware Artifact">
+        <div className="modal-form">
+          <p className="modal-text">
+            Are you sure you want to delete firmware version <strong>{artifactToDelete?.version}</strong> ({artifactToDelete?.filename})?
+          </p>
+          <p className="muted modal-text-sub">
+            This action will permanently remove the binary file from secure S3 storage and delete the firmware artifact record from the database.
+            <strong> Any associated OTA deployments and their history will also be permanently deleted.</strong>
+          </p>
+          {deleteError && (
+            <div className="form-message error" style={{ marginBottom: 14 }}>
+              {deleteError}
+            </div>
+          )}
+          <div className="modal-actions">
+            <button type="button" className="button secondary" onClick={() => setArtifactToDelete(null)}>Cancel</button>
+            <button type="button" className="btn-inverse" onClick={handleDeleteFirmware} disabled={isDeleting}>
+              {isDeleting ? "Deleting..." : "Delete Firmware"}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
     </>
   );

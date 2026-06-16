@@ -65,6 +65,8 @@ services:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - argus_minio_data:/data
+      - ../../certs/fullchain.pem:/root/.minio/certs/public.crt:ro
+      - ../../certs/privkey.pem:/root/.minio/certs/private.key:ro
 
 
 
@@ -124,6 +126,8 @@ services:
       context: ../../
       dockerfile: services/core-service/Dockerfile
     container_name: argus-core-service
+    env_file:
+      - ../../.env
     environment:
       - DATABASE_URL=postgres://argus:argus@postgres:5432/argus?sslmode=disable
       - REDIS_ADDR=redis:6379

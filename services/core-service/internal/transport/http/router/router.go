@@ -53,7 +53,6 @@ func New(
 
 	// Device-facing endpoints (Unauthenticated user-wise, since they connect directly)
 	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
-	apiRouter.Post("/devices/heartbeat", deviceHandler.RecordGlobalHeartbeat)
 
 	// WebSocket endpoint (authentication handled post-handshake via message)
 	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
@@ -62,6 +61,7 @@ func New(
 	apiRouter.Group(func(r chi.Router) {
 		r.Use(authmiddleware.DeviceAuth(deviceRepo))
 
+		r.Post("/devices/heartbeat", deviceHandler.RecordGlobalHeartbeat)
 		r.Post("/devices/{deviceID}/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 			deviceHandler.RecordHeartbeat(w, r, chi.URLParam(r, "deviceID"))
 		})
@@ -150,6 +150,9 @@ func New(
 				r.Post("/", otaHandler.UploadFirmware)
 				r.Get("/{firmwareID}", func(w http.ResponseWriter, r *http.Request) {
 					otaHandler.GetFirmware(w, r, chi.URLParam(r, "firmwareID"))
+				})
+				r.Delete("/{firmwareID}", func(w http.ResponseWriter, r *http.Request) {
+					otaHandler.DeleteFirmware(w, r, chi.URLParam(r, "firmwareID"))
 				})
 			})
 

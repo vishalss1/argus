@@ -47,9 +47,13 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		cfg.Bucket = "argus-firmware"
 	}
 
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
 	client, err := miniogo.New(cfg.Endpoint, &miniogo.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
-		Secure: cfg.UseSSL,
+		Creds:     credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+		Secure:    cfg.UseSSL,
+		Transport: transport,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create minio client: %w", err)
@@ -125,6 +129,22 @@ func (c *Client) FirmwareURL(ctx context.Context, objectKey string, filename str
 
 	log.Printf("[OTA] generated download_url=%s", url.String())
 	return url.String(), nil
+}
+
+func (c *Client) GetFirmware(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	obj, err := c.client.GetObject(ctx, c.bucket, objectKey, miniogo.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get firmware object: %w", err)
+	}
+	return obj, nil
+}
+
+func (c *Client) RemoveFirmware(ctx context.Context, objectKey string) error {
+	err := c.client.RemoveObject(ctx, c.bucket, objectKey, miniogo.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("remove firmware object: %w", err)
+	}
+	return nil
 }
 
 func publicMinIOEndpoint(cfg Config) (endpoint string, secure bool, publicURL string, err error) {

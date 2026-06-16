@@ -94,6 +94,39 @@ func (r *OTARepository) GetArtifact(ctx context.Context, id string) (*ota.Firmwa
 	return artifact, nil
 }
 
+func (r *OTARepository) DeleteArtifact(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Delete associated deployments (associated events will cascade delete automatically)
+	const deleteDeploymentsQuery = `DELETE FROM ota_deployments WHERE artifact_id = $1::uuid`
+	if _, err := tx.ExecContext(ctx, deleteDeploymentsQuery, id); err != nil {
+		return fmt.Errorf("delete associated ota deployments: %w", err)
+	}
+
+	// 2. Delete the firmware artifact itself
+	const deleteArtifactQuery = `DELETE FROM firmware_artifacts WHERE id = $1::uuid`
+	res, err := tx.ExecContext(ctx, deleteArtifactQuery, id)
+	if err != nil {
+		return fmt.Errorf("delete firmware artifact: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return ota.ErrFirmwareNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *OTARepository) ResolveDeviceID(ctx context.Context, idOrHardwareID string) (string, error) {
 	const query = `
 		SELECT id

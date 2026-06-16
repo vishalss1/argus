@@ -126,6 +126,10 @@ export const api = {
       request<FirmwareArtifact>("/ota/firmware/", {
         method: "POST",
         body: form
+      }),
+    remove: (id: string) =>
+      request<void>(`/ota/firmware/${id}`, {
+        method: "DELETE"
       })
   },
 

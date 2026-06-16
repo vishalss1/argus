@@ -111,6 +111,24 @@ func (s *Service) GetFirmware(ctx context.Context, id string) (*FirmwareArtifact
 	return s.repo.GetArtifact(ctx, id)
 }
 
+func (s *Service) DeleteFirmware(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("firmware id is required")
+	}
+
+	artifact, err := s.repo.GetArtifact(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if err := s.store.RemoveFirmware(ctx, artifact.ObjectKey); err != nil {
+		log.Printf("[OTA] Warning: failed to remove firmware from object store: %v", err)
+	}
+
+	return s.repo.DeleteArtifact(ctx, id)
+}
+
 func (s *Service) Deploy(ctx context.Context, deviceID string, input DeployInput) (*Manifest, error) {
 	requestedDeviceID := strings.TrimSpace(deviceID)
 	log.Printf("[OTA] deployment create request device=%s artifact=%s", requestedDeviceID, strings.TrimSpace(input.ArtifactID))
@@ -368,8 +386,43 @@ func (s *Service) logDeviceDeployments(ctx context.Context, deviceID string) {
 }
 
 func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact *FirmwareArtifact) (*Manifest, error) {
+	signatureAlg := artifact.SignatureAlg
+	signature := artifact.Signature
+	signingKeyID := artifact.SigningKeyID
+	checksumSHA256 := artifact.ChecksumSHA256
+
+	if signature == "" && s.signer != nil {
+		log.Printf("[OTA] firmware artifact %s is unsigned, signing it dynamically", artifact.ID)
+		reader, err := s.store.GetFirmware(ctx, artifact.ObjectKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download firmware binary for hashing: %w", err)
+		}
+		defer reader.Close()
+
+		hasher := sha256.New()
+		if _, err := io.Copy(hasher, reader); err != nil {
+			return nil, fmt.Errorf("failed to hash firmware binary: %w", err)
+		}
+		computedChecksum := hex.EncodeToString(hasher.Sum(nil))
+
+		if checksumSHA256 == "" {
+			checksumSHA256 = computedChecksum
+		} else if !strings.EqualFold(checksumSHA256, computedChecksum) {
+			log.Printf("[OTA] warning: stored checksum %s does not match computed checksum %s", checksumSHA256, computedChecksum)
+			checksumSHA256 = computedChecksum
+		}
+
+		alg, sig, keyID, err := s.signer.SignChecksum(checksumSHA256)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sign checksum: %w", err)
+		}
+		signatureAlg = alg
+		signature = sig
+		signingKeyID = keyID
+	}
+
 	if s.signer != nil && s.signer.RequireSignatures() {
-		if artifact.SignatureAlg != SignatureAlgEd25519 || artifact.Signature == "" || artifact.SigningKeyID == "" {
+		if signatureAlg != SignatureAlgEd25519 || signature == "" || signingKeyID == "" {
 			return nil, errors.New("firmware artifact is unsigned but OTA_REQUIRE_SIGNATURES=true")
 		}
 	}
@@ -380,6 +433,10 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 		return nil, err
 	}
 
+	// Replace internal MinIO service hostname with LAN-accessible host and port
+	url = strings.Replace(url, "minio:9000", "localhost:9000", -1)
+	url = strings.Replace(url, "localhost:9000", "localhost:9000", -1)
+
 	return &Manifest{
 		DeploymentID:   deployment.ID,
 		DeviceID:       deployment.DeviceID,
@@ -388,10 +445,10 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 		Filename:       artifact.Filename,
 		ContentType:    artifact.ContentType,
 		SizeBytes:      artifact.SizeBytes,
-		ChecksumSHA256: artifact.ChecksumSHA256,
-		SignatureAlg:   artifact.SignatureAlg,
-		Signature:      artifact.Signature,
-		SigningKeyID:   artifact.SigningKeyID,
+		ChecksumSHA256: checksumSHA256,
+		SignatureAlg:   signatureAlg,
+		Signature:      signature,
+		SigningKeyID:   signingKeyID,
 		DownloadURL:    url,
 		ExpiresAt:      expiresAt,
 	}, nil
