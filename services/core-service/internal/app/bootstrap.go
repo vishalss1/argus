@@ -32,7 +32,6 @@ import (
 	sessiondomain "github.com/vishalss1/argus/core/internal/domain/session"
 	shadowdomain "github.com/vishalss1/argus/core/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/core/internal/domain/telemetry"
-	usagedomain "github.com/vishalss1/argus/core/internal/domain/usage"
 	workspacedomain "github.com/vishalss1/argus/core/internal/domain/workspace"
 	telemetrygrpc "github.com/vishalss1/argus/core/internal/infrastructure/grpc"
 	"github.com/vishalss1/argus/core/internal/infrastructure/kafka"
@@ -205,9 +204,6 @@ func Bootstrap() (*Server, error) {
 	workspaceService := workspacedomain.NewService(workspaceRepository, redisClient)
 	workspaceHandler := transporthandler.NewWorkspaceHandler(workspaceService, userRepo)
 
-	usageRepository := postgres.NewUsageRepository(database)
-	usageService := usagedomain.NewService(usageRepository)
-
 	sessionRepository := postgres.NewSessionRepository(database)
 	sessionService := sessiondomain.NewService(sessionRepository)
 
@@ -215,7 +211,7 @@ func Bootstrap() (*Server, error) {
 	if telemetryClient != nil {
 		telemetryGRPC = telemetryClient.Client()
 	}
-	sessionManager := sessiondomain.NewManager(sessionService, usageService, redisClient, workspaceRepository, telemetryGRPC)
+	sessionManager := sessiondomain.NewManager(sessionService, redisClient, workspaceRepository, telemetryGRPC)
 	sessionHandler := transporthandler.NewSessionHandler(sessionService, sessionManager)
 
 	// Recover any RUNNING sessions to Redis hot-state
@@ -281,7 +277,7 @@ func Bootstrap() (*Server, error) {
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(correlationServerUnaryInterceptor),
 	)
-	coreGRPCServer := coregrpc.NewServer(deviceRepository, workspaceRepository, sessionService, sessionManager, commandService, policyService, usageService, redisClient)
+	coreGRPCServer := coregrpc.NewServer(deviceRepository, workspaceRepository, sessionService, sessionManager, commandService, policyService, redisClient)
 	pb.RegisterCoreServiceServer(grpcServer, coreGRPCServer)
 
 	// Register standard gRPC Health check server

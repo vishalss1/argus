@@ -14,7 +14,6 @@ import (
 	devicedomain "github.com/vishalss1/argus/core/internal/domain/device"
 	policydomain "github.com/vishalss1/argus/core/internal/domain/policy"
 	sessiondomain "github.com/vishalss1/argus/core/internal/domain/session"
-	usagedomain "github.com/vishalss1/argus/core/internal/domain/usage"
 	workspacedomain "github.com/vishalss1/argus/core/internal/domain/workspace"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
 	pb "github.com/vishalss1/argus/shared/proto/core"
@@ -28,7 +27,6 @@ type Server struct {
 	sessionManager  *sessiondomain.Manager
 	commandService  *commanddomain.Service
 	policyService   *policydomain.Service
-	usageService    *usagedomain.Service
 	redisClient     *redis.Client
 }
 
@@ -39,7 +37,6 @@ func NewServer(
 	sessionManager *sessiondomain.Manager,
 	commandService *commanddomain.Service,
 	policyService *policydomain.Service,
-	usageService *usagedomain.Service,
 	redisClient *redis.Client,
 ) *Server {
 	return &Server{
@@ -49,7 +46,6 @@ func NewServer(
 		sessionManager: sessionManager,
 		commandService: commandService,
 		policyService:  policyService,
-		usageService:   usageService,
 		redisClient:    redisClient,
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/vishalss1/argus/core/internal/domain/usage"
 	"github.com/vishalss1/argus/core/internal/domain/workspace"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
 	"github.com/vishalss1/argus/shared/common"
@@ -17,7 +16,6 @@ import (
 
 type Manager struct {
 	sessionService  *Service
-	usageService    *usage.Service
 	redisClient     *redis.Client
 	workspaceRepo   workspace.Repository
 	telemetryClient pb.TelemetryIntelligenceServiceClient
@@ -25,14 +23,12 @@ type Manager struct {
 
 func NewManager(
 	sessionService *Service,
-	usageService *usage.Service,
 	redisClient *redis.Client,
 	workspaceRepo workspace.Repository,
 	telemetryClient pb.TelemetryIntelligenceServiceClient,
 ) *Manager {
 	return &Manager{
 		sessionService:  sessionService,
-		usageService:    usageService,
 		redisClient:     redisClient,
 		workspaceRepo:   workspaceRepo,
 		telemetryClient: telemetryClient,
@@ -57,15 +53,7 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 		return nil, fmt.Errorf("session cannot be started from status: %s", sess.Status)
 	}
 
-	// 1. Enforce Subscription Limits
-	tenantID := "00000000-0000-0000-0000-000000000000"
-	currentPlan := usage.PlanFree // Hardcoded for prototype
-
-	if err := m.usageService.CheckSessionLimit(ctx, tenantID, currentPlan); err != nil {
-		return nil, fmt.Errorf("subscription limit reached: %w", err)
-	}
-
-	// 2. Transition DB status safely
+	// 1. Transition DB status safely
 	now := time.Now().UTC()
 	started, err := m.sessionService.repo.TransitionStatus(ctx, id, StatusCreated, StatusRunning, &now, nil)
 	if err != nil {
@@ -83,7 +71,7 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 	SessionsStartedTotal.Inc()
 	common.ActiveSessions.Inc()
 
-	// 3. Initialize Redis state
+	// 2. Initialize Redis state
 	activeKey := fmt.Sprintf("session:%s:active", id)
 	if err := m.redisClient.Client().Set(ctx, activeKey, "1", 0).Err(); err != nil {
 		fmt.Printf("[SESSION MANAGER] Warning: failed to set Redis active key for session %s: %v\n", id, err)
@@ -92,9 +80,6 @@ func (m *Manager) StartSession(ctx context.Context, id string) (*Session, error)
 	if err := m.redisClient.Client().SAdd(ctx, "sessions:active", id).Err(); err != nil {
 		fmt.Printf("[SESSION MANAGER] Warning: failed to add session %s to Redis active set: %v\n", id, err)
 	}
-
-	// 4. Record Usage
-	_ = m.usageService.RecordSessionStarted(ctx, tenantID)
 
 	wsActiveKey := fmt.Sprintf("workspace:%s:active_session", started.WorkspaceID)
 	_ = m.redisClient.Client().Set(ctx, wsActiveKey, started.ID, 0).Err()
