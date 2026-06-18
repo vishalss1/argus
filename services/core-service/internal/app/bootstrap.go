@@ -211,11 +211,14 @@ func Bootstrap() (*Server, error) {
 	if telemetryClient != nil {
 		telemetryGRPC = telemetryClient.Client()
 	}
-	sessionManager := sessiondomain.NewManager(sessionService, redisClient, workspaceRepository, telemetryGRPC)
+	sessionManager := sessiondomain.NewManager(sessionService, redisClient, workspaceRepository, telemetryGRPC, minioClient)
 	sessionHandler := transporthandler.NewSessionHandler(sessionService, sessionManager)
 
 	// Recover any RUNNING sessions to Redis hot-state
 	_ = sessionManager.RecoverActiveSessions(appCtx)
+
+	// Start telemetry export cleanup (every 12 hours)
+	sessionManager.StartTelemetryExportCleaner(appCtx, cfg.TelemetryExportRetentionDays, 12*time.Hour)
 
 	// Configure REST handlers to proxy rules/alerts/AI queries via gRPC client
 	ruleHandler := transporthandler.NewRuleHandler(telemetryClient)

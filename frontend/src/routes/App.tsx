@@ -3,7 +3,6 @@ import { AppLayout } from "../layouts/AppLayout";
 import { ProductLayout } from "../layouts/ProductLayout";
 import { AboutPage } from "../pages/AboutPage";
 import { AlertsPage } from "../pages/AlertsPage";
-import { SettingsPage } from "../pages/SettingsPage";
 import { CommandsPage } from "../pages/CommandsPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DevicesPage } from "../pages/DevicesPage";
@@ -87,7 +86,6 @@ export function App() {
           <Route path="commands" element={<CommandsPage />} />
           <Route path="automations" element={<AlertsPage />} />
           <Route path="ai" element={<AIPage />} />
-          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Route>
 

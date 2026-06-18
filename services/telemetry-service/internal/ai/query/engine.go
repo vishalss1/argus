@@ -276,8 +276,11 @@ func (e *Engine) buildSnapshot(ctx context.Context, target device.Device) (*oper
 
 func (e *Engine) loadTelemetryWindows(ctx context.Context, sessionID, deviceID string) map[string][]operations.TelemetryPoint {
 	result := make(map[string][]operations.TelemetryPoint)
-	key := fmt.Sprintf("session:%s:device:%s:telemetry_history", sessionID, deviceID)
 	now := time.Now().UTC()
+
+	// Get active hours for the session
+	hours, _ := e.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:hours", sessionID)).Result()
+
 	for _, window := range []struct {
 		name     string
 		duration time.Duration
@@ -286,12 +289,22 @@ func (e *Engine) loadTelemetryWindows(ctx context.Context, sessionID, deviceID s
 		{name: "previous6h", duration: 6 * time.Hour},
 		{name: "previous24h", duration: 24 * time.Hour},
 	} {
-		items, _ := e.redisClient.Client().ZRevRangeByScore(ctx, key, &goredis.ZRangeBy{
-			Min: strconv.FormatInt(now.Add(-window.duration).UnixMilli(), 10),
-			Max: "+inf", Offset: 0, Count: 120,
-		}).Result()
-		points := make([]operations.TelemetryPoint, 0, len(items))
-		for _, item := range items {
+		var allItems []string
+		minScore := strconv.FormatInt(now.Add(-window.duration).UnixMilli(), 10)
+
+		for _, hour := range hours {
+			partitionKey := fmt.Sprintf("session:%s:hour:%s:device:%s:telemetry_history", sessionID, hour, deviceID)
+			items, err := e.redisClient.Client().ZRevRangeByScore(ctx, partitionKey, &goredis.ZRangeBy{
+				Min: minScore,
+				Max: "+inf",
+			}).Result()
+			if err == nil && len(items) > 0 {
+				allItems = append(allItems, items...)
+			}
+		}
+
+		points := make([]operations.TelemetryPoint, 0, len(allItems))
+		for _, item := range allItems {
 			var sample telemetry.Telemetry
 			if json.Unmarshal([]byte(item), &sample) != nil {
 				continue
@@ -301,52 +314,193 @@ func (e *Engine) loadTelemetryWindows(ctx context.Context, sessionID, deviceID s
 				points = append(points, operations.TelemetryPoint{RecordedAt: sample.RecordedAt, Metrics: metrics})
 			}
 		}
+
+		sort.Slice(points, func(i, j int) bool {
+			return points[i].RecordedAt.After(points[j].RecordedAt)
+		})
+
+		if len(points) > 120 {
+			points = points[:120]
+		}
+
 		result[window.name] = points
 	}
 	return result
 }
 
 func (e *Engine) loadTrends(ctx context.Context, sessionID, deviceID string, latest map[string]any) []operations.MetricTrend {
-	metrics, _ := e.redisClient.Client().SMembers(ctx, fmt.Sprintf("session:%s:metrics", sessionID)).Result()
-	if len(metrics) > 200 {
-		metrics = metrics[:200]
+	rdb := e.redisClient.Client()
+
+	type hourlySummary struct {
+		Metric      string
+		SampleCount int
+		Min         float64
+		Max         float64
+		Average     float64
+		Variance    float64
 	}
-	trends := make([]operations.MetricTrend, 0, len(metrics))
-	for _, metric := range metrics {
-		values, err := e.redisClient.Client().HGetAll(ctx, fmt.Sprintf("session:%s:device:%s:metric:%s", sessionID, deviceID, metric)).Result()
-		if err != nil || len(values) == 0 {
-			continue
-		}
-		count, _ := strconv.ParseInt(values["count"], 10, 64)
-		sum, _ := strconv.ParseFloat(values["sum"], 64)
-		minimum, _ := strconv.ParseFloat(values["min"], 64)
-		maximum, _ := strconv.ParseFloat(values["max"], 64)
-		m2, _ := strconv.ParseFloat(values["m2"], 64)
-		average := 0.0
-		variance := 0.0
-		if count > 0 {
-			average = sum / float64(count)
-		}
-		if count > 1 {
-			variance = m2 / float64(count-1)
-		}
-		current := nestedValue(latest, metric)
-		currentNumber, numeric := current.(float64)
-		direction := "stable"
-		anomalous := false
-		if numeric && count > 1 {
-			stddev := math.Sqrt(variance)
-			if currentNumber > average {
-				direction = "up"
-			} else if currentNumber < average {
-				direction = "down"
+	var summaries []hourlySummary
+
+	hashData, err := rdb.HGetAll(ctx, fmt.Sprintf("session:%s:hourly_summaries", sessionID)).Result()
+	if err == nil && len(hashData) > 0 {
+		for field, val := range hashData {
+			if strings.HasPrefix(field, fmt.Sprintf("device:%s:hour:", deviceID)) {
+				var listMsg struct {
+					Summaries []struct {
+						Metric      string  `json:"metric"`
+						SampleCount int     `json:"sample_count"`
+						Min         float64 `json:"min"`
+						Max         float64 `json:"max"`
+						Average     float64 `json:"average"`
+						Variance    float64 `json:"variance"`
+					} `json:"summaries"`
+				}
+				if json.Unmarshal([]byte(val), &listMsg) == nil {
+					for _, s := range listMsg.Summaries {
+						summaries = append(summaries, hourlySummary{
+							Metric:      s.Metric,
+							SampleCount: s.SampleCount,
+							Min:         s.Min,
+							Max:         s.Max,
+							Average:     s.Average,
+							Variance:    s.Variance,
+						})
+					}
+				}
 			}
-			anomalous = stddev > 0 && math.Abs(currentNumber-average) > 3*stddev
 		}
-		trends = append(trends, operations.MetricTrend{
-			Metric: metric, Current: current, Count: count, Minimum: minimum, Maximum: maximum,
-			Average: average, Variance: variance, Direction: direction, Anomalous: anomalous,
-		})
+	}
+
+	activeHours, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:hours", sessionID)).Result()
+	if len(activeHours) == 0 {
+		activeHours = []string{time.Now().UTC().Format("2006-01-02-15")}
+	}
+
+	type statsTracker struct {
+		count int
+		min   float64
+		max   float64
+		mean  float64
+		m2    float64
+	}
+	trackers := make(map[string]*statsTracker)
+
+	mergePart := func(mKey string, n2 int, min2, max2, mean2, var2 float64) {
+		tr, ok := trackers[mKey]
+		if !ok {
+			tr = &statsTracker{
+				count: n2,
+				min:   min2,
+				max:   max2,
+				mean:  mean2,
+				m2:    float64(n2) * var2,
+			}
+			trackers[mKey] = tr
+			return
+		}
+		if n2 == 0 {
+			return
+		}
+		n1 := tr.count
+		n := n1 + n2
+		tr.count = n
+		if min2 < tr.min {
+			tr.min = min2
+		}
+		if max2 > tr.max {
+			tr.max = max2
+		}
+		mean1 := tr.mean
+		m2_1 := tr.m2
+		m2_2 := float64(n2) * var2
+		delta := mean2 - mean1
+		tr.mean = mean1 + delta*float64(n2)/float64(n)
+		tr.m2 = m2_1 + m2_2 + delta*delta*float64(n1)*float64(n2)/float64(n)
+	}
+
+	for _, sum := range summaries {
+		mergePart(sum.Metric, sum.SampleCount, sum.Min, sum.Max, sum.Average, sum.Variance)
+	}
+
+	for _, hourStr := range activeHours {
+		key := fmt.Sprintf("session:%s:hour:%s:device:%s:telemetry_history", sessionID, hourStr, deviceID)
+		items, err := rdb.ZRange(ctx, key, 0, -1).Result()
+		if err == nil && len(items) > 0 {
+			rawMetrics := make(map[string][]float64)
+			for _, item := range items {
+				var sample struct {
+					Metrics json.RawMessage `json:"metrics"`
+				}
+				if json.Unmarshal([]byte(item), &sample) == nil {
+					var rawMetricsLocal map[string]interface{}
+					if json.Unmarshal(sample.Metrics, &rawMetricsLocal) == nil {
+						numerics := make(map[string]float64)
+						flattenLocalQuery(rawMetricsLocal, "", numerics)
+						for mKey, mVal := range numerics {
+							rawMetrics[mKey] = append(rawMetrics[mKey], mVal)
+						}
+					}
+				}
+			}
+
+			for mKey, vals := range rawMetrics {
+				n2 := len(vals)
+				if n2 > 0 {
+					min2 := vals[0]
+					max2 := vals[0]
+					sum2 := 0.0
+					for _, v := range vals {
+						if v < min2 { min2 = v }
+						if v > max2 { max2 = v }
+						sum2 += v
+					}
+					mean2 := sum2 / float64(n2)
+					var2 := 0.0
+					for _, v := range vals {
+						var2 += (v - mean2) * (v - mean2)
+					}
+					var2 = var2 / float64(n2)
+
+					mergePart(mKey, n2, min2, max2, mean2, var2)
+				}
+			}
+		}
+	}
+
+	var trends []operations.MetricTrend
+	for mKey, tr := range trackers {
+		if tr.count > 0 {
+			variance := tr.m2 / float64(tr.count)
+			if variance != variance { // NaN check
+				variance = 0.0
+			}
+
+			current := nestedValue(latest, mKey)
+			currentNumber, numeric := current.(float64)
+			direction := "stable"
+			anomalous := false
+			if numeric && tr.count > 1 {
+				stddev := math.Sqrt(variance)
+				if currentNumber > tr.mean {
+					direction = "up"
+				} else if currentNumber < tr.mean {
+					direction = "down"
+				}
+				anomalous = stddev > 0 && math.Abs(currentNumber-tr.mean) > 3*stddev
+			}
+
+			trends = append(trends, operations.MetricTrend{
+				Metric:    mKey,
+				Current:   current,
+				Count:     int64(tr.count),
+				Minimum:   tr.min,
+				Maximum:   tr.max,
+				Average:   tr.mean,
+				Variance:  variance,
+				Direction: direction,
+				Anomalous: anomalous,
+			})
+		}
 	}
 	return trends
 }
@@ -723,4 +877,25 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func flattenLocalQuery(m map[string]interface{}, prefix string, numerics map[string]float64) {
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		switch val := v.(type) {
+		case float64:
+			numerics[key] = val
+		case int:
+			numerics[key] = float64(val)
+		case int64:
+			numerics[key] = float64(val)
+		case map[string]interface{}:
+			flattenLocalQuery(val, key, numerics)
+		case []interface{}:
+			numerics[key+".len"] = float64(len(val))
+		}
+	}
 }

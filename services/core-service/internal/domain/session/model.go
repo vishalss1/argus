@@ -36,6 +36,7 @@ type Repository interface {
 	UpdateStatus(ctx context.Context, id string, status Status, startedAt *time.Time, endedAt *time.Time) (*Session, error)
 	TransitionStatus(ctx context.Context, id string, fromStatus Status, toStatus Status, startedAt *time.Time, endedAt *time.Time) (*Session, error)
 	CloseStaleSessions(ctx context.Context, timeout time.Duration) (int64, error)
+	ListTerminalBefore(ctx context.Context, cutoff time.Time) ([]Session, error)
 	Delete(ctx context.Context, id string) error
 
 	UpsertStatistics(ctx context.Context, s Statistics) error
@@ -45,5 +46,6 @@ type Repository interface {
 	ListCommandsBySession(ctx context.Context, sessionID string) ([]Command, error)
 	CreateArtifact(ctx context.Context, a Artifact) (*Artifact, error)
 	GetArtifactBySession(ctx context.Context, sessionID string) (*Artifact, error)
+	UpdateArtifact(ctx context.Context, a Artifact) error
 }
 

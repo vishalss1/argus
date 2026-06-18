@@ -3492,6 +3492,268 @@ input[type="file"]::file-selector-button:hover {
   line-height: 1.5;
 }
 
+/* ── Fleet stats ── */
+.report-fleet-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.report-fleet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.report-fleet-row > svg { flex-shrink: 0; color: var(--text-secondary); }
+.report-fleet-row > span:last-child { margin-left: auto; font-family: var(--font-mono); }
+
+/* ── Hourly summary cards ── */
+.hourly-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.hourly-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 14px;
+}
+.hourly-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.hourly-card-header > svg { flex-shrink: 0; color: var(--text-secondary); }
+.hourly-card-header > span:last-child { margin-left: auto; color: var(--text-muted); }
+.hourly-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.hourly-card-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ── Telemetry viewer ── */
+.telemetry-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.telemetry-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.chart-container {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 12px;
+}
+.chart-title {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.telemetry-metric-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.telemetry-metric-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+.telemetry-metric-chip > svg { color: var(--text-secondary); flex-shrink: 0; }
+.telemetry-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.telemetry-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.telemetry-filter-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.telemetry-select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  min-width: 130px;
+  cursor: pointer;
+}
+.telemetry-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  min-width: 160px;
+}
+.telemetry-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0 8px;
+}
+.telemetry-search-wrap > svg { color: var(--text-muted); flex-shrink: 0; }
+.telemetry-search-input {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 6px 0;
+  font-size: 12px;
+  font-family: var(--font-body);
+  min-width: 130px;
+  outline: none;
+}
+.telemetry-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.telemetry-device-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.telemetry-device-chip {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.telemetry-device-chip.active {
+  background: var(--text-primary);
+  color: var(--bg);
+  border-color: var(--text-primary);
+}
+.telemetry-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+.telemetry-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.telemetry-th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.telemetry-th > span { display: inline-flex; align-items: center; gap: 4px; }
+.telemetry-row:nth-child(even) { background: rgba(255,255,255,0.02); }
+.telemetry-row:hover { background: rgba(255,255,255,0.05); }
+.telemetry-td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.telemetry-empty-cell {
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+.telemetry-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.telemetry-page-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.telemetry-page-size {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.telemetry-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.telemetry-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.telemetry-nav-btn:disabled { opacity: 0.3; cursor: default; }
+.telemetry-page-num {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  padding: 0 8px;
+  min-width: 80px;
+  text-align: center;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    ARGUS Landing Page — pixel-perfect redesign
    Namespace: .lp-*  (no collisions with the rest of the app)

@@ -106,6 +106,7 @@ message FleetSummaryResponse {
 message GetSessionTelemetryRequest {
   string session_id = 1;
   string workspace_id = 2;
+  bool cleanup = 3;
 }
 
 message SessionTelemetryResponse {
@@ -116,6 +117,8 @@ message SessionTelemetryResponse {
   repeated DeviceSummary device_summaries = 5;
   repeated SessionIncident incidents_archive = 6;
   map<string, DeviceMetricAggregates> metrics_aggregates = 7; // deviceID -> metric aggregates
+  map<string, HourlySummaryList> hourly_summaries = 8; // deviceID -> summaries
+  map<string, RawTelemetryList> current_hour_telemetry = 9; // deviceID -> raw telemetry
 }
 
 message DeviceSummary {
@@ -255,3 +258,31 @@ message DeleteRuleRequest {
 message DeleteRuleResponse {
   bool success = 1;
 }
+
+message RawTelemetry {
+  google.protobuf.Timestamp timestamp = 1;
+  map<string, double> metrics = 2;
+}
+
+message RawTelemetryList {
+  repeated RawTelemetry samples = 1;
+}
+
+message HourlySummary {
+  string device_id = 1;
+  string hour = 2; // e.g. "2026-06-17-09"
+  string metric = 3;
+  int32 sample_count = 4;
+  double min = 5;
+  double max = 6;
+  double average = 7;
+  double variance = 8;
+  double stddev = 9;
+  google.protobuf.Timestamp first_timestamp = 10;
+  google.protobuf.Timestamp last_timestamp = 11;
+}
+
+message HourlySummaryList {
+  repeated HourlySummary summaries = 1;
+}
+

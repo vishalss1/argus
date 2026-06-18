@@ -57,6 +57,7 @@ type Config struct {
 	JWTRefreshExpiration      time.Duration
 	AuthAuditLogRetentionDays int
 	TelemetryDedupTTL         time.Duration
+	TelemetryExportRetentionDays int
 }
 
 type EmbeddingConfig struct {
@@ -298,6 +299,17 @@ func Load() *Config {
 	}
 
 	cfg.TelemetryDedupTTL = parseDurationSeconds("TELEMETRY_DEDUP_TTL_SECONDS", 86400) // default 24h
+
+	telemetryRetentionDaysStr := os.Getenv("ARGUS_TELEMETRY_EXPORT_RETENTION_DAYS")
+	if telemetryRetentionDaysStr != "" {
+		if val, err := strconv.Atoi(telemetryRetentionDaysStr); err == nil && val > 0 {
+			cfg.TelemetryExportRetentionDays = val
+		} else {
+			cfg.TelemetryExportRetentionDays = 7
+		}
+	} else {
+		cfg.TelemetryExportRetentionDays = 7
+	}
 
 	return cfg
 }

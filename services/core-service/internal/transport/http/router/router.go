@@ -120,6 +120,11 @@ func New(
 				r.Get("/statistics", sessionHandler.GetStatistics)
 				r.Get("/artifact", sessionHandler.GetArtifact)
 				r.Get("/active-incidents", aiHandler.ListSessionActiveIncidents)
+				r.Get("/export/json", sessionHandler.ExportJSON)
+				r.Get("/export/csv", sessionHandler.ExportCSV)
+				r.Get("/telemetry/json", sessionHandler.GetTelemetryJSON)
+				r.Get("/telemetry/csv", sessionHandler.GetTelemetryCSV)
+				r.Get("/devices/{deviceID}/telemetry", sessionHandler.GetLiveTelemetry)
 			})
 
 			r.Route("/ai", func(r chi.Router) {

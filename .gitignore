@@ -7,6 +7,7 @@ cmd/gen-certs/*
 cmd/ota-keygen/*
 .claude
 *.exe
+*.bin
 report.md
 benchmark_*
 argus_esp32.cpp

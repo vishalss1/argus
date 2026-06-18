@@ -41,14 +41,22 @@ type Artifact struct {
 }
 
 type SessionArtifactPayload struct {
-	SessionID         string                               `json:"session_id"`
-	GeneratedAt       string                               `json:"generated_at"`
-	ReportVersion     string                               `json:"report_version"`
-	WorkspaceID       string                               `json:"workspace_id"`
-	SessionSummary    string                               `json:"session_summary"`
-	DeviceSummaries   map[string]DeviceSummaryArtifact     `json:"device_summaries"`
-	IncidentsArchive  []ArtifactIncident                   `json:"incidents_archive"`
-	MetricsAggregates map[string]map[string]MetricAggregate `json:"metrics_aggregates"`
+	SessionID            string                               `json:"session_id"`
+	GeneratedAt          string                               `json:"generated_at"`
+	ReportVersion        string                               `json:"report_version"`
+	WorkspaceID          string                               `json:"workspace_id"`
+	SessionSummary       string                               `json:"session_summary"`
+	DeviceSummaries      map[string]DeviceSummaryArtifact     `json:"device_summaries"`
+	IncidentsArchive     []ArtifactIncident                   `json:"incidents_archive"`
+	MetricsAggregates    map[string]map[string]MetricAggregate `json:"metrics_aggregates"`
+	HourlySummaries     map[string][]HourlySummaryArtifact `json:"hourly_summaries,omitempty"`
+	TelemetryExportPaths *TelemetryExportPaths              `json:"telemetry_export_paths,omitempty"`
+	ExportsExpired       bool                               `json:"exports_expired"`
+}
+
+type TelemetryExportPaths struct {
+	JSON string `json:"json"`
+	CSV  string `json:"csv"`
 }
 
 type DeviceSummaryArtifact struct {
@@ -81,6 +89,20 @@ type MetricAggregate struct {
 	Variance float64 `json:"variance"`
 }
 
+type HourlySummaryArtifact struct {
+	DeviceID       string    `json:"device_id"`
+	Hour           string    `json:"hour"`
+	Metric         string    `json:"metric"`
+	SampleCount    int       `json:"sample_count"`
+	Min            float64   `json:"min"`
+	Max            float64   `json:"max"`
+	Average        float64   `json:"average"`
+	Variance       float64   `json:"variance"`
+	Stddev         float64   `json:"stddev"`
+	FirstTimestamp time.Time `json:"first_timestamp"`
+	LastTimestamp  time.Time `json:"last_timestamp"`
+}
+
 func ParseArtifactPayload(data []byte) (*SessionArtifactPayload, error) {
 	var payload SessionArtifactPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -99,6 +121,9 @@ func ParseArtifactPayload(data []byte) (*SessionArtifactPayload, error) {
 	}
 	if payload.MetricsAggregates == nil {
 		payload.MetricsAggregates = make(map[string]map[string]MetricAggregate)
+	}
+	if payload.HourlySummaries == nil {
+		payload.HourlySummaries = make(map[string][]HourlySummaryArtifact)
 	}
 
 	return &payload, nil

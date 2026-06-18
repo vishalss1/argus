@@ -382,6 +382,45 @@ func (r *SessionRepository) CreateArtifact(ctx context.Context, a session.Artifa
 	return &a, nil
 }
 
+func (r *SessionRepository) UpdateArtifact(ctx context.Context, a session.Artifact) error {
+	query := `
+		UPDATE session_artifacts
+		SET artifact_json = $1, generated_at = $2
+		WHERE session_id = $3
+	`
+	_, err := r.db.ExecContext(ctx, query, a.ArtifactJSON, a.GeneratedAt, a.SessionID)
+	if err != nil {
+		return fmt.Errorf("update session artifact: %w", err)
+	}
+	return nil
+}
+
+func (r *SessionRepository) ListTerminalBefore(ctx context.Context, cutoff time.Time) ([]session.Session, error) {
+	query := `
+		SELECT id, workspace_id, status, started_at, ended_at, created_by, created_at
+		FROM workspace_sessions
+		WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+		AND ended_at IS NOT NULL
+		AND ended_at < $1
+		ORDER BY ended_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("list terminal sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []session.Session
+	for rows.Next() {
+		var s session.Session
+		if err := rows.Scan(&s.ID, &s.WorkspaceID, &s.Status, &s.StartedAt, &s.EndedAt, &s.CreatedBy, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
 func (r *SessionRepository) GetArtifactBySession(ctx context.Context, sessionID string) (*session.Artifact, error) {
 	var query string
 	var row *sql.Row

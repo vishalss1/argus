@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   ArrowLeft, 
@@ -9,6 +9,7 @@ import {
   AlertTriangle, 
   Navigation, 
   FileJson, 
+  FileSpreadsheet,
   Terminal, 
   CheckCircle2, 
   XCircle,
@@ -19,84 +20,160 @@ import {
   Wifi,
   Info,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Disc,
+  Layers,
+  Table2
 } from "lucide-react";
+import { API_BASE_URL } from "../services/http";
 import { 
   useSession, 
   useSessionStatistics, 
   useSessionArtifact 
 } from "../hooks/useArgusData";
 import { PageHeader, Panel, StatCard, LoadingRows, ErrorState, StatusChip } from "../components/ui";
+import { SessionTelemetryViewer } from "../components/SessionTelemetryViewer";
 import { api } from "../services/api";
+import type { MetricAggregate, SessionArtifact } from "../types/api";
 
-type TabID = "overview" | "devices" | "ai" | "aggregates";
+type TabID = "overview" | "devices" | "ai" | "aggregates" | "hourly" | "raw";
+
+type CategoryMetrics = {
+  label: string;
+  icon: React.ReactNode;
+  keys: string[];
+  unit: string;
+  decimals: number;
+};
+
+const METRIC_CATEGORIES: CategoryMetrics[] = [
+  { label: "Battery Metrics", icon: <Battery size={18} strokeWidth={1.5} />, keys: ["battery"], unit: "%", decimals: 1 },
+  { label: "Temperature Metrics", icon: <Thermometer size={18} strokeWidth={1.5} />, keys: ["temp"], unit: "°C", decimals: 1 },
+  { label: "CPU Metrics", icon: <Cpu size={18} strokeWidth={1.5} />, keys: ["cpu", "load"], unit: "%", decimals: 1 },
+  { label: "RSSI Metrics", icon: <Wifi size={18} strokeWidth={1.5} />, keys: ["rssi", "signal", "wifi"], unit: "dBm", decimals: 1 },
+];
+
+function computeCategoryMetrics(
+  metrics_aggregates: Record<string, Record<string, MetricAggregate>>,
+  categoryKeys: string[]
+): { avg: number; min: number; max: number; count: number } | null {
+  let totalWeightedAvg = 0;
+  let totalCount = 0;
+  let globalMin = Infinity;
+  let globalMax = -Infinity;
+
+  for (const devMetrics of Object.values(metrics_aggregates)) {
+    for (const [metricName, agg] of Object.entries(devMetrics)) {
+      if (categoryKeys.some(key => metricName.toLowerCase().includes(key))) {
+        totalWeightedAvg += agg.average * agg.count;
+        totalCount += agg.count;
+        if (agg.min < globalMin) globalMin = agg.min;
+        if (agg.max > globalMax) globalMax = agg.max;
+      }
+    }
+  }
+
+  if (totalCount === 0) return null;
+  return {
+    avg: totalWeightedAvg / totalCount,
+    min: globalMin,
+    max: globalMax,
+    count: totalCount,
+  };
+}
+
+function computeFleetStats(artifact: SessionArtifact) {
+  const deviceCount = Object.keys(artifact.device_summaries || {}).length;
+  let totalSamples = 0;
+  let totalWarning = 0;
+  let totalCritical = 0;
+  for (const ds of Object.values(artifact.device_summaries || {})) {
+    totalSamples += ds.sample_count;
+    totalWarning += ds.warning_incidents_count;
+    totalCritical += ds.critical_incidents_count;
+  }
+  return { deviceCount, totalSamples, totalWarning, totalCritical };
+}
 
 export function SessionReportPage() {
   const { sessionID } = useParams<{ sessionID: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabID>("overview");
-  const [exportingFormat, setExportingFormat] = useState<"json" | "csv" | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<"artifact" | "telemetry-json" | "telemetry-csv" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const { data: session, isLoading: sessionLoading, error: sessionErr } = useSession(sessionID ?? "");
   const { data: stats, isLoading: statsLoading, error: statsErr } = useSessionStatistics(sessionID ?? "");
   const { data: artifact, isLoading: artifactLoading, error: artifactErr } = useSessionArtifact(sessionID ?? "");
 
-  const handleExport = async (format: "json" | "csv") => {
-    if (!sessionID || !artifact) return;
-    setExportingFormat(format);
+  const categoryData = useMemo(() => {
+    if (!artifact?.metrics_aggregates) return null;
+    const result: Record<string, { avg: number; min: number; max: number; count: number } | null> = {};
+    for (const cat of METRIC_CATEGORIES) {
+      result[cat.label] = computeCategoryMetrics(artifact.metrics_aggregates, cat.keys);
+    }
+    return result;
+  }, [artifact]);
+
+  const fleetStats = useMemo(() => {
+    if (!artifact) return null;
+    return computeFleetStats(artifact);
+  }, [artifact]);
+
+  const downloadBlob = useCallback(async (url: string, filename: string) => {
+    try {
+      const headers = new Headers();
+      const accessToken = localStorage.getItem("argus_access_token");
+      if (accessToken) {
+        headers.set("Authorization", `Bearer ${accessToken}`);
+      }
+      const workspaceID = localStorage.getItem("argus_active_workspace_id");
+      if (workspaceID) {
+        headers.set("X-Workspace-ID", workspaceID);
+      }
+      const resp = await fetch(`${API_BASE_URL}${url}`, { headers });
+      if (!resp.ok) {
+        const body = await resp.text();
+        let msg = `HTTP ${resp.status}`;
+        try { const j = JSON.parse(body); msg = j.error || msg; } catch {}
+        throw new Error(msg);
+      }
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objUrl;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objUrl);
+    } catch (err: any) {
+      throw err;
+    }
+  }, []);
+
+  const handleExport = async (type: "artifact" | "telemetry-json" | "telemetry-csv") => {
+    if (!sessionID) return;
+    setExportingFormat(type);
     setExportError(null);
     try {
-      if (format === "json") {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(artifact, null, 2));
+      if (type === "artifact") {
+        const data = await api.sessions.getArtifact(sessionID);
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
         const link = document.createElement("a");
         link.href = dataStr;
-        link.setAttribute("download", `session_report_${sessionID}.json`);
+        link.setAttribute("download", `session_artifact_${sessionID}.json`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-      } else if (format === "csv") {
-        let csvContent = "";
-        
-        // 1. Device Summaries
-        csvContent += "=== DEVICE SUMMARIES ===\n";
-        csvContent += "Device ID,First Seen,Last Seen,Sample Count,Warning Incidents Count,Critical Incidents Count,Active At End\n";
-        Object.values(artifact.device_summaries || {}).forEach((summary: any) => {
-          csvContent += `${summary.device_id},${summary.first_seen},${summary.last_seen},${summary.sample_count},${summary.warning_incidents_count},${summary.critical_incidents_count},${summary.active_at_end}\n`;
-        });
-        csvContent += "\n";
-
-        // 2. Incidents Archive
-        csvContent += "=== INCIDENTS ARCHIVE ===\n";
-        csvContent += "Device ID,Metric,Incident Type,Severity,Start Time,Resolved At,Occurrences,Peak Score,Summary\n";
-        artifact.incidents_archive?.forEach((inc: any) => {
-          const resolvedAt = inc.resolved_at ? inc.resolved_at : "Still Open";
-          csvContent += `${inc.device_id},${inc.metric},${inc.incident_type},${inc.severity},${inc.start_time},${resolvedAt},${inc.occurrences},${inc.peak_score},"${inc.summary?.replace(/"/g, '""') || ""}"\n`;
-        });
-        csvContent += "\n";
-
-        // 3. Metrics Aggregates
-        csvContent += "=== METRICS AGGREGATES ===\n";
-        csvContent += "Device ID,Metric,Count,Min,Max,Average,Variance\n";
-        if (artifact.metrics_aggregates) {
-          Object.entries(artifact.metrics_aggregates).forEach(([devID, metrics]: [string, any]) => {
-            Object.entries(metrics).forEach(([mName, agg]: [string, any]) => {
-              csvContent += `${devID},${mName},${agg.count},${agg.min},${agg.max},${agg.average},${agg.variance}\n`;
-            });
-          });
-        }
-
-        const dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-        const link = document.createElement("a");
-        link.href = dataStr;
-        link.setAttribute("download", `session_report_${sessionID}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+      } else if (type === "telemetry-json") {
+        await downloadBlob(`/sessions/${sessionID}/telemetry/json`, `session_${sessionID}_telemetry.json`);
+      } else if (type === "telemetry-csv") {
+        await downloadBlob(`/sessions/${sessionID}/telemetry/csv`, `session_${sessionID}_telemetry.csv`);
       }
     } catch (err: any) {
       console.error(err);
-      setExportError(`Failed to export as ${format.toUpperCase()}: ${err.message || err}`);
+      setExportError(`Export failed: ${err.message || err}`);
     } finally {
       setExportingFormat(null);
     }
@@ -111,8 +188,10 @@ export function SessionReportPage() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: "24px" }}>
-        <LoadingRows rows={10} />
+      <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} style={{ height: 20, background: "var(--surface-2)", borderRadius: 0 }} />
+        ))}
       </div>
     );
   }
@@ -154,7 +233,9 @@ export function SessionReportPage() {
     { id: "overview", label: "Overview", icon: <Activity size={15} strokeWidth={1.5} /> },
     { id: "devices", label: "Devices", icon: <Cpu size={15} strokeWidth={1.5} /> },
     { id: "ai", label: "AI Incidents", icon: <MessageSquare size={15} strokeWidth={1.5} /> },
-    { id: "aggregates", label: "Metric Aggregates", icon: <TrendingUp size={15} strokeWidth={1.5} /> }
+    { id: "aggregates", label: "Metric Aggregates", icon: <TrendingUp size={15} strokeWidth={1.5} /> },
+    { id: "hourly", label: "Hourly Summaries", icon: <Clock size={15} strokeWidth={1.5} /> },
+    { id: "raw", label: "Raw Telemetry", icon: <Table2 size={15} strokeWidth={1.5} /> }
   ];
 
   return (
@@ -176,20 +257,35 @@ export function SessionReportPage() {
           <div className="report-actions">
             <button
               className="button secondary compact"
-              onClick={() => handleExport("json")}
+              onClick={() => handleExport("artifact")}
               disabled={exportingFormat !== null}
+              title="Download the full session artifact (JSON)"
             >
               <FileJson size={13} strokeWidth={1.5} />
-              {exportingFormat === "json" ? "Exporting..." : "Export JSON"}
+              {exportingFormat === "artifact" ? "Exporting..." : "Artifact JSON"}
             </button>
-            <button
-              className="btn-inverse"
-              onClick={() => handleExport("csv")}
-              disabled={exportingFormat !== null}
-            >
-              <Download size={13} strokeWidth={1.5} />
-              {exportingFormat === "csv" ? "Exporting..." : "Export CSV"}
-            </button>
+            {artifact.telemetry_export_paths && !artifact.exports_expired && (
+              <>
+                <button
+                  className="button secondary compact"
+                  onClick={() => handleExport("telemetry-json")}
+                  disabled={exportingFormat !== null}
+                  title="Download raw telemetry JSON archive"
+                >
+                  <Download size={13} strokeWidth={1.5} />
+                  {exportingFormat === "telemetry-json" ? "Exporting..." : "Telemetry JSON"}
+                </button>
+                <button
+                  className="btn-inverse"
+                  onClick={() => handleExport("telemetry-csv")}
+                  disabled={exportingFormat !== null}
+                  title="Download raw telemetry CSV archive"
+                >
+                  <FileSpreadsheet size={13} strokeWidth={1.5} />
+                  {exportingFormat === "telemetry-csv" ? "Exporting..." : "Telemetry CSV"}
+                </button>
+              </>
+            )}
           </div>
         }
       />
@@ -255,15 +351,67 @@ export function SessionReportPage() {
               </div>
             </Panel>
 
-            <Panel title="Archive Policy Status">
+            <Panel title="Telemetry Export Status">
               <div className="report-archive-row">
-                <CheckCircle2 size={22} strokeWidth={1.5} />
+                {artifact.exports_expired ? (
+                  <XCircle size={22} strokeWidth={1.5} color="var(--warning)" />
+                ) : artifact.telemetry_export_paths ? (
+                  <CheckCircle2 size={22} strokeWidth={1.5} />
+                ) : (
+                  <Info size={22} strokeWidth={1.5} />
+                )}
                 <div>
-                  <div className="report-archive-title">Telemetry Cleaned</div>
-                  <div className="muted report-archive-desc">Raw logs & Redis keys have been safely cleared from storage.</div>
+                  {artifact.exports_expired ? (
+                    <>
+                      <div className="report-archive-title">Exports Expired</div>
+                      <div className="muted report-archive-desc">Telemetry exports have expired. Statistical summaries remain permanently available.</div>
+                    </>
+                  ) : artifact.telemetry_export_paths ? (
+                    <>
+                      <div className="report-archive-title">Export Available</div>
+                      <div className="muted report-archive-desc">Full telemetry available for download. Exports expire after 7 days.</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="report-archive-title">No Exports</div>
+                      <div className="muted report-archive-desc">Raw telemetry was not exported for this session.</div>
+                    </>
+                  )}
                 </div>
               </div>
             </Panel>
+
+            {fleetStats && (
+              <Panel title="Fleet Statistics">
+                <div className="report-fleet-stack">
+                  <div className="report-fleet-row">
+                    <Cpu size={15} strokeWidth={1.5} />
+                    <span className="muted">Devices</span>
+                    <span className="mono">{fleetStats.deviceCount}</span>
+                  </div>
+                  <div className="report-fleet-row">
+                    <Disc size={15} strokeWidth={1.5} />
+                    <span className="muted">Total Samples</span>
+                    <span className="mono">{fleetStats.totalSamples.toLocaleString()}</span>
+                  </div>
+                  <div className="report-fleet-row">
+                    <Activity size={15} strokeWidth={1.5} />
+                    <span className="muted">Warning Incidents</span>
+                    <span className="mono">{fleetStats.totalWarning}</span>
+                  </div>
+                  <div className="report-fleet-row">
+                    <AlertCircle size={15} strokeWidth={1.5} />
+                    <span className="muted">Critical Incidents</span>
+                    <span className="mono">{fleetStats.totalCritical}</span>
+                  </div>
+                  <div className="report-fleet-row">
+                    <Terminal size={15} strokeWidth={1.5} />
+                    <span className="muted">Commands Sent</span>
+                    <span className="mono">{stats?.command_count ?? 0}</span>
+                  </div>
+                </div>
+              </Panel>
+            )}
           </div>
 
           {/* Main summary info */}
@@ -281,75 +429,53 @@ export function SessionReportPage() {
                 <StatCard
                   label="Uptime percentage"
                   value={`${(stats.uptime_percentage ?? 100.0).toFixed(1)}%`}
-                  tone={stats.uptime_percentage && stats.uptime_percentage < 98 ? "warning" : "success"}
+                  tone={(stats.uptime_percentage ?? 100) < 98 ? "warning" : "success"}
                 />
                 <StatCard
                   label="Total Samples"
-                  value={(stats.messages_processed ?? 0).toLocaleString()}
+                  value={fleetStats ? fleetStats.totalSamples.toLocaleString() : (stats.messages_processed ?? 0).toLocaleString()}
                 />
               </div>
             </Panel>
 
-            {/* Environmental Vitals */}
-            <Panel title="Vitals & Environmental Aggregates">
+            {/* Aggregate Metric Cards from metrics_aggregates */}
+            <Panel title="Fleet-Wide Metric Aggregates">
               <div className="grid two report-vitals-grid">
-
-                {/* Battery Stats Card */}
-                <div className="report-vital-card">
-                  <div className="report-vital-header">
-                    <Battery size={18} strokeWidth={1.5} />
-                    <h4>Battery Metrics</h4>
-                  </div>
-                  <div className="report-vital-list">
-                    <div className="report-vital-row">
-                      <span className="muted">Average Battery</span>
-                      <span>{stats.average_battery !== undefined && stats.average_battery > 0 ? `${stats.average_battery.toFixed(1)}%` : "-"}</span>
+                {METRIC_CATEGORIES.map((cat) => {
+                  const data = categoryData?.[cat.label];
+                  return (
+                    <div key={cat.label} className="report-vital-card">
+                      <div className="report-vital-header">
+                        {cat.icon}
+                        <h4>{cat.label}</h4>
+                      </div>
+                      <div className="report-vital-list">
+                        {data ? (
+                          <>
+                            <div className="report-vital-row">
+                              <span className="muted">Average {cat.label.split(" ")[0]}</span>
+                              <span>{data.avg.toFixed(cat.decimals)}{cat.unit}</span>
+                            </div>
+                            <div className="report-vital-row">
+                              <span className="muted">Minimum {cat.label.split(" ")[0]}</span>
+                              <span className="mono">{data.min.toFixed(cat.decimals)}{cat.unit}</span>
+                            </div>
+                            <div className="report-vital-row">
+                              <span className="muted">Maximum {cat.label.split(" ")[0]}</span>
+                              <span className="mono">{data.max.toFixed(cat.decimals)}{cat.unit}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="muted report-vital-row">No data</div>
+                        )}
+                      </div>
                     </div>
-                    <div className="report-vital-row">
-                      <span className="muted">Minimum Battery</span>
-                      <span className="mono">{stats.minimum_battery !== undefined && stats.minimum_battery > 0 ? `${stats.minimum_battery.toFixed(1)}%` : "-"}</span>
-                    </div>
-                    <div className="report-vital-row">
-                      <span className="muted">Maximum Battery</span>
-                      <span className="mono">{stats.maximum_battery !== undefined && stats.maximum_battery > 0 ? `${stats.maximum_battery.toFixed(1)}%` : "-"}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Temperature Stats Card */}
-                <div className="report-vital-card">
-                  <div className="report-vital-header">
-                    <Thermometer size={18} strokeWidth={1.5} />
-                    <h4>Temperature Metrics</h4>
-                  </div>
-                  <div className="report-vital-list">
-                    <div className="report-vital-row">
-                      <span className="muted">Average Temp</span>
-                      <span>{stats.average_temperature !== undefined && stats.average_temperature > 0 ? `${stats.average_temperature.toFixed(1)}°C` : "-"}</span>
-                    </div>
-                    <div className="report-vital-row">
-                      <span className="muted">Minimum Temp</span>
-                      <span className="mono">{stats.minimum_temperature !== undefined && stats.minimum_temperature > 0 ? `${stats.minimum_temperature.toFixed(1)}°C` : "-"}</span>
-                    </div>
-                    <div className="report-vital-row">
-                      <span className="muted">Maximum Temp</span>
-                      <span className="mono">{stats.maximum_temperature !== undefined && stats.maximum_temperature > 0 ? `${stats.maximum_temperature.toFixed(1)}°C` : "-"}</span>
-                    </div>
-                  </div>
-                </div>
-
+                  );
+                })}
               </div>
 
-              {/* Counter Metrics (Distance, Commands, Alerts, Anomalies) */}
-              <div className="grid four report-counter-grid">
-                <div className="report-counter-card">
-                  <Navigation size={16} strokeWidth={1.5} />
-                  <div className="muted report-counter-label">Distance</div>
-                  <div className="mono report-counter-value">
-                    {stats.distance_travelled !== undefined ? `${stats.distance_travelled.toFixed(3)} km` : "0 km"}
-                  </div>
-                </div>
-
+              {/* Counter Metrics (Alerts, Anomalies, Commands) */}
+              <div className="grid three report-counter-grid">
                 <div className="report-counter-card">
                   <AlertTriangle size={16} strokeWidth={1.5} />
                   <div className="muted report-counter-label">Alerts Count</div>
@@ -506,6 +632,72 @@ export function SessionReportPage() {
               </table>
             </div>
           )}
+        </Panel>
+      )}
+
+      {activeTab === "hourly" && (
+        <Panel title={`Hourly Summaries${artifact.hourly_summaries ? ` (${Object.keys(artifact.hourly_summaries).length} devices)` : ""}`}>
+          {!artifact.hourly_summaries || Object.keys(artifact.hourly_summaries).length === 0 ? (
+            <div className="report-empty-msg" style={{ padding: 24, textAlign: "center" }}>
+              <p className="muted" style={{ marginBottom: 8 }}>No completed hourly windows.</p>
+              <p className="muted" style={{ fontSize: 13 }}>
+                Current session duration is less than one hour.
+              </p>
+            </div>
+          ) : (
+            <div className="hourly-cards-grid">
+              {Object.entries(artifact.hourly_summaries).flatMap(([devId, summaries]) =>
+                [...new Set(summaries.map((s) => s.hour))].map((hour) => {
+                  const hourSums = summaries.filter((s) => s.hour === hour);
+                  const totalSamples = hourSums.reduce((a, s) => a + s.sample_count, 0);
+                  const avgTemp = hourSums.find((s) => s.metric.toLowerCase().includes("temp"));
+                  const avgBattery = hourSums.find((s) => s.metric.toLowerCase().includes("battery"));
+                  const startLabel = hour.replace("T", " ").substring(0, 16);
+                  const endDate = new Date(hour);
+                  endDate.setHours(endDate.getHours() + 1);
+                  const endLabel = endDate.toISOString().substring(11, 16);
+                  return (
+                    <div key={`${devId}-${hour}`} className="hourly-card">
+                      <div className="hourly-card-header">
+                        <Clock size={14} strokeWidth={1.5} />
+                        <span className="mono">{startLabel}–{endLabel}</span>
+                        <span className="muted" style={{ fontSize: 11 }}>{devId}</span>
+                      </div>
+                      <div className="hourly-card-body">
+                        <div className="hourly-card-stat">
+                          <span className="muted">Samples</span>
+                          <span className="mono">{totalSamples.toLocaleString()}</span>
+                        </div>
+                        {avgTemp && (
+                          <div className="hourly-card-stat">
+                            <span className="muted">Avg Temp</span>
+                            <span className="mono">{avgTemp.average.toFixed(1)}°C</span>
+                          </div>
+                        )}
+                        {avgBattery && (
+                          <div className="hourly-card-stat">
+                            <span className="muted">Avg Battery</span>
+                            <span className="mono">{avgBattery.average.toFixed(1)}%</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {activeTab === "raw" && (
+        <Panel title="Raw Telemetry">
+          <SessionTelemetryViewer
+            sessionID={sessionID}
+            artifactExportsExpired={artifact.exports_expired}
+            artifactTelemetryExportPaths={artifact.telemetry_export_paths ?? null}
+            isActive={session.status === "RUNNING"}
+          />
         </Panel>
       )}
     </>

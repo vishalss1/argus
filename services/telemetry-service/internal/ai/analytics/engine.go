@@ -14,34 +14,7 @@ import (
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/kafka"
 )
 
-var welfordScript = goredis.NewScript(`
-	local hashKey = KEYS[1]
-	local val = tonumber(ARGV[1])
 
-	local data = redis.call('hmget', hashKey, 'count', 'sum', 'min', 'max', 'm2')
-	local count = tonumber(data[1]) or 0
-	local sum   = tonumber(data[2]) or 0
-	local mn    = tonumber(data[3])
-	local mx    = tonumber(data[4])
-	local m2    = tonumber(data[5]) or 0
-
-	local oldMean = 0
-	if count > 0 then oldMean = sum / count end
-
-	count = count + 1
-	sum   = sum + val
-
-	if not mn or val < mn then mn = val end
-	if not mx or val > mx then mx = val end
-
-	local newMean = sum / count
-	m2 = m2 + (val - oldMean) * (val - newMean)
-
-	redis.call('hmset', hashKey,
-	    'count', count, 'sum', sum,
-	    'min', mn, 'max', mx, 'm2', m2)
-	return 1
-`)
 
 type cacheEntry struct {
 	value     string
@@ -57,7 +30,6 @@ type Engine struct {
 	openIncidents         map[string]bool
 	deviceWorkspaceCache  map[string]cacheEntry
 	workspaceSessionCache map[string]cacheEntry
-	sessionMetrics        map[string]map[string]bool
 	lastValues            map[string]string
 }
 
@@ -86,8 +58,7 @@ type ClosedIncident struct {
 }
 
 func NewEngine(redisClient *goredis.Client, kafkaProducer *kafka.Producer) *Engine {
-	// Pre-load Lua script to enable pipelined EVALSHA
-	_ = welfordScript.Load(context.Background(), redisClient).Err()
+
 
 	return &Engine{
 		redisClient:           redisClient,
@@ -96,7 +67,6 @@ func NewEngine(redisClient *goredis.Client, kafkaProducer *kafka.Producer) *Engi
 		openIncidents:         make(map[string]bool),
 		deviceWorkspaceCache:  make(map[string]cacheEntry),
 		workspaceSessionCache: make(map[string]cacheEntry),
-		sessionMetrics:        make(map[string]map[string]bool),
 		lastValues:            make(map[string]string),
 	}
 }
@@ -204,27 +174,23 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 
 	pipe := e.redisClient.Pipeline()
 
-	historyKey := fmt.Sprintf("session:%s:device:%s:telemetry_history", sessionID, t.DeviceID)
-	if telemetryJSON, marshalErr := json.Marshal(t); marshalErr == nil {
-		scoreTime := t.RecordedAt
-		if scoreTime.IsZero() {
-			scoreTime = time.Now().UTC()
-		}
-		pipe.ZAdd(ctx, historyKey, goredis.Z{Score: float64(scoreTime.UnixMilli()), Member: string(telemetryJSON)})
-		pipe.ZRemRangeByScore(ctx, historyKey, "-inf", fmt.Sprintf("%d", time.Now().Add(-24*time.Hour).UnixMilli()))
-		pipe.Expire(ctx, historyKey, 25*time.Hour)
+	scoreTime := t.RecordedAt
+	if scoreTime.IsZero() {
+		scoreTime = time.Now().UTC()
 	}
+	hourStr := scoreTime.UTC().Format("2006-01-02-15")
+	historyKey := fmt.Sprintf("session:%s:hour:%s:device:%s:telemetry_history", sessionID, hourStr, t.DeviceID)
+	if telemetryJSON, marshalErr := json.Marshal(t); marshalErr == nil {
+		pipe.ZAdd(ctx, historyKey, goredis.Z{Score: float64(scoreTime.UnixMilli()), Member: string(telemetryJSON)})
+		pipe.Expire(ctx, historyKey, 3*time.Hour)
 
-	metricsIndexKey := fmt.Sprintf("session:%s:metrics", sessionID)
+		hoursKey := fmt.Sprintf("session:%s:hours", sessionID)
+		pipe.SAdd(ctx, hoursKey, hourStr)
+		pipe.Expire(ctx, hoursKey, 25*time.Hour)
+	}
 
 	// Process Numeric Metrics
 	for metricKey, val := range numerics {
-		e.trackSessionMetric(ctx, pipe, sessionID, metricKey, metricsIndexKey)
-
-		// Update running aggregates (Welford's Algorithm) via Lua script on pipeline
-		welfordKey := fmt.Sprintf("session:%s:device:%s:metric:%s", sessionID, t.DeviceID, metricKey)
-		welfordScript.Run(ctx, pipe, []string{welfordKey}, val)
-		pipe.Expire(ctx, welfordKey, 24*time.Hour)
 
 		// Push to in-memory RollingStats window for anomaly detection
 		e.mu.Lock()
@@ -295,9 +261,7 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 		}
 	}
 
-	// Process Binary Metrics
 	for metricKey, val := range binaries {
-		e.trackSessionMetric(ctx, pipe, sessionID, metricKey, metricsIndexKey)
 		lastValueKey := fmt.Sprintf("session:%s:device:%s:metric:%s:last", sessionID, t.DeviceID, metricKey)
 		valStr := fmt.Sprintf("%t", val)
 
@@ -338,9 +302,7 @@ func (e *Engine) Analyze(ctx context.Context, t telemetry.Telemetry) error {
 		}
 	}
 
-	// Process Categorical Metrics
 	for metricKey, val := range categoricals {
-		e.trackSessionMetric(ctx, pipe, sessionID, metricKey, metricsIndexKey)
 		lastValueKey := fmt.Sprintf("session:%s:device:%s:metric:%s:last", sessionID, t.DeviceID, metricKey)
 
 		e.mu.Lock()
@@ -592,22 +554,3 @@ func parseInterfaceToInt(val interface{}) (int, bool) {
 	return 0, false
 }
 
-func (e *Engine) trackSessionMetric(ctx context.Context, pipe goredis.Pipeliner, sessionID, metricKey, metricsIndexKey string) {
-	e.mu.Lock()
-	if e.sessionMetrics == nil {
-		e.sessionMetrics = make(map[string]map[string]bool)
-	}
-	if e.sessionMetrics[sessionID] == nil {
-		e.sessionMetrics[sessionID] = make(map[string]bool)
-	}
-	seen := e.sessionMetrics[sessionID][metricKey]
-	if !seen {
-		e.sessionMetrics[sessionID][metricKey] = true
-	}
-	e.mu.Unlock()
-
-	if !seen {
-		pipe.SAdd(ctx, metricsIndexKey, metricKey)
-		pipe.Expire(ctx, metricsIndexKey, 24*time.Hour)
-	}
-}

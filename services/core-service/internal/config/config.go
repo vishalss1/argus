@@ -58,6 +58,7 @@ type Config struct {
 	JWTAccessExpiration       time.Duration
 	JWTRefreshExpiration      time.Duration
 	AuthAuditLogRetentionDays int
+	TelemetryExportRetentionDays int
 }
 
 func Load() *Config {
@@ -277,6 +278,17 @@ func Load() *Config {
 		}
 	} else {
 		cfg.AuthAuditLogRetentionDays = 90
+	}
+
+	telemetryRetentionDaysStr := os.Getenv("ARGUS_TELEMETRY_EXPORT_RETENTION_DAYS")
+	if telemetryRetentionDaysStr != "" {
+		if val, err := strconv.Atoi(telemetryRetentionDaysStr); err == nil && val > 0 {
+			cfg.TelemetryExportRetentionDays = val
+		} else {
+			cfg.TelemetryExportRetentionDays = 7
+		}
+	} else {
+		cfg.TelemetryExportRetentionDays = 7
 	}
 
 	return cfg

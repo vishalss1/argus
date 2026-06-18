@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/vishalss1/argus/shared/proto/telemetry"
@@ -188,9 +190,7 @@ func (s *Server) GetSessionTelemetry(ctx context.Context, req *pb.GetSessionTele
 
 	id := req.SessionId
 	rdb := s.redisClient.Client()
-
 	devices, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:devices", id)).Result()
-	metricKeys, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:metrics", id)).Result()
 
 	var pbDeviceSummaries []*pb.DeviceSummary
 	var sampleCountTotal int32
@@ -326,112 +326,301 @@ func (s *Server) GetSessionTelemetry(ctx context.Context, req *pb.GetSessionTele
 		}
 	}
 
-	metricsAggregates := make(map[string]*pb.DeviceMetricAggregates)
-	if len(devices) > 0 && len(metricKeys) > 0 {
-		type aggCmdKey struct {
-			devID string
-			mKey  string
-		}
-		aggCmds := make(map[aggCmdKey]*goredis.MapStringStringCmd)
-		aggPipe := rdb.Pipeline()
-
-		count := 0
-		for _, devID := range devices {
-			for _, mKey := range metricKeys {
-				welfordKey := fmt.Sprintf("session:%s:device:%s:metric:%s", id, devID, mKey)
-				aggCmds[aggCmdKey{devID, mKey}] = aggPipe.HGetAll(ctx, welfordKey)
-				count++
-				if count%1000 == 0 {
-					_, _ = aggPipe.Exec(ctx)
-					aggPipe = rdb.Pipeline()
-				}
-			}
-		}
-		if count%1000 != 0 {
-			_, _ = aggPipe.Exec(ctx)
-		}
-
-		for _, devID := range devices {
-			devAggs := make(map[string]*pb.MetricAggregate)
-			for _, mKey := range metricKeys {
-				data, err := aggCmds[aggCmdKey{devID, mKey}].Result()
-				if err == nil && len(data) > 0 {
-					cnt, _ := strconv.Atoi(data["count"])
-					if cnt > 0 {
-						sumVal, _ := strconv.ParseFloat(data["sum"], 64)
-						minVal, _ := strconv.ParseFloat(data["min"], 64)
-						maxVal, _ := strconv.ParseFloat(data["max"], 64)
-						m2Val, _ := strconv.ParseFloat(data["m2"], 64)
-
-						avg := sumVal / float64(cnt)
-						variance := m2Val / float64(cnt)
-						if math.IsNaN(variance) || math.IsInf(variance, 0) {
-							variance = 0.0
+	// Fetch hourly summaries
+	hourlySummaries := make(map[string]*pb.HourlySummaryList)
+	hashData, err := rdb.HGetAll(ctx, fmt.Sprintf("session:%s:hourly_summaries", id)).Result()
+	if err == nil && len(hashData) > 0 {
+		for field, val := range hashData {
+			if strings.HasPrefix(field, "device:") {
+				parts := strings.Split(field, ":")
+				if len(parts) >= 4 {
+					devID := parts[1]
+					var listMsg pb.HourlySummaryList
+					if protojson.Unmarshal([]byte(val), &listMsg) == nil {
+						if _, ok := hourlySummaries[devID]; !ok {
+							hourlySummaries[devID] = &pb.HourlySummaryList{}
 						}
-
-						devAggs[mKey] = &pb.MetricAggregate{
-							Count:    int32(cnt),
-							Min:      minVal,
-							Max:      maxVal,
-							Average:  avg,
-							Variance: variance,
-						}
+						hourlySummaries[devID].Summaries = append(hourlySummaries[devID].Summaries, listMsg.Summaries...)
 					}
 				}
 			}
-			if len(devAggs) > 0 {
-				metricsAggregates[devID] = &pb.DeviceMetricAggregates{
-					Aggregates: devAggs,
+		}
+	}
+
+	allDiscoveredMetrics := make(map[string]map[string]bool)
+	for devID, devSummaries := range hourlySummaries {
+		if _, ok := allDiscoveredMetrics[devID]; !ok {
+			allDiscoveredMetrics[devID] = make(map[string]bool)
+		}
+		for _, sum := range devSummaries.Summaries {
+			allDiscoveredMetrics[devID][sum.Metric] = true
+		}
+	}
+
+	// Fetch current hour raw telemetry (queried over all active/uncompacted hours in Redis)
+	currentHourTelemetry := make(map[string]*pb.RawTelemetryList)
+	activeHours, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:hours", id)).Result()
+	if len(activeHours) == 0 {
+		activeHours = []string{time.Now().UTC().Format("2006-01-02-15")}
+	}
+
+	for _, hourStr := range activeHours {
+		for _, devID := range devices {
+			key := fmt.Sprintf("session:%s:hour:%s:device:%s:telemetry_history", id, hourStr, devID)
+			items, err := rdb.ZRange(ctx, key, 0, -1).Result()
+			if err == nil && len(items) > 0 {
+				var samples []*pb.RawTelemetry
+				for _, item := range items {
+					var sample struct {
+						RecordedAt time.Time       `json:"recorded_at"`
+						CreatedAt  time.Time       `json:"created_at"`
+						Metrics    json.RawMessage `json:"metrics"`
+					}
+					if json.Unmarshal([]byte(item), &sample) == nil {
+						var rawMetrics map[string]interface{}
+						if json.Unmarshal(sample.Metrics, &rawMetrics) == nil {
+							if _, ok := allDiscoveredMetrics[devID]; !ok {
+								allDiscoveredMetrics[devID] = make(map[string]bool)
+							}
+							discoverMetricKeysLocal(rawMetrics, "", allDiscoveredMetrics[devID])
+
+							numerics := make(map[string]float64)
+							flattenMetricsLocal(rawMetrics, "", numerics)
+							recTime := sample.RecordedAt
+							if recTime.IsZero() {
+								recTime = sample.CreatedAt
+							}
+							if recTime.IsZero() {
+								recTime = time.Now().UTC()
+							}
+							samples = append(samples, &pb.RawTelemetry{
+								Timestamp: timestamppb.New(recTime),
+								Metrics:   numerics,
+							})
+						}
+					}
+				}
+				if len(samples) > 0 {
+					if _, ok := currentHourTelemetry[devID]; !ok {
+						currentHourTelemetry[devID] = &pb.RawTelemetryList{}
+					}
+					currentHourTelemetry[devID].Samples = append(currentHourTelemetry[devID].Samples, samples...)
 				}
 			}
 		}
 	}
 
-	var keysToDelete []string
-	keysToDelete = append(keysToDelete,
-		fmt.Sprintf("session:%s:devices", id),
-		fmt.Sprintf("session:%s:metrics", id),
-		fmt.Sprintf("session:%s:incidents", id),
-		fmt.Sprintf("session:%s:artifact_buffer", id),
-		fmt.Sprintf("session:%s:incidents:suppressed", id),
-		fmt.Sprintf("session:%s:stopped", id),
-	)
+	// Compute metricsAggregates on the fly
+	metricsAggregates := make(map[string]*pb.DeviceMetricAggregates)
 
+	// Combine metrics for each device
 	for _, devID := range devices {
-		keysToDelete = append(keysToDelete,
-			fmt.Sprintf("session:%s:device:%s:state", id, devID),
-			fmt.Sprintf("session:%s:device:%s:incidents", id, devID),
-			fmt.Sprintf("session:%s:device:%s:telemetry_history", id, devID),
-		)
-		for _, mKey := range metricKeys {
-			keysToDelete = append(keysToDelete,
-				fmt.Sprintf("session:%s:device:%s:metric:%s", id, devID, mKey),
-				fmt.Sprintf("session:%s:device:%s:metric:%s:last", id, devID, mKey),
-				fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_spike", id, devID, mKey),
-				fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_drop", id, devID, mKey),
-				fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_stuck", id, devID, mKey),
-				fmt.Sprintf("session:%s:device:%s:incident:%s:binary_toggle", id, devID, mKey),
-				fmt.Sprintf("session:%s:device:%s:incident:%s:categorical_change", id, devID, mKey),
-			)
+		type statsTracker struct {
+			count int
+			min   float64
+			max   float64
+			mean  float64
+			m2    float64
+		}
+		trackers := make(map[string]*statsTracker)
+
+		mergePart := func(mKey string, n2 int, min2, max2, mean2, var2 float64) {
+			tr, ok := trackers[mKey]
+			if !ok {
+				tr = &statsTracker{
+					count: n2,
+					min:   min2,
+					max:   max2,
+					mean:  mean2,
+					m2:    float64(n2) * var2,
+				}
+				trackers[mKey] = tr
+				return
+			}
+			if n2 == 0 {
+				return
+			}
+			n1 := tr.count
+			n := n1 + n2
+			tr.count = n
+			if min2 < tr.min {
+				tr.min = min2
+			}
+			if max2 > tr.max {
+				tr.max = max2
+			}
+			mean1 := tr.mean
+			m2_1 := tr.m2
+			m2_2 := float64(n2) * var2
+			delta := mean2 - mean1
+			tr.mean = mean1 + delta*float64(n2)/float64(n)
+			tr.m2 = m2_1 + m2_2 + delta*delta*float64(n1)*float64(n2)/float64(n)
+		}
+
+		// Merge pre-computed hourly summaries
+		if devSummaries, ok := hourlySummaries[devID]; ok {
+			for _, sum := range devSummaries.Summaries {
+				mergePart(sum.Metric, int(sum.SampleCount), sum.Min, sum.Max, sum.Average, sum.Variance)
+			}
+		}
+
+		// Merge current hour raw telemetry
+		if rawTelemetry, ok := currentHourTelemetry[devID]; ok {
+			rawMetrics := make(map[string][]float64)
+			for _, sample := range rawTelemetry.Samples {
+				for mKey, mVal := range sample.Metrics {
+					rawMetrics[mKey] = append(rawMetrics[mKey], mVal)
+				}
+			}
+			for mKey, vals := range rawMetrics {
+				n2 := len(vals)
+				if n2 > 0 {
+					min2 := vals[0]
+					max2 := vals[0]
+					sum2 := 0.0
+					for _, v := range vals {
+						if v < min2 {
+							min2 = v
+						}
+						if v > max2 {
+							max2 = v
+						}
+						sum2 += v
+					}
+					mean2 := sum2 / float64(n2)
+					var2 := 0.0
+					for _, v := range vals {
+						var2 += (v - mean2) * (v - mean2)
+					}
+					var2 = var2 / float64(n2)
+
+					mergePart(mKey, n2, min2, max2, mean2, var2)
+				}
+			}
+		}
+
+		// Construct pb.MetricAggregate for response
+		devAggs := make(map[string]*pb.MetricAggregate)
+		for mKey, tr := range trackers {
+			if tr.count > 0 {
+				variance := tr.m2 / float64(tr.count)
+				if math.IsNaN(variance) || math.IsInf(variance, 0) {
+					variance = 0.0
+				}
+				devAggs[mKey] = &pb.MetricAggregate{
+					Count:    int32(tr.count),
+					Min:      tr.min,
+					Max:      tr.max,
+					Average:  tr.mean,
+					Variance: variance,
+				}
+			}
+		}
+		if len(devAggs) > 0 {
+			metricsAggregates[devID] = &pb.DeviceMetricAggregates{
+				Aggregates: devAggs,
+			}
 		}
 	}
 
-	if len(keysToDelete) > 0 {
-		delPipe := rdb.Pipeline()
-		for _, k := range keysToDelete {
-			delPipe.Del(ctx, k)
+	if req.Cleanup {
+		var keysToDelete []string
+		keysToDelete = append(keysToDelete,
+			fmt.Sprintf("session:%s:devices", id),
+			fmt.Sprintf("session:%s:incidents", id),
+			fmt.Sprintf("session:%s:artifact_buffer", id),
+			fmt.Sprintf("session:%s:incidents:suppressed", id),
+			fmt.Sprintf("session:%s:stopped", id),
+			fmt.Sprintf("session:%s:hours", id),
+			fmt.Sprintf("session:%s:hourly_summaries", id),
+			fmt.Sprintf("session:%s:export_paths", id),
+		)
+
+		for _, devID := range devices {
+			keysToDelete = append(keysToDelete,
+				fmt.Sprintf("session:%s:device:%s:state", id, devID),
+				fmt.Sprintf("session:%s:device:%s:incidents", id, devID),
+				fmt.Sprintf("session:%s:device:%s:telemetry_history", id, devID),
+			)
 		}
-		_, _ = delPipe.Exec(ctx)
+
+		// Loop through all discovered metrics to clean up metric-specific keys
+		for devID, mKeys := range allDiscoveredMetrics {
+			for mKey := range mKeys {
+				keysToDelete = append(keysToDelete,
+					fmt.Sprintf("session:%s:device:%s:metric:%s:last", id, devID, mKey),
+					fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_spike", id, devID, mKey),
+					fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_drop", id, devID, mKey),
+					fmt.Sprintf("session:%s:device:%s:incident:%s:numeric_stuck", id, devID, mKey),
+					fmt.Sprintf("session:%s:device:%s:incident:%s:binary_toggle", id, devID, mKey),
+					fmt.Sprintf("session:%s:device:%s:incident:%s:categorical_change", id, devID, mKey),
+				)
+			}
+		}
+
+		// Also clean up all partition keys tracked in active hours
+		hours, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:hours", id)).Result()
+		for _, hour := range hours {
+			for _, devID := range devices {
+				keysToDelete = append(keysToDelete,
+					fmt.Sprintf("session:%s:hour:%s:device:%s:telemetry_history", id, hour, devID),
+				)
+			}
+		}
+
+		if len(keysToDelete) > 0 {
+			delPipe := rdb.Pipeline()
+			for _, k := range keysToDelete {
+				delPipe.Del(ctx, k)
+			}
+			_, _ = delPipe.Exec(ctx)
+		}
 	}
 
 	return &pb.SessionTelemetryResponse{
-		SessionId:         id,
-		MessagesProcessed: sampleCountTotal,
-		AnomalyCount:      anomalyCount,
-		DeviceSummaries:   pbDeviceSummaries,
-		IncidentsArchive:  pbIncidents,
-		MetricsAggregates: metricsAggregates,
+		SessionId:             id,
+		MessagesProcessed:     sampleCountTotal,
+		AnomalyCount:          anomalyCount,
+		DeviceSummaries:       pbDeviceSummaries,
+		IncidentsArchive:      pbIncidents,
+		MetricsAggregates:     metricsAggregates,
+		HourlySummaries:       hourlySummaries,
+		CurrentHourTelemetry:  currentHourTelemetry,
 	}, nil
+}
+
+func flattenMetricsLocal(m map[string]interface{}, prefix string, numerics map[string]float64) {
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		switch val := v.(type) {
+		case float64:
+			numerics[key] = val
+		case int:
+			numerics[key] = float64(val)
+		case int64:
+			numerics[key] = float64(val)
+		case map[string]interface{}:
+			flattenMetricsLocal(val, key, numerics)
+		case []interface{}:
+			numerics[key+".len"] = float64(len(val))
+		}
+	}
+}
+
+func discoverMetricKeysLocal(m map[string]interface{}, prefix string, keys map[string]bool) {
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		keys[key] = true
+		if val, ok := v.(map[string]interface{}); ok {
+			discoverMetricKeysLocal(val, key, keys)
+		}
+	}
 }
 
 func (s *Server) ConfigureRule(ctx context.Context, req *pb.ConfigureRuleRequest) (*pb.RuleResponse, error) {

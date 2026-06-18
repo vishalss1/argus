@@ -408,6 +408,31 @@ export interface MetricAggregate {
   variance: number;
 }
 
+export interface HourlySummaryArtifact {
+  device_id: string;
+  hour: string;
+  metric: string;
+  sample_count: number;
+  min: number;
+  max: number;
+  average: number;
+  variance: number;
+  stddev: number;
+  first_timestamp: string;
+  last_timestamp: string;
+}
+
+export interface TelemetryRow {
+  timestamp: string;
+  device_id: string;
+  metrics: Record<string, number>;
+}
+
+export interface TelemetryExportPaths {
+  json: string;
+  csv: string;
+}
+
 export interface SessionArtifact {
   session_id: string;
   generated_at: string;
@@ -417,4 +442,7 @@ export interface SessionArtifact {
   device_summaries: Record<string, DeviceSummaryArtifact>;
   incidents_archive: ArtifactIncident[];
   metrics_aggregates: Record<string, Record<string, MetricAggregate>>;
+  hourly_summaries?: Record<string, HourlySummaryArtifact[]>;
+  telemetry_export_paths?: TelemetryExportPaths;
+  exports_expired?: boolean;
 }

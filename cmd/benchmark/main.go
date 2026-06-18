@@ -144,7 +144,7 @@ func main() {
 		Timeout:   120 * time.Second,
 	}
 
-	scheme := "http"
+	scheme := "https"
 	apiHost := os.Getenv("API_HOST")
 	if apiHost == "" {
 		apiHost = "localhost"

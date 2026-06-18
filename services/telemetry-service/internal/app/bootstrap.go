@@ -37,6 +37,7 @@ import (
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/ai"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/embedding"
 	grpcinfra "github.com/vishalss1/argus/telemetry/internal/infrastructure/grpc"
+	"github.com/vishalss1/argus/telemetry/internal/infrastructure/minio"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/postgres"
 	redisinfra "github.com/vishalss1/argus/telemetry/internal/infrastructure/redis"
@@ -90,6 +91,21 @@ func Bootstrap() (*Server, error) {
 		return nil, err
 	}
 	server.redisClient = redisClient
+
+	// Initialize MinIO client for telemetry export archiving
+	var minioClient *minio.Client
+	if cfg.MinIOEndpoint != "" {
+		mc, err := minio.NewClient(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
+		if err != nil {
+			log.Printf("[BOOTSTRAP] Warning: failed to connect to MinIO: %v. Hourly telemetry archiving disabled.", err)
+		} else {
+			minioClient = mc
+		}
+	}
+
+	// Start Telemetry Compactor background task
+	compactor := analytics.NewCompactor(redisClient.Client(), minioClient, 1*time.Minute)
+	compactor.Start(appCtx)
 
 	coreSvcAddr := osGetEnv("CORE_SERVICE_GRPC_ADDR", "core-service:50051")
 	coreClient, err := grpcinfra.NewCoreClient(coreSvcAddr)

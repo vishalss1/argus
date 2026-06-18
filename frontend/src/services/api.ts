@@ -108,7 +108,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ success })
       }),
-    getArtifact: (id: string) => request<SessionArtifact>(`/sessions/${id}/artifact`)
+    getArtifact: (id: string) => request<SessionArtifact>(`/sessions/${id}/artifact`),
+    exportCSV: (id: string) => request<string>(`/sessions/${id}/export/csv`, { raw: true }),
+    exportJSON: (id: string) => request<any>(`/sessions/${id}/export/json`),
+    getTelemetryJSON: (id: string) => request<string>(`/sessions/${id}/telemetry/json`, { raw: true }),
+    getTelemetryCSV: (id: string) => request<string>(`/sessions/${id}/telemetry/csv`, { raw: true })
   },
 
   commands: {

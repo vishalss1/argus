@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vishalss1/argus/telemetry/internal/ai/operations"
@@ -121,29 +122,161 @@ func (b *SnapshotBuilder) loadTelemetryWindows(ctx context.Context, sessionID, d
 }
 
 func (b *SnapshotBuilder) loadTrends(ctx context.Context, sessionID, deviceID string, latest map[string]any) []operations.MetricTrend {
-	var trends []operations.MetricTrend
-	metricsKeys, _ := b.redisClient.Client().Keys(ctx, fmt.Sprintf("session:%s:device:%s:metric:*", sessionID, deviceID)).Result()
-	for _, key := range metricsKeys {
-		var agg struct {
-			Count    int64   `json:"count"`
-			Minimum  float64 `json:"minimum"`
-			Maximum  float64 `json:"maximum"`
-			Average  float64 `json:"average"`
-			Variance float64 `json:"variance"`
-		}
-		if raw, err := b.redisClient.Client().Get(ctx, key).Result(); err == nil {
-			if json.Unmarshal([]byte(raw), &agg) == nil {
-				metricName := key[len(fmt.Sprintf("session:%s:device:%s:metric:", sessionID, deviceID)):]
-				trends = append(trends, operations.MetricTrend{
-					Metric:   metricName,
-					Current:  latest[metricName],
-					Count:    agg.Count,
-					Minimum:  agg.Minimum,
-					Maximum:  agg.Maximum,
-					Average:  agg.Average,
-					Variance: agg.Variance,
-				})
+	rdb := b.redisClient.Client()
+
+	type hourlySummary struct {
+		Metric      string
+		SampleCount int
+		Min         float64
+		Max         float64
+		Average     float64
+		Variance    float64
+	}
+	var summaries []hourlySummary
+
+	hashData, err := rdb.HGetAll(ctx, fmt.Sprintf("session:%s:hourly_summaries", sessionID)).Result()
+	if err == nil && len(hashData) > 0 {
+		for field, val := range hashData {
+			if strings.HasPrefix(field, fmt.Sprintf("device:%s:hour:", deviceID)) {
+				var listMsg struct {
+					Summaries []struct {
+						Metric      string  `json:"metric"`
+						SampleCount int     `json:"sample_count"`
+						Min         float64 `json:"min"`
+						Max         float64 `json:"max"`
+						Average     float64 `json:"average"`
+						Variance    float64 `json:"variance"`
+					} `json:"summaries"`
+				}
+				if json.Unmarshal([]byte(val), &listMsg) == nil {
+					for _, s := range listMsg.Summaries {
+						summaries = append(summaries, hourlySummary{
+							Metric:      s.Metric,
+							SampleCount: s.SampleCount,
+							Min:         s.Min,
+							Max:         s.Max,
+							Average:     s.Average,
+							Variance:    s.Variance,
+						})
+					}
+				}
 			}
+		}
+	}
+
+	activeHours, _ := rdb.SMembers(ctx, fmt.Sprintf("session:%s:hours", sessionID)).Result()
+	if len(activeHours) == 0 {
+		activeHours = []string{time.Now().UTC().Format("2006-01-02-15")}
+	}
+
+	type statsTracker struct {
+		count int
+		min   float64
+		max   float64
+		mean  float64
+		m2    float64
+	}
+	trackers := make(map[string]*statsTracker)
+
+	mergePart := func(mKey string, n2 int, min2, max2, mean2, var2 float64) {
+		tr, ok := trackers[mKey]
+		if !ok {
+			tr = &statsTracker{
+				count: n2,
+				min:   min2,
+				max:   max2,
+				mean:  mean2,
+				m2:    float64(n2) * var2,
+			}
+			trackers[mKey] = tr
+			return
+		}
+		if n2 == 0 {
+			return
+		}
+		n1 := tr.count
+		n := n1 + n2
+		tr.count = n
+		if min2 < tr.min {
+			tr.min = min2
+		}
+		if max2 > tr.max {
+			tr.max = max2
+		}
+		mean1 := tr.mean
+		m2_1 := tr.m2
+		m2_2 := float64(n2) * var2
+		delta := mean2 - mean1
+		tr.mean = mean1 + delta*float64(n2)/float64(n)
+		tr.m2 = m2_1 + m2_2 + delta*delta*float64(n1)*float64(n2)/float64(n)
+	}
+
+	for _, sum := range summaries {
+		mergePart(sum.Metric, sum.SampleCount, sum.Min, sum.Max, sum.Average, sum.Variance)
+	}
+
+	for _, hourStr := range activeHours {
+		key := fmt.Sprintf("session:%s:hour:%s:device:%s:telemetry_history", sessionID, hourStr, deviceID)
+		items, err := rdb.ZRange(ctx, key, 0, -1).Result()
+		if err == nil && len(items) > 0 {
+			rawMetrics := make(map[string][]float64)
+			for _, item := range items {
+				var sample struct {
+					Metrics json.RawMessage `json:"metrics"`
+				}
+				if json.Unmarshal([]byte(item), &sample) == nil {
+					var rawMetricsLocal map[string]interface{}
+					if json.Unmarshal(sample.Metrics, &rawMetricsLocal) == nil {
+						numerics := make(map[string]float64)
+						flattenLocalQuery(rawMetricsLocal, "", numerics)
+						for mKey, mVal := range numerics {
+							rawMetrics[mKey] = append(rawMetrics[mKey], mVal)
+						}
+					}
+				}
+			}
+
+			for mKey, vals := range rawMetrics {
+				n2 := len(vals)
+				if n2 > 0 {
+					min2 := vals[0]
+					max2 := vals[0]
+					sum2 := 0.0
+					for _, v := range vals {
+						if v < min2 { min2 = v }
+						if v > max2 { max2 = v }
+						sum2 += v
+					}
+					mean2 := sum2 / float64(n2)
+					var2 := 0.0
+					for _, v := range vals {
+						var2 += (v - mean2) * (v - mean2)
+					}
+					var2 = var2 / float64(n2)
+
+					mergePart(mKey, n2, min2, max2, mean2, var2)
+				}
+			}
+		}
+	}
+
+	var trends []operations.MetricTrend
+	for mKey, tr := range trackers {
+		if tr.count > 0 {
+			variance := tr.m2 / float64(tr.count)
+			if variance != variance { // NaN check
+				variance = 0.0
+			}
+
+			trends = append(trends, operations.MetricTrend{
+				Metric:   mKey,
+				Current:  latest[mKey],
+				Count:    int64(tr.count),
+				Minimum:  tr.min,
+				Maximum:  tr.max,
+				Average:  tr.mean,
+				Variance: variance,
+			})
 		}
 	}
 	return trends
@@ -181,3 +314,4 @@ func (b *SnapshotBuilder) loadClosedIncidents(ctx context.Context, sessionID, de
 	}
 	return result
 }
+
