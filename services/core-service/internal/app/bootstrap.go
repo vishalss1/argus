@@ -3,14 +3,17 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -25,6 +28,7 @@ import (
 
 	"github.com/vishalss1/argus/core/internal/config"
 	"github.com/vishalss1/argus/core/internal/domain/auth"
+	"github.com/vishalss1/argus/core/internal/domain/certificate"
 	commanddomain "github.com/vishalss1/argus/core/internal/domain/command"
 	devicedomain "github.com/vishalss1/argus/core/internal/domain/device"
 	otadomain "github.com/vishalss1/argus/core/internal/domain/ota"
@@ -33,6 +37,7 @@ import (
 	shadowdomain "github.com/vishalss1/argus/core/internal/domain/shadow"
 	telemetrydomain "github.com/vishalss1/argus/core/internal/domain/telemetry"
 	workspacedomain "github.com/vishalss1/argus/core/internal/domain/workspace"
+	"github.com/vishalss1/argus/core/internal/firmware"
 	telemetrygrpc "github.com/vishalss1/argus/core/internal/infrastructure/grpc"
 	"github.com/vishalss1/argus/core/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/core/internal/infrastructure/minio"
@@ -129,10 +134,71 @@ func Bootstrap() (*Server, error) {
 	// Setup simple realtime publisher
 	realtime := &realtimePublisherWrapper{hub: websocketHub}
 
+	// Initialize Certificate Authority (uses device CA for issuing client certs)
+	ca, err := certificate.NewCertificateAuthority(cfg.DeviceCARootCertFile, cfg.DeviceCAPrivateKeyFile)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to initialize Certificate Authority: %w", err)
+	}
+
+	// Read device CA — used for server's client cert verification pool
+	deviceCABytes, err := os.ReadFile(cfg.DeviceCARootCertFile)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to read device CA cert file: %w", err)
+	}
+
+	// Read server CA — used for firmware's ARGUS_ROOT_CA (server cert chain verification)
+	serverCABytes, err := os.ReadFile(cfg.ServerCACertFile)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to read server CA cert file: %w", err)
+	}
+
+	// Verify that the server CA actually issues the server certificate
+	serverCertBytes, err := os.ReadFile(cfg.HTTPSTLSCertFile)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to read server TLS cert file for validation: %w", err)
+	}
+	if err := firmware.ValidateCAIssuesServerCert(string(serverCABytes), string(serverCertBytes)); err != nil {
+		cancel()
+		return nil, err
+	}
+
+	httpPort, err := strconv.Atoi(cfg.Port)
+	if err != nil {
+		httpPort = 8080
+	}
+
+	mqttPort := 1883
+	if cfg.MQTTBrokerURL != "" {
+		if u, err := url.Parse(cfg.MQTTBrokerURL); err == nil {
+			if p := u.Port(); p != "" {
+				if parsed, err := strconv.Atoi(p); err == nil {
+					mqttPort = parsed
+				}
+			}
+		}
+	}
+
+	fwGen, err := firmware.NewGenerator(firmware.GeneratorConfig{
+		ServerHost:             cfg.ServerHost,
+		HTTPPort:               httpPort,
+		MQTTPort:               mqttPort,
+		RootCAPEM:              string(serverCABytes),
+		OTASigningKeyID:        cfg.OTASigningKeyID,
+		OTASigningPublicKeyB64: cfg.OTASigningPublicKeyB64,
+	})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to initialize Firmware Generator: %w", err)
+	}
+
 	deviceService := devicedomain.NewService(deviceRepository)
 	deviceService.SetEventPublisher(realtime)
 	presenceService := devicedomain.NewPresenceService(deviceService)
-	deviceHandler := transporthandler.NewDeviceHandler(deviceService)
+	deviceHandler := transporthandler.NewDeviceHandler(deviceService, ca, fwGen)
 
 	// Ingress Telemetry publishes directly to Kafka telemetry.raw
 	var finalTelemetryRepo telemetrydomain.Repository = &kafka.NoopTelemetryRepository{}
@@ -259,12 +325,17 @@ func Bootstrap() (*Server, error) {
 		go startCommandDispatcher(appCtx, cfg, mqttClient)
 	}
 
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(deviceCABytes)
+
 	server.httpServer = &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: router,
 		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
+			MinVersion:       tls.VersionTLS12,
 			CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
+			ClientAuth:       tls.VerifyClientCertIfGiven,
+			ClientCAs:        caCertPool,
 		},
 	}
 	server.tlsCertFile = cfg.HTTPSTLSCertFile

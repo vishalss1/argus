@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"log"
 	"os"
 	"strconv"
@@ -59,6 +60,11 @@ type Config struct {
 	JWTRefreshExpiration      time.Duration
 	AuthAuditLogRetentionDays int
 	TelemetryExportRetentionDays int
+	DeviceCARootCertFile      string
+	DeviceCAPrivateKeyFile    string
+	ServerCACertFile          string
+	OTASigningPublicKeyB64    string
+	ServerHost                string
 }
 
 func Load() *Config {
@@ -289,6 +295,36 @@ func Load() *Config {
 		}
 	} else {
 		cfg.TelemetryExportRetentionDays = 7
+	}
+
+	cfg.DeviceCARootCertFile = os.Getenv("DEVICE_CA_ROOT_CERT_FILE")
+	if cfg.DeviceCARootCertFile == "" {
+		cfg.DeviceCARootCertFile = "certs/root-ca.pem"
+	}
+
+	cfg.DeviceCAPrivateKeyFile = os.Getenv("DEVICE_CA_PRIVATE_KEY_FILE")
+	if cfg.DeviceCAPrivateKeyFile == "" {
+		cfg.DeviceCAPrivateKeyFile = "certs/root-ca.key"
+	}
+
+	cfg.ServerCACertFile = os.Getenv("SERVER_CA_CERT_FILE")
+	if cfg.ServerCACertFile == "" {
+		cfg.ServerCACertFile = "certs/ca.pem"
+	}
+
+	cfg.ServerHost = os.Getenv("ARGUS_SERVER_HOST")
+	if cfg.ServerHost == "" {
+		cfg.ServerHost = "localhost"
+	}
+
+	if cfg.OTASigningPrivateKey != "" {
+		privBytes, err := base64.StdEncoding.DecodeString(cfg.OTASigningPrivateKey)
+		if err == nil && len(privBytes) == 64 {
+			pubKeyBytes := privBytes[32:]
+			cfg.OTASigningPublicKeyB64 = base64.StdEncoding.EncodeToString(pubKeyBytes)
+		} else {
+			log.Println("Warning: invalid OTA_SIGNING_PRIVATE_KEY_B64 length or decoding error:", err)
+		}
 	}
 
 	return cfg

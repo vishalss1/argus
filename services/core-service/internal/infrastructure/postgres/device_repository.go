@@ -28,9 +28,16 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 		metadata = json.RawMessage(`{}`)
 	}
 
+	var wID *string
+	if entity.WorkspaceID != nil {
+		wID = entity.WorkspaceID
+	} else if val, ok := common.GetWorkspaceID(ctx); ok {
+		wID = &val
+	}
+
 	const query = `
-		INSERT INTO devices (id, name, type, firmware_version, status, metadata, api_key_hash, api_key_prefix)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7, $8)
+		INSERT INTO devices (id, name, type, firmware_version, status, metadata, api_key_hash, api_key_prefix, workspace_id)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::uuid)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			type = EXCLUDED.type,
@@ -39,6 +46,7 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 			metadata = EXCLUDED.metadata,
 			api_key_hash = EXCLUDED.api_key_hash,
 			api_key_prefix = EXCLUDED.api_key_prefix,
+			workspace_id = EXCLUDED.workspace_id,
 			updated_at = NOW()
 		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix`
 
@@ -53,6 +61,7 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 		metadata,
 		entity.APIKeyHash,
 		entity.APIKeyPrefix,
+		wID,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create device: %w", err)
@@ -340,7 +349,7 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 	return updated, nil
 }
 
-func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, status string) (*device.Device, error) {
+func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, status string, firmwareVersion string) (*device.Device, error) {
 	const query = `
 		WITH target AS (
 			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
@@ -349,6 +358,7 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 		), updated AS (
 			UPDATE devices
 			SET status = $2,
+				firmware_version = CASE WHEN $3 <> '' THEN $3 ELSE firmware_version END,
 				last_seen = NOW(),
 				updated_at = NOW()
 			WHERE id = $1::uuid
@@ -365,7 +375,7 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 		WHERE NOT EXISTS (SELECT 1 FROM updated)
 		LIMIT 1`
 
-	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status))
+	entity, err := scanDevice(r.db.QueryRowContext(ctx, query, id, status, firmwareVersion))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, device.ErrDeviceNotFound
 	}

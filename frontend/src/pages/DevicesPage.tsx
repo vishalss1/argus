@@ -107,13 +107,30 @@ export function DevicesPage() {
         setEditDevice(null);
         setIsDrawerOpen(false);
       } else {
-        const newDev = await create.mutateAsync(payload);
-        if (selectedWorkspaceId && newDev?.id) {
-          await assignDevice.mutateAsync({ workspaceID: selectedWorkspaceId, deviceID: newDev.id });
+        const fileContent = (await create.mutateAsync(payload)) as unknown as string;
+
+        // Parse credentials from sketch
+        const deviceIdMatch = fileContent.match(/ARGUS_DEVICE_ID(?:\[\])?\s*(?:=|)\s*"([^"]+)"/);
+        const apiKeyMatch = fileContent.match(/ARGUS_API_KEY(?:\[\])?\s*(?:=|)\s*"([^"]+)"/);
+        const deviceId = deviceIdMatch ? deviceIdMatch[1] : "";
+        const apiKey = apiKeyMatch ? apiKeyMatch[1] : "";
+
+        // Trigger file download
+        if (deviceId) {
+          const blob = new Blob([fileContent], { type: "text/plain" });
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `firmware_${deviceId}.ino`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
         }
+
         formElement.reset();
-        if (newDev?.api_key) {
-          setCreatedCredentials({ id: newDev.id, apiKey: newDev.api_key });
+        if (deviceId && apiKey) {
+          setCreatedCredentials({ id: deviceId, apiKey: apiKey });
         } else {
           setIsDrawerOpen(false);
         }

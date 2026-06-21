@@ -143,6 +143,9 @@ services:
       - GRPC_PORT=50051
       - HTTPS_TLS_CERT_FILE=/certs/fullchain.pem
       - HTTPS_TLS_KEY_FILE=/certs/privkey.pem
+      - DEVICE_CA_ROOT_CERT_FILE=/certs/root-ca.pem
+      - DEVICE_CA_PRIVATE_KEY_FILE=/certs/root-ca.key
+      - SERVER_CA_CERT_FILE=/certs/ca.pem
     ports:
       - "8080:8080"
       - "50051:50051"
@@ -155,7 +158,7 @@ services:
     volumes:
       - ../../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:8080/healthz"]
+      test: ["CMD", "nc", "-z", "localhost", "50051"]
       interval: 10s
       timeout: 5s
       retries: 3

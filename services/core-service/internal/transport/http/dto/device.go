@@ -20,8 +20,9 @@ type UpdateDeviceRequest struct {
 }
 
 type HeartbeatRequest struct {
-	DeviceID string `json:"device_id,omitempty"`
-	Status   string `json:"status,omitempty"`
+	DeviceID        string `json:"device_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	FirmwareVersion string `json:"firmware_version,omitempty"`
 }
 
 type ProvisionDeviceRequest struct {

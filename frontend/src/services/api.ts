@@ -40,9 +40,10 @@ export const api = {
   devices: {
     list: () => request<Device[]>("/devices/"),
     create: (payload: CreateDeviceRequest) =>
-      request<Device>("/devices/", {
+      request<string>("/devices/", {
         method: "POST",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        raw: true
       }),
     update: (id: string, payload: Partial<CreateDeviceRequest>) =>
       request<Device>(`/devices/${id}/`, {

@@ -5,16 +5,29 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/vishalss1/argus/core/internal/domain/certificate"
 	"github.com/vishalss1/argus/core/internal/domain/device"
+	"github.com/vishalss1/argus/core/internal/firmware"
 	"github.com/vishalss1/argus/core/internal/transport/http/dto"
+	"github.com/vishalss1/argus/shared/common"
 )
 
 type DeviceHandler struct {
 	service *device.Service
+	ca      *certificate.CertificateAuthority
+	fwGen   *firmware.Generator
 }
 
-func NewDeviceHandler(service *device.Service) *DeviceHandler {
-	return &DeviceHandler{service: service}
+func NewDeviceHandler(
+	service *device.Service,
+	ca *certificate.CertificateAuthority,
+	fwGen *firmware.Generator,
+) *DeviceHandler {
+	return &DeviceHandler{
+		service: service,
+		ca:      ca,
+		fwGen:   fwGen,
+	}
 }
 
 // CreateDevice godoc
@@ -46,7 +59,37 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, entity)
+	var workspaceID string
+	if entity.WorkspaceID != nil {
+		workspaceID = *entity.WorkspaceID
+	} else if val, ok := common.GetWorkspaceID(r.Context()); ok {
+		workspaceID = val
+	} else {
+		workspaceID = "00000000-0000-0000-0000-000000000000"
+	}
+
+	cert, err := h.ca.IssueDeviceCertificate(entity.ID, workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to issue device certificate: "+err.Error())
+		return
+	}
+
+	apiKey := ""
+	if entity.RawAPIKey != nil {
+		apiKey = *entity.RawAPIKey
+	}
+
+	fwVersion := entity.FirmwareVersion
+	fwBytes, err := h.fwGen.Generate(entity.ID, workspaceID, apiKey, fwVersion, cert.CertPEM, cert.PrivateKeyPEM)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate firmware: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"firmware_"+entity.ID+".ino\"")
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write(fwBytes)
 }
 
 // ListDevices godoc
@@ -178,7 +221,7 @@ func (h *DeviceHandler) RecordGlobalHeartbeat(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	h.recordHeartbeat(w, r, req.DeviceID, req.Status)
+	h.recordHeartbeat(w, r, req.DeviceID, req.Status, req.FirmwareVersion)
 }
 
 // RecordHeartbeat godoc
@@ -195,14 +238,20 @@ func (h *DeviceHandler) RecordGlobalHeartbeat(w http.ResponseWriter, r *http.Req
 func (h *DeviceHandler) RecordHeartbeat(w http.ResponseWriter, r *http.Request, id string) {
 	var req dto.HeartbeatRequest
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
 	}
 
-	h.recordHeartbeat(w, r, id, req.Status)
+	h.recordHeartbeat(w, r, id, req.Status, req.FirmwareVersion)
 }
 
-func (h *DeviceHandler) recordHeartbeat(w http.ResponseWriter, r *http.Request, id string, status string) {
-	entity, err := h.service.RecordHeartbeat(r.Context(), id, device.HeartbeatInput{Status: status})
+func (h *DeviceHandler) recordHeartbeat(w http.ResponseWriter, r *http.Request, id string, status string, firmwareVersion string) {
+	entity, err := h.service.RecordHeartbeat(r.Context(), id, device.HeartbeatInput{
+		Status:          status,
+		FirmwareVersion: firmwareVersion,
+	})
 	if errors.Is(err, device.ErrDeviceNotFound) {
 		writeError(w, http.StatusNotFound, "device not found")
 		return

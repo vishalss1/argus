@@ -114,6 +114,12 @@ func WorkspaceAuth(authService *auth.Service) func(http.Handler) http.Handler {
 func DeviceAuth(deviceRepo device.Repository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mtlsDeviceID, ok := r.Context().Value("mtls_device_id").(string)
+			if !ok || mtlsDeviceID == "" {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: mTLS authentication required")
+				return
+			}
+
 			apiKey := r.Header.Get("X-Device-API-Key")
 			if apiKey == "" {
 				apiKey = r.URL.Query().Get("api_key")
@@ -139,6 +145,11 @@ func DeviceAuth(deviceRepo device.Repository) func(http.Handler) http.Handler {
 			hash := sha256.Sum256([]byte(apiKey))
 			if subtle.ConstantTimeCompare(hash[:], dev.APIKeyHash) != 1 {
 				writeJSONError(w, http.StatusUnauthorized, "unauthorized: invalid device API key")
+				return
+			}
+
+			if dev.ID != mtlsDeviceID {
+				writeJSONError(w, http.StatusUnauthorized, "unauthorized: client certificate device ID does not match API key device ID")
 				return
 			}
 

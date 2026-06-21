@@ -42,7 +42,8 @@ type UpdateInput struct {
 }
 
 type HeartbeatInput struct {
-	Status string
+	Status          string
+	FirmwareVersion string
 }
 
 type PresenceStatus string

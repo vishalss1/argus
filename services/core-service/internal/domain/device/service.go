@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/vishalss1/argus/shared/common"
 )
 
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -86,6 +88,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error
 		return nil, err
 	}
 
+	var wID *string
+	if val, ok := common.GetWorkspaceID(ctx); ok {
+		wID = &val
+	}
+
 	device := Device{
 		ID:              id,
 		Name:            strings.TrimSpace(input.Name),
@@ -95,6 +102,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Device, error
 		Metadata:        input.Metadata,
 		APIKeyHash:      hash,
 		APIKeyPrefix:    prefix,
+		WorkspaceID:     wID,
 	}
 
 	if device.Name == "" {
@@ -225,7 +233,9 @@ func (s *Service) RecordHeartbeat(ctx context.Context, id string, input Heartbea
 		status = "online"
 	}
 
-	entity, err := s.repo.UpdateHeartbeat(ctx, deviceID, status)
+	firmwareVersion := strings.TrimSpace(input.FirmwareVersion)
+
+	entity, err := s.repo.UpdateHeartbeat(ctx, deviceID, status, firmwareVersion)
 	if err != nil {
 		return nil, err
 	}

@@ -52,13 +52,14 @@ func New(
 	apiRouter.Post("/auth/logout", authHandler.Logout)
 
 	// Device-facing endpoints (Unauthenticated user-wise, since they connect directly)
-	apiRouter.Get("/provision", deviceHandler.ProvisionDevice)
+	apiRouter.Post("/provision", deviceHandler.ProvisionDevice)
 
 	// WebSocket endpoint (authentication handled post-handshake via message)
 	apiRouter.Get("/ws", websocketHandler.ServeHTTP)
 
-	// Device Authenticated Group (devices authenticate using API key)
+	// Device Authenticated Group (devices authenticate using mTLS and API key)
 	apiRouter.Group(func(r chi.Router) {
+		r.Use(authmiddleware.MTLSAuth(deviceRepo))
 		r.Use(authmiddleware.DeviceAuth(deviceRepo))
 
 		r.Post("/devices/heartbeat", deviceHandler.RecordGlobalHeartbeat)

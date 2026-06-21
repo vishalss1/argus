@@ -1,4 +1,5 @@
 #include "argus_ota.h"
+#include "argus_version.h"
 #include "argus_config.h"
 #include "argus_state_machine.h"
 #include "argus_diag.h"
@@ -16,13 +17,13 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 
-#define FW_VERSION       "v1.0.0"
-#define OTA_POLL_MS        60000UL
-#define OTA_ACK_RETRY_MS   10000UL
-#define OTA_CHUNK_BYTES    2048
-#define OTA_HTTP_TIMEOUT   30000
-#define OTA_MAX_REDIRECTS  5
-#define ARGUS_REQUIRE_FIRMWARE_SIGNATURES true
+namespace argus_sdk {
+
+constexpr unsigned long OTA_POLL_MS = 60000UL;
+constexpr unsigned long OTA_ACK_RETRY_MS = 10000UL;
+constexpr size_t OTA_CHUNK_BYTES = 2048;
+constexpr int OTA_HTTP_TIMEOUT = 30000;
+constexpr int OTA_MAX_REDIRECTS = 5;
 
 Preferences otaPrefs;
 bool otaInProgress = false;
@@ -331,11 +332,11 @@ bool parseOTAManifest(const String& response, OTAManifest& manifest) {
 }
 
 bool versionAllowed(const OTAManifest& manifest) {
-  Version current = parseVersion(FW_VERSION);
+  Version current = parseVersion(ARGUS_FW_VERSION);
   Version target = parseVersion(manifest.version);
 
   if (!current.valid || !target.valid) {
-    Serial.printf("[OTA] Invalid semantic version. current=%s target=%s\n", FW_VERSION, manifest.version.c_str());
+    Serial.printf("[OTA] Invalid semantic version. current=%s target=%s\n", ARGUS_FW_VERSION, manifest.version.c_str());
     return false;
   }
 
@@ -346,42 +347,12 @@ bool versionAllowed(const OTAManifest& manifest) {
     return false;
   }
   if (cmp < 0 && !manifest.allowDowngrade) {
-    Serial.printf("[OTA] Rejecting downgrade from %s to %s\n", FW_VERSION, manifest.version.c_str());
+    Serial.printf("[OTA] Rejecting downgrade from %s to %s\n", ARGUS_FW_VERSION, manifest.version.c_str());
     publishOTANack(manifest.deploymentId, "Downgrade rejected");
     return false;
   }
 
   return true;
-}
-
-bool beginFirmwareHTTP(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure& secureClient, const String& url) {
-  http.setTimeout(OTA_HTTP_TIMEOUT);
-  http.setReuse(false);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setRedirectLimit(OTA_MAX_REDIRECTS);
-
-  if (isHttpsUrl(url)) {
-    Serial.println("[OTA] HTTPS firmware URL detected");
-    if (!timeSynced) {
-      Serial.println("[OTA] HTTPS rejected: time not synced via NTP");
-      return false;
-    }
-    if (!hasConfiguredRootCA()) {
-      Serial.println("[OTA] HTTPS rejected: no root CA configured for certificate validation");
-      return false;
-    }
-
-    logTLSDiagnostics(secureClient, url.c_str());
-    configureTLSClient(secureClient);
-    bool ok = http.begin(secureClient, url);
-    if (ok) http.addHeader("Connection", "close");
-    return ok;
-  }
-
-  Serial.println("[OTA] HTTP firmware URL detected");
-  bool ok = http.begin(plainClient, url);
-  if (ok) http.addHeader("Connection", "close");
-  return ok;
 }
 
 bool parseFirmwareURL(const String& url, String& scheme, String& host, String& path, uint16_t& port) {
@@ -414,6 +385,36 @@ bool parseFirmwareURL(const String& url, String& scheme, String& host, String& p
   }
 
   return host.length() > 0 && (scheme == "http" || scheme == "https");
+}
+
+bool beginFirmwareHTTP(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure& secureClient, const String& url) {
+  http.setTimeout(OTA_HTTP_TIMEOUT);
+  http.setReuse(false);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setRedirectLimit(OTA_MAX_REDIRECTS);
+
+  if (isHttpsUrl(url)) {
+    Serial.println("[OTA] HTTPS firmware URL detected");
+    if (!timeSynced) {
+      Serial.println("[OTA] HTTPS rejected: time not synced via NTP");
+      return false;
+    }
+    if (!hasConfiguredRootCA()) {
+      Serial.println("[OTA] HTTPS rejected: no root CA configured for certificate validation");
+      return false;
+    }
+
+    logTLSDiagnostics(secureClient, url.c_str());
+    configureTLS(secureClient);
+    bool ok = http.begin(secureClient, url);
+    if (ok) http.addHeader("Connection", "close");
+    return ok;
+  }
+
+  Serial.println("[OTA] HTTP firmware URL detected");
+  bool ok = http.begin(plainClient, url);
+  if (ok) http.addHeader("Connection", "close");
+  return ok;
 }
 
 bool connectTCPWithDiagnostics(WiFiClient& client, const String& host, uint16_t port, const char* label) {
@@ -658,7 +659,7 @@ bool downloadVerifyAndFlashPlainHTTP(const OTAManifest& manifest) {
   publishOTAStatus(manifest.deploymentId, "rebooting", 100, "Firmware flashed; rebooting");
   Serial.println("[OTA] Flash complete. Pending ACK stored. Rebooting now.");
   delay(250);
-  esp_restart();
+  ESP.restart();
   return true;
 }
 
@@ -683,7 +684,7 @@ bool downloadVerifyAndFlash(const OTAManifest& manifest) {
 
   HTTPClient http;
   WiFiClient plainClient;
-  WiFiClientSecure secureClient;
+  ArgusWiFiClientSecure secureClient;
   bool httpStarted = false;
   bool updateStarted = false;
 
@@ -706,6 +707,9 @@ bool downloadVerifyAndFlash(const OTAManifest& manifest) {
   Serial.printf("[OTA] HTTP error=%s\n", http.errorToString(httpCode).c_str());
   if (httpCode < 0) {
     logHTTPError(http, httpCode, secureClient, "OTA GET");
+  }
+  if (isHttpsUrl(manifest.downloadUrl) && httpCode > 0 && !verifyCertificatePin(secureClient, "firmware download")) {
+    return failFirmwareDownload(http, httpStarted, plainClient, secureClient, updateStarted, manifest.deploymentId, "Firmware TLS certificate pin mismatch");
   }
   if (httpCode != HTTP_CODE_OK) {
     Serial.printf("[OTA] Firmware download failed with HTTP %d\n", httpCode);
@@ -862,7 +866,7 @@ bool downloadVerifyAndFlash(const OTAManifest& manifest) {
   publishOTAStatus(manifest.deploymentId, "rebooting", 100, "Firmware flashed; rebooting");
   Serial.println("[OTA] Flash complete. Pending ACK stored. Rebooting now.");
   delay(250);
-  esp_restart();
+  ESP.restart();
   return true;
 }
 
@@ -898,18 +902,13 @@ void checkOTA() {
       logNetState("after OTA poll invalid manifest");
       return;
     }
-    if (manifestExpired(manifest)) {
+    if (manifestExpired(manifest.expiresAt)) {
       publishOTANack(manifest.deploymentId, "Manifest expired");
       otaInProgress = false;
       logNetState("after OTA poll expired manifest");
       return;
     }
     if (!versionAllowed(manifest)) {
-      logNetState("after OTA manifest expired");
-      return;
-    }
-
-    if (!versionAllowed(manifest.version, manifest.allowDowngrade)) {
       otaInProgress = false;
       logNetState("after OTA version rejected");
       return;
@@ -920,6 +919,13 @@ void checkOTA() {
     if (!success) {
       Serial.println("[OTA] Download/Install phase failed; keeping running firmware");
     }
+    otaInProgress = false;
+    logNetState("after OTA poll");
+    return;
+  }
+
+  if (httpCode == HTTP_CODE_NO_CONTENT || httpCode == HTTP_CODE_NOT_FOUND) {
+    Serial.println("[OTA] No pending deployment available");
     otaInProgress = false;
     logNetState("after OTA poll");
     return;

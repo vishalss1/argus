@@ -1,0 +1,47 @@
+/**
+ * ARGUS ESP32 Firmware
+ * Generated device-specific entry point.
+ * Infrastructure is provided by the ARGUS SDK library.
+ */
+
+#include <argus.h>
+
+// ================= CONFIGURATION =================
+
+#if {{.MQTTPort}} == 8883
+#define ARGUS_MQTT_SECURE 1
+#endif
+
+const char ARGUS_DEVICE_ID[] = "{{cppString .DeviceID}}";
+const char ARGUS_API_KEY[] = "{{cppString .APIKey}}";
+const char ARGUS_SERVER_HOST[] = "{{cppString .ServerHost}}";
+const uint16_t ARGUS_HTTP_PORT = {{.HTTPPort}};
+const char ARGUS_MQTT_HOST[] = "{{cppString .ServerHost}}";
+const uint16_t ARGUS_MQTT_PORT = {{.MQTTPort}};
+const char WIFI_SSID[] = "{{cppString .WiFiSSID}}";
+const char WIFI_PASSWORD[] = "{{cppString .WiFiPassword}}";
+const char ARGUS_FW_VERSION[] = "{{cppString .FirmwareVersion}}";
+const char ARGUS_OTA_KEY_ID[] = "{{cppString .OTASigningKeyID}}";
+const char ARGUS_OTA_PUBLIC_KEY_B64[] = "{{cppString .OTASigningPublicKeyB64}}";
+
+const char ARGUS_ROOT_CA[] PROGMEM = R"EOF(
+{{.RootCAPEM}})EOF";
+
+const char ARGUS_DEVICE_CERT[] PROGMEM = R"EOF(
+{{.DeviceCertPEM}})EOF";
+
+const char ARGUS_DEVICE_PRIVATE_KEY[] PROGMEM = R"EOF(
+{{.DevicePrivateKeyPEM}})EOF";
+
+// ================= USER CODE =================
+
+void setup()
+{
+    Serial.begin(115200);
+    argusBegin();
+}
+
+void loop()
+{
+    argusLoop();
+}
