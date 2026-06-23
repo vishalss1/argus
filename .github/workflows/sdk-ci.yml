@@ -64,7 +64,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Generate TLS certificates
-        run: bash sdk_tests/ci/gen_certs.sh
+        run: |
+          bash sdk_tests/ci/gen_certs.sh
+          FINGERPRINT=$(openssl x509 -in certs/fullchain.pem -noout -fingerprint -sha256 | sed 's/://g' | cut -d= -f2)
+          echo "Injecting server cert fingerprint into SDK: $FINGERPRINT"
+          sed -i "s/#define ARGUS_PINNED_CERT_SHA256 \".*\"/#define ARGUS_PINNED_CERT_SHA256 \"$FINGERPRINT\"/g" argus_sdk/src/argus_security.h
 
       - name: Setup Go
         uses: actions/setup-go@v5
