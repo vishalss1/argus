@@ -87,6 +87,7 @@ jobs:
           OTA_SIGNING_PRIVATE_KEY_B64=${OTA_PRIVATE_KEY_B64}
           OTA_REQUIRE_SIGNATURES=true
           MINIO_PUBLIC_URL=https://localhost:9000
+          MINIO_USE_SSL=true
           EOF
 
       - name: Start backend services
