@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Service struct {
 	signer    *FirmwareSigner
 	publisher EventPublisher
 	OnResult  func(ctx context.Context, deployment Deployment)
+	MinioPublicURL string
 }
 
 type EventPublisher interface {
@@ -428,14 +430,23 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 	}
 
 	expiresAt := time.Now().UTC().Add(manifestURLTTL)
-	url, err := s.store.FirmwareURL(ctx, artifact.ObjectKey, artifact.Filename, manifestURLTTL)
+	fwURL, err := s.store.FirmwareURL(ctx, artifact.ObjectKey, artifact.Filename, manifestURLTTL)
 	if err != nil {
 		return nil, err
 	}
 
 	// Replace internal MinIO service hostname with LAN-accessible host and port
-	url = strings.Replace(url, "minio:9000", "localhost:9000", -1)
-	url = strings.Replace(url, "localhost:9000", "localhost:9000", -1)
+	minioPublicHost := ""
+	if s.MinioPublicURL != "" {
+		if u, err := url.Parse(s.MinioPublicURL); err == nil {
+			minioPublicHost = u.Host
+		}
+	}
+	if minioPublicHost == "" {
+		minioPublicHost = "localhost:9000"
+	}
+	fwURL = strings.Replace(fwURL, "minio:9000", minioPublicHost, -1)
+	fwURL = strings.Replace(fwURL, "localhost:9000", minioPublicHost, -1)
 
 	return &Manifest{
 		DeploymentID:   deployment.ID,
@@ -449,7 +460,7 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 		SignatureAlg:   signatureAlg,
 		Signature:      signature,
 		SigningKeyID:   signingKeyID,
-		DownloadURL:    url,
+		DownloadURL:    fwURL,
 		ExpiresAt:      expiresAt,
 	}, nil
 }

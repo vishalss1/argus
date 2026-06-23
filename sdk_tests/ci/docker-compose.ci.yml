@@ -1,0 +1,11 @@
+services:
+  core-service:
+    volumes:
+      - ../../certs:/certs:ro
+    environment:
+      - MINIO_PUBLIC_URL=https://localhost:9000
+
+  minio:
+    volumes:
+      - ../../certs/fullchain.pem:/root/.minio/certs/public.crt:ro
+      - ../../certs/privkey.pem:/root/.minio/certs/private.key:ro

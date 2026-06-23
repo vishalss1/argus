@@ -1,0 +1,46 @@
+#ifndef ESP_PARTITION_H
+#define ESP_PARTITION_H
+
+#include <cstdint>
+
+typedef int esp_err_t;
+#define ESP_OK 0
+#define ESP_FAIL -1
+
+typedef enum {
+    ESP_PARTITION_SUBTYPE_APP_FACTORY = 0,
+    ESP_PARTITION_SUBTYPE_APP_OTA_0 = 16,
+    ESP_PARTITION_SUBTYPE_APP_OTA_1 = 17,
+    ESP_PARTITION_SUBTYPE_APP_OTA_2 = 18,
+    ESP_PARTITION_SUBTYPE_APP_OTA_3 = 19,
+    ESP_PARTITION_SUBTYPE_APP_OTA_4 = 20,
+    ESP_PARTITION_SUBTYPE_APP_OTA_5 = 21,
+    ESP_PARTITION_SUBTYPE_APP_OTA_6 = 22,
+    ESP_PARTITION_SUBTYPE_APP_OTA_7 = 23,
+    ESP_PARTITION_SUBTYPE_APP_OTA_8 = 24,
+    ESP_PARTITION_SUBTYPE_APP_OTA_9 = 25,
+    ESP_PARTITION_SUBTYPE_APP_OTA_10 = 26,
+    ESP_PARTITION_SUBTYPE_APP_OTA_11 = 27,
+    ESP_PARTITION_SUBTYPE_APP_OTA_12 = 28,
+    ESP_PARTITION_SUBTYPE_APP_OTA_13 = 29,
+    ESP_PARTITION_SUBTYPE_APP_OTA_14 = 30,
+    ESP_PARTITION_SUBTYPE_APP_OTA_15 = 31,
+    ESP_PARTITION_SUBTYPE_APP_TEST = 32
+} esp_partition_subtype_t;
+
+typedef enum {
+    ESP_OTA_IMG_NEW = 0,
+    ESP_OTA_IMG_PENDING_VERIFY,
+    ESP_OTA_IMG_VALID,
+    ESP_OTA_IMG_INVALID,
+    ESP_OTA_IMG_ABORTED
+} esp_ota_img_states_t;
+
+typedef struct {
+    const char* label;
+    esp_partition_subtype_t subtype;
+    uint32_t address;
+    uint32_t size;
+} esp_partition_t;
+
+#endif // ESP_PARTITION_H
