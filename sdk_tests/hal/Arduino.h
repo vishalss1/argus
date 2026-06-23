@@ -30,6 +30,9 @@ inline struct tm* gmtime_r(const time_t* timep, struct tm* result) {
 
 // Basic types
 typedef uint8_t byte;
+#ifndef _WIN32
+typedef bool boolean;
+#endif
 #define PROGMEM
 #define F(x) x
 #define pgm_read_byte_near(addr) (*(const uint8_t*)(addr))
