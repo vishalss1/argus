@@ -26,3 +26,6 @@ cp "$CERT_DIR/root-ca.pem" "$CERT_DIR/ca.pem"
 FINGERPRINT=$(openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -fingerprint -sha256 | sed 's/://g' | cut -d= -f2)
 echo "Server cert SHA256 fingerprint: $FINGERPRINT"
 echo "Certificates generated in $CERT_DIR/"
+
+chmod 755 "$CERT_DIR"
+chmod 644 "$CERT_DIR"/*
