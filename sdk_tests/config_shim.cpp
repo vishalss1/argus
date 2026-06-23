@@ -20,10 +20,19 @@ char ARGUS_DEVICE_CERT[4096] = {0};
 char ARGUS_DEVICE_PRIVATE_KEY[4096] = {0};
 
 void initEnvVars() {
-    auto loadEnv = [](const char* name, char* target, size_t maxLen) {
+    auto getCleanEnv = [](const char* name) -> std::string {
         const char* val = std::getenv(name);
-        if (val) {
-            std::string s(val);
+        if (!val) return "";
+        std::string s(val);
+        if (s.length() >= 2 && s.front() == '"' && s.back() == '"') {
+            s = s.substr(1, s.length() - 2);
+        }
+        return s;
+    };
+
+    auto loadEnv = [&](const char* name, char* target, size_t maxLen) {
+        std::string s = getCleanEnv(name);
+        if (!s.empty()) {
             size_t pos = 0;
             while ((pos = s.find("\\n", pos)) != std::string::npos) {
                 s.replace(pos, 2, "\n");
@@ -47,13 +56,13 @@ void initEnvVars() {
     loadEnv("ARGUS_DEVICE_CERT_PEM", ARGUS_DEVICE_CERT, sizeof(ARGUS_DEVICE_CERT));
     loadEnv("ARGUS_DEVICE_PRIVATE_KEY_PEM", ARGUS_DEVICE_PRIVATE_KEY, sizeof(ARGUS_DEVICE_PRIVATE_KEY));
 
-    const char* httpPortVal = std::getenv("ARGUS_HTTP_PORT");
-    if (httpPortVal) {
-        ARGUS_HTTP_PORT = static_cast<uint16_t>(std::stoi(httpPortVal));
+    std::string httpPortStr = getCleanEnv("ARGUS_HTTP_PORT");
+    if (!httpPortStr.empty()) {
+        ARGUS_HTTP_PORT = static_cast<uint16_t>(std::stoi(httpPortStr));
     }
-    const char* mqttPortVal = std::getenv("ARGUS_MQTT_PORT");
-    if (mqttPortVal) {
-        ARGUS_MQTT_PORT = static_cast<uint16_t>(std::stoi(mqttPortVal));
+    std::string mqttPortStr = getCleanEnv("ARGUS_MQTT_PORT");
+    if (!mqttPortStr.empty()) {
+        ARGUS_MQTT_PORT = static_cast<uint16_t>(std::stoi(mqttPortStr));
     }
 }
 

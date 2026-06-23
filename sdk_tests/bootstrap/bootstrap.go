@@ -157,7 +157,7 @@ func generateAndWriteOTAKeys(path string) error {
 	pubB64 := base64.StdEncoding.EncodeToString(pub)
 
 	content := fmt.Sprintf(
-		"OTA_KEY_ID=%s\nOTA_PRIVATE_KEY_B64=%s\nOTA_PUBLIC_KEY_B64=%s\nOTA_REQUIRE_SIGNATURES=true\n",
+		"OTA_KEY_ID=\"%s\"\nOTA_PRIVATE_KEY_B64=\"%s\"\nOTA_PUBLIC_KEY_B64=\"%s\"\nOTA_REQUIRE_SIGNATURES=\"true\"\n",
 		keyID, privB64, pubB64,
 	)
 
@@ -303,18 +303,18 @@ func runProvisioning(client *http.Client, baseURL, outputPath string) error {
 	}
 
 	envContent := fmt.Sprintf(
-		"ARGUS_DEVICE_ID=%s\n"+
-			"ARGUS_API_KEY=%s\n"+
-			"ARGUS_SERVER_HOST=localhost\n"+
-			"ARGUS_HTTP_PORT=%s\n"+
-			"ARGUS_MQTT_HOST=localhost\n"+
-			"ARGUS_MQTT_PORT=1883\n"+ // force plaintext MQTT
-			"ARGUS_FW_VERSION=1.0.0\n"+
-			"ARGUS_OTA_KEY_ID=%s\n"+
-			"ARGUS_OTA_PUBLIC_KEY_B64=%s\n"+
-			"ARGUS_ROOT_CA_PEM=%s\n"+
-			"ARGUS_DEVICE_CERT_PEM=%s\n"+
-			"ARGUS_DEVICE_PRIVATE_KEY_PEM=%s\n",
+		"ARGUS_DEVICE_ID=\"%s\"\n"+
+			"ARGUS_API_KEY=\"%s\"\n"+
+			"ARGUS_SERVER_HOST=\"localhost\"\n"+
+			"ARGUS_HTTP_PORT=\"%s\"\n"+
+			"ARGUS_MQTT_HOST=\"localhost\"\n"+
+			"ARGUS_MQTT_PORT=\"1883\"\n"+ // force plaintext MQTT
+			"ARGUS_FW_VERSION=\"1.0.0\"\n"+
+			"ARGUS_OTA_KEY_ID=\"%s\"\n"+
+			"ARGUS_OTA_PUBLIC_KEY_B64=\"%s\"\n"+
+			"ARGUS_ROOT_CA_PEM=\"%s\"\n"+
+			"ARGUS_DEVICE_CERT_PEM=\"%s\"\n"+
+			"ARGUS_DEVICE_PRIVATE_KEY_PEM=\"%s\"\n",
 		deviceID, apiKey, httpPort, otaKeyID, otaPubKeyB64,
 		escapePEM(rootCA), escapePEM(deviceCert), escapePEM(deviceKey),
 	)
