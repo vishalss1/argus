@@ -67,6 +67,9 @@ func main() {
 	}
 
 	// 3. Save files
+	if err := os.MkdirAll("certs", 0o755); err != nil {
+		log.Fatal(err)
+	}
 	savePEM("certs/ca.pem", "CERTIFICATE", caBytes)
 	
 	f, err := os.Create("certs/fullchain.pem")

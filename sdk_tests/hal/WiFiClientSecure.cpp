@@ -2,6 +2,7 @@
 #include <openssl/err.h>
 #include <openssl/x509v3.h>
 #include <iostream>
+#include <cstring>
 
 WiFiClientSecure::WiFiClientSecure() 
     : WiFiClient(), _sslCtx(nullptr), _ssl(nullptr), _CA_cert(nullptr), _cert(nullptr), _private_key(nullptr) {
@@ -125,8 +126,13 @@ int WiFiClientSecure::connectSSL(const char* host, uint16_t port, const char* ve
 
 size_t WiFiClientSecure::write(const uint8_t *buf, size_t size) {
     if (!_ssl) return 0;
-    int written = SSL_write(_ssl, buf, size);
-    return written > 0 ? written : 0;
+    size_t total = 0;
+    while (total < size) {
+        int written = SSL_write(_ssl, buf + total, (int)(size - total));
+        if (written <= 0) break;
+        total += (size_t)written;
+    }
+    return total;
 }
 
 int WiFiClientSecure::available() {

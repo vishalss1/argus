@@ -1,5 +1,7 @@
 #include "WiFiClient.h"
 #include <iostream>
+#include <cstring>
+#include <cerrno>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -23,6 +25,7 @@ static void initWinsock() {
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <poll.h>
+#include <sys/time.h>
 #define initWinsock()
 #endif
 
@@ -89,8 +92,13 @@ size_t WiFiClient::write(uint8_t c) {
 
 size_t WiFiClient::write(const uint8_t *buf, size_t size) {
     if (_fd < 0) return 0;
-    int sent = send(_fd, (const char*)buf, size, 0);
-    return sent > 0 ? sent : 0;
+    size_t total = 0;
+    while (total < size) {
+        int sent = send(_fd, (const char*)(buf + total), size - total, 0);
+        if (sent <= 0) break;
+        total += (size_t)sent;
+    }
+    return total;
 }
 
 int WiFiClient::available() {
