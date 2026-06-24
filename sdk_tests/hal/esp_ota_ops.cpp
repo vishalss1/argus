@@ -36,4 +36,5 @@ esp_err_t esp_ota_mark_app_valid_cancel_rollback(void) {
 
 esp_err_t esp_ota_mark_app_invalid_rollback_and_reboot(void) {
     std::exit(0);
+    return ESP_OK;
 }

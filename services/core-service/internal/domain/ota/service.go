@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"

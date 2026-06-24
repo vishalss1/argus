@@ -165,9 +165,9 @@ String HTTPClient::getString() {
     } else {
         // Read until EOF
         while (_client->connected()) {
-            char c = _client->read();
+            int c = _client->read();
             if (c < 0) break;
-            _responseBody += c;
+            _responseBody += (char)c;
         }
     }
     return _responseBody;

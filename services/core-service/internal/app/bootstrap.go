@@ -252,7 +252,6 @@ func Bootstrap() (*Server, error) {
 
 	otaRepository := postgres.NewOTARepository(database)
 	otaService := otadomain.NewService(otaRepository, minioClient)
-	otaService.MinioPublicURL = cfg.MinIOPublicURL
 	firmwareSigner, err := otadomain.NewFirmwareSigner(otadomain.SigningConfig{
 		RequireSignatures: cfg.OTARequireSignatures,
 		KeyID:             cfg.OTASigningKeyID,

@@ -8,12 +8,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenSSL REQUIRED)
 
 # Find libsodium
-find_library(SODIUM_LIBRARY NAMES sodium REQUIRED)
+find_library(SODIUM_LIBRARY NAMES sodium)
+if(NOT SODIUM_LIBRARY)
+    message(FATAL_ERROR "libsodium not found")
+endif()
 
 # Find mbedtls
-find_library(MBEDCRYPTO_LIBRARY NAMES mbedcrypto REQUIRED)
-find_library(MBEDTLS_LIBRARY NAMES mbedtls REQUIRED)
-find_library(MBEDX509_LIBRARY NAMES mbedx509 REQUIRED)
+find_library(MBEDCRYPTO_LIBRARY NAMES mbedcrypto)
+find_library(MBEDTLS_LIBRARY NAMES mbedtls)
+find_library(MBEDX509_LIBRARY NAMES mbedx509)
+if(NOT MBEDCRYPTO_LIBRARY OR NOT MBEDTLS_LIBRARY OR NOT MBEDX509_LIBRARY)
+    message(FATAL_ERROR "mbedtls libraries not found")
+endif()
 
 # Threads
 find_package(Threads REQUIRED)

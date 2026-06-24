@@ -132,8 +132,7 @@ func createHTTPClient(caCertPath string) (*http.Client, error) {
 		}
 		tlsConfig.RootCAs = caCertPool
 	} else {
-		// Fallback to system pool or insecure skip if no cert provided in local test
-		tlsConfig.InsecureSkipVerify = true
+		return nil, fmt.Errorf("ca-cert is required (refusing to skip TLS verification without explicit opt-in)")
 	}
 
 	return &http.Client{
