@@ -3,7 +3,9 @@ services:
     volumes:
       - ../../certs:/certs:ro
     environment:
-      - MINIO_PUBLIC_URL=https://localhost:9000
+      - MINIO_PUBLIC_URL=https://${DOCKER_HOST_IP:-172.17.0.1}:9000
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_USE_SSL=false
 
   minio:
     volumes:
