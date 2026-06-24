@@ -46,7 +46,7 @@ jobs:
           OTA_REQUIRE_SIGNATURES=true
           MINIO_USE_SSL=true
           DOCKER_HOST_IP=${DOCKER_HOST_IP}
-          ARGUS_MINIO_PUBLIC_HOST=${DOCKER_HOST_IP}:9000
+          ARGUS_MINIO_PUBLIC_HOST=${DOCKER_HOST_IP}:9443
           EOF
 
       - name: Start services

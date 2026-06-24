@@ -5,7 +5,7 @@ services:
     environment:
       - MINIO_USE_SSL=false
       - MINIO_ENDPOINT=minio:9000
-      - ARGUS_MINIO_PUBLIC_HOST=172.17.0.1:9000
+      - ARGUS_MINIO_PUBLIC_HOST=172.17.0.1:9443
 
   minio:
     volumes: !reset
@@ -13,3 +13,15 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-argus}
       - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-arguspassword}
+
+  minio-tls:
+    image: nginx:alpine
+    volumes:
+      - ../../certs/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - ../../certs/privkey.pem:/etc/nginx/certs/privkey.pem:ro
+    ports:
+      - "9443:9443"
+    command: >
+      sh -c "echo 'events {} http { server { listen 9443 ssl; ssl_certificate /etc/nginx/certs/fullchain.pem; ssl_certificate_key /etc/nginx/certs/privkey.pem; location / { proxy_pass http://minio:9000; proxy_set_header Host \$$host; } } }' > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+    depends_on:
+      - minio

@@ -259,7 +259,7 @@ void clearPendingOTAACK() {
 // ---------------------------------------------------------------------------
 
 bool parseOTAManifest(const String& response, OTAManifest& manifest) {
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(8192);
   DeserializationError err = deserializeJson(doc, response);
   if (err) {
     Serial.printf("[OTA] Manifest parse failed: %s\n", err.c_str());
