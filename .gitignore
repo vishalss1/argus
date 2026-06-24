@@ -3,8 +3,8 @@ CLAUDE.md
 certs/*
 data/*
 models/*
-cmd/gen-certs/*
-cmd/ota-keygen/*
+cmd/gen-certs/gen-certs
+cmd/ota-keygen/ota-keygen
 .claude
 *.exe
 *.bin
@@ -26,3 +26,10 @@ vite.config.d.ts
 
 *.md
 !README.md
+!sdk_tests/
+sdk_tests/third_party/
+sdk_tests/build/
+sdk_tests/bootstrap/device.env
+sdk_tests/bootstrap/device_id.txt
+sdk_tests/bootstrap/workspace_id.txt
+ota_keys.env
