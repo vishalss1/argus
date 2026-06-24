@@ -75,6 +75,13 @@ jobs:
           cd sdk_tests/bootstrap
           go run bootstrap.go --base-url=https://localhost:8080 --ca-cert=../../certs/root-ca.pem --output=device.env
 
+      - name: Authenticate and get JWT
+        run: |
+          WORKSPACE_ID=$(cat sdk_tests/bootstrap/workspace_id.txt)
+          JWT_TOKEN=$(curl -s -k -X POST https://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"email":"sdktest@ci.local","password":"CiTestPass123!"}' | jq -r .access_token)
+          echo "WORKSPACE_ID=$WORKSPACE_ID" >> $GITHUB_ENV
+          echo "JWT_TOKEN=$JWT_TOKEN" >> $GITHUB_ENV
+
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libsodium-dev libssl-dev libmbedtls-dev cmake mosquitto-clients jq netcat-openbsd
 
@@ -85,17 +92,21 @@ jobs:
 
       - name: Run E2E Tests
         run: |
+          set -a
           source sdk_tests/bootstrap/device.env
-          WORKSPACE_ID=$(cat sdk_tests/bootstrap/workspace_id.txt)
-          JWT_TOKEN=$(curl -s -k -X POST https://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"email":"sdktest@ci.local","password":"CiTestPass123!"}' | jq -r .access_token)
+          set +a
+          # verify critical vars loaded
+          echo "DEVICE_ID=${ARGUS_DEVICE_ID}"
+          echo "SERVER_HOST=${ARGUS_SERVER_HOST}"
+          echo "ROOT_CA length=${#ARGUS_ROOT_CA_PEM}"
+          if [ -z "$ARGUS_DEVICE_ID" ]; then echo "ERROR: device.env not loaded"; exit 1; fi
           
           echo "Starting simulator in background..."
-          touch sim.log
-          timeout 180 ./sdk_tests/build/argus_sdk_test > sim.log 2>&1 &
+          ./sdk_tests/build/argus_sdk_test > /tmp/sim_output.txt 2>&1 &
           SIM_PID=$!
           echo "SIM_PID=$SIM_PID" >> $GITHUB_ENV
           
-          tail -f sim.log &
+          tail -f /tmp/sim_output.txt &
           TAIL_PID=$!
           
           # Let it run to connect to MQTT and HTTP
@@ -156,29 +167,32 @@ jobs:
 
       - name: Assert Sim Output
         run: |
+          SIM_LOG=$(cat /tmp/sim_output.txt)
+          echo "$SIM_LOG"
+          
           echo "Checking assertions..."
           
-          if ! grep -q "\[OTA\] SHA256 and Ed25519 signature verification passed" sim.log; then
+          if ! echo "$SIM_LOG" | grep -q "\[OTA\] SHA256 and Ed25519 signature verification passed"; then
             echo "Assertion failed: 'signature verification passed' missing"
             exit 1
           fi
           
-          if ! grep -q "\[OTA\] Beginning OTA partition write" sim.log; then
+          if ! echo "$SIM_LOG" | grep -q "\[OTA\] Beginning OTA partition write"; then
             echo "Assertion failed: 'Beginning OTA partition write' missing"
             exit 1
           fi
           
-          if grep -q "\[OTA\] Ed25519 signature verification failed" sim.log; then
+          if echo "$SIM_LOG" | grep -q "\[OTA\] Ed25519 signature verification failed"; then
             echo "Assertion failed: signature verification failed"
             exit 1
           fi
           
-          if grep -q "\[OTA\] SHA256 verification failed" sim.log; then
+          if echo "$SIM_LOG" | grep -q "\[OTA\] SHA256 verification failed"; then
             echo "Assertion failed: SHA256 verification failed"
             exit 1
           fi
           
-          if grep -q "\[OTA\] Manifest download_url points to localhost" sim.log; then
+          if echo "$SIM_LOG" | grep -q "\[OTA\] Manifest download_url points to localhost"; then
             echo "Assertion failed: download_url is localhost"
             exit 1
           fi
