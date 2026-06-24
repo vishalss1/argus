@@ -1,0 +1,207 @@
+name: E2E CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  e2e-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Certs
+        run: bash sdk_tests/ci/gen_certs.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Generate OTA keys
+        run: |
+          cd sdk_tests/bootstrap
+          go run bootstrap.go --generate-ota-keys --ota-keys-output=../../ota_keys.env --ca-cert=../../certs/root-ca.pem
+
+      - name: Setup .env
+        run: |
+          source ota_keys.env
+          DOCKER_HOST_IP=$(ip route | awk '/docker0/ {print $9}')
+          if [ -z "$DOCKER_HOST_IP" ]; then
+            DOCKER_HOST_IP="172.17.0.1"
+          fi
+          cat <<EOF > .env
+          JWT_SECRET=ci-test-jwt-secret-$(openssl rand -hex 16)
+          MINIO_ACCESS_KEY=argus
+          MINIO_SECRET_KEY=arguspassword
+          OTA_SIGNING_KEY_ID=${OTA_KEY_ID}
+          OTA_SIGNING_PRIVATE_KEY_B64=${OTA_PRIVATE_KEY_B64}
+          OTA_REQUIRE_SIGNATURES=true
+          MINIO_USE_SSL=true
+          ARGUS_MINIO_PUBLIC_HOST=${DOCKER_HOST_IP}:9000
+          EOF
+
+      - name: Start services
+        run: docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml up -d --build
+
+      - name: Wait for core-service
+        run: |
+          for i in {1..60}; do
+            if curl -s -k -f --cacert certs/root-ca.pem https://localhost:8080/healthz; then
+              echo "core-service is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "core-service failed to start. Logs:"
+          docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml logs core-service
+          exit 1
+
+      - name: Wait for Mosquitto
+        run: |
+          for i in {1..15}; do
+            if nc -z localhost 1883; then
+              echo "mosquitto is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mosquitto failed to start."
+          exit 1
+
+      - name: Provision test device
+        run: |
+          cd sdk_tests/bootstrap
+          go run bootstrap.go --base-url=https://localhost:8080 --ca-cert=../../certs/root-ca.pem --output=device.env
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsodium-dev libssl-dev libmbedtls-dev cmake mosquitto-clients jq netcat-openbsd
+
+      - name: Build SDK test runner
+        run: |
+          cmake sdk_tests/ -B sdk_tests/build
+          cmake --build sdk_tests/build
+
+      - name: Run E2E Tests
+        run: |
+          source sdk_tests/bootstrap/device.env
+          WORKSPACE_ID=$(cat sdk_tests/bootstrap/workspace_id.txt)
+          JWT_TOKEN=$(curl -s -k -X POST https://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"email":"sdktest@ci.local","password":"CiTestPass123!"}' | jq -r .access_token)
+          
+          echo "Starting simulator in background..."
+          touch sim.log
+          timeout 180 ./sdk_tests/build/argus_sdk_test > sim.log 2>&1 &
+          SIM_PID=$!
+          echo "SIM_PID=$SIM_PID" >> $GITHUB_ENV
+          
+          tail -f sim.log &
+          TAIL_PID=$!
+          
+          # Let it run to connect to MQTT and HTTP
+          sleep 5
+          
+          echo "Validating Telemetry..."
+          mosquitto_sub -h localhost -p 1883 -t "argus/devices/${ARGUS_DEVICE_ID}/telemetry" -C 1 -W 15
+          if [ $? -ne 0 ]; then
+            echo "Failed to receive telemetry"
+            kill $TAIL_PID || true
+            exit 1
+          fi
+          echo "Telemetry received"
+          
+          echo "Validating Commands..."
+          mosquitto_sub -h localhost -p 1883 -t "argus/devices/${ARGUS_DEVICE_ID}/results" -C 1 -W 15 > cmd_result.json &
+          SUB_PID=$!
+          sleep 1
+          CMD_RESP=$(curl -s -k -X POST https://localhost:8080/api/devices/${ARGUS_DEVICE_ID}/commands \
+            -H "Authorization: Bearer ${JWT_TOKEN}" \
+            -H "X-Workspace-ID: ${WORKSPACE_ID}" \
+            -H "Content-Type: application/json" \
+            -d '{"type":"ping","payload":{}}')
+          echo "Command response: $CMD_RESP"
+          wait $SUB_PID
+          if ! grep -q "Pong from hardware" cmd_result.json; then
+            echo "Command validation failed. Result:"
+            cat cmd_result.json
+            kill $TAIL_PID || true
+            exit 1
+          fi
+          echo "Command validation passed"
+          
+          echo "Validating OTA..."
+          dd if=/dev/urandom bs=1024 count=64 of=/tmp/test-firmware.bin
+          UPLOAD_RESP=$(curl -s -k -X POST https://localhost:8080/api/ota/firmware \
+            -H "Authorization: Bearer ${JWT_TOKEN}" \
+            -H "X-Workspace-ID: ${WORKSPACE_ID}" \
+            -F "version=2.0.0" \
+            -F "firmware=@/tmp/test-firmware.bin")
+          ARTIFACT_ID=$(echo $UPLOAD_RESP | jq -r .id)
+          echo "ARTIFACT_ID=$ARTIFACT_ID" >> $GITHUB_ENV
+          
+          HTTP_STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" -X POST https://localhost:8080/api/devices/${ARGUS_DEVICE_ID}/ota \
+            -H "Authorization: Bearer ${JWT_TOKEN}" \
+            -H "X-Workspace-ID: ${WORKSPACE_ID}" \
+            -H "Content-Type: application/json" \
+            -d "{\"artifact_id\":\"${ARTIFACT_ID}\"}")
+          if [ "$HTTP_STATUS" != "201" ]; then
+            echo "Failed to deploy OTA, status $HTTP_STATUS"
+            kill $TAIL_PID || true
+            exit 1
+          fi
+          
+          echo "Waiting for simulator to exit naturally after restart or timeout (up to 180s)..."
+          wait $SIM_PID || true
+          kill $TAIL_PID || true
+
+      - name: Assert Sim Output
+        run: |
+          echo "Checking assertions..."
+          
+          if ! grep -q "\[OTA\] SHA256 and Ed25519 signature verification passed" sim.log; then
+            echo "Assertion failed: 'signature verification passed' missing"
+            exit 1
+          fi
+          
+          if ! grep -q "\[OTA\] Beginning OTA partition write" sim.log; then
+            echo "Assertion failed: 'Beginning OTA partition write' missing"
+            exit 1
+          fi
+          
+          if grep -q "\[OTA\] Ed25519 signature verification failed" sim.log; then
+            echo "Assertion failed: signature verification failed"
+            exit 1
+          fi
+          
+          if grep -q "\[OTA\] SHA256 verification failed" sim.log; then
+            echo "Assertion failed: SHA256 verification failed"
+            exit 1
+          fi
+          
+          if grep -q "\[OTA\] Manifest download_url points to localhost" sim.log; then
+            echo "Assertion failed: download_url is localhost"
+            exit 1
+          fi
+          
+          echo "All assertions passed!"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $SIM_PID 2>/dev/null || true
+          
+          # Delete device via cleanup
+          cd sdk_tests/bootstrap
+          go run bootstrap.go --base-url=https://localhost:8080 --ca-cert=../../certs/root-ca.pem --cleanup || true
+          
+          # Delete artifact
+          if [ -n "$ARTIFACT_ID" ]; then
+            WORKSPACE_ID=$(cat workspace_id.txt 2>/dev/null || echo "")
+            JWT_TOKEN=$(curl -s -k -X POST https://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"email":"sdktest@ci.local","password":"CiTestPass123!"}' | jq -r .access_token)
+            curl -s -k -X DELETE https://localhost:8080/api/ota/firmware/${ARTIFACT_ID} \
+              -H "Authorization: Bearer ${JWT_TOKEN}" \
+              -H "X-Workspace-ID: ${WORKSPACE_ID}" || true
+          fi
+          
+          cd ../..
+          docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml down -v

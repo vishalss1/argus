@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -436,14 +437,14 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 	}
 
 	// Replace internal MinIO service hostname with LAN-accessible host and port
-	minioPublicHost := ""
-	if s.MinioPublicURL != "" {
+	minioPublicHost := os.Getenv("ARGUS_MINIO_PUBLIC_HOST")
+	if minioPublicHost == "" && s.MinioPublicURL != "" {
 		if u, err := url.Parse(s.MinioPublicURL); err == nil {
 			minioPublicHost = u.Host
 		}
 	}
 	if minioPublicHost == "" {
-		minioPublicHost = "localhost:9000"
+		minioPublicHost = "minio:9000"
 	}
 	fwURL = strings.Replace(fwURL, "minio:9000", minioPublicHost, -1)
 	fwURL = strings.Replace(fwURL, "localhost:9000", minioPublicHost, -1)
