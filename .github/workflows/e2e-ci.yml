@@ -15,6 +15,12 @@ jobs:
       - name: Generate Certs
         run: bash sdk_tests/ci/gen_certs.sh
 
+      - name: Inject Cert Fingerprint
+        run: |
+          FINGERPRINT=$(openssl x509 -in certs/fullchain.pem -noout -fingerprint -sha256 | sed 's/://g' | cut -d= -f2)
+          echo "Injecting fingerprint: $FINGERPRINT"
+          sed -i "s/#define ARGUS_PINNED_CERT_SHA256 \".*\"/#define ARGUS_PINNED_CERT_SHA256 \"$FINGERPRINT\"/g" argus_sdk/src/argus_security.h
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
@@ -142,21 +148,35 @@ jobs:
           
           echo "Validating OTA..."
           dd if=/dev/urandom bs=1024 count=64 of=/tmp/test-firmware.bin
-          UPLOAD_RESP=$(curl -s -k -X POST https://localhost:8080/api/ota/firmware \
+          
+          UPLOAD_RESPONSE=$(curl -s --cacert certs/root-ca.pem -X POST \
+            https://localhost:8080/api/ota/firmware \
             -H "Authorization: Bearer ${JWT_TOKEN}" \
             -H "X-Workspace-ID: ${WORKSPACE_ID}" \
             -F "version=2.0.0" \
             -F "firmware=@/tmp/test-firmware.bin")
-          ARTIFACT_ID=$(echo $UPLOAD_RESP | jq -r .id)
+          echo "Upload response: $UPLOAD_RESPONSE"
+          ARTIFACT_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.id')
+          echo "Artifact ID: $ARTIFACT_ID"
+          if [ -z "$ARTIFACT_ID" ] || [ "$ARTIFACT_ID" = "null" ]; then
+            echo "Failed to upload firmware"
+            kill $TAIL_PID || true
+            exit 1
+          fi
           echo "ARTIFACT_ID=$ARTIFACT_ID" >> $GITHUB_ENV
           
-          HTTP_STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" -X POST https://localhost:8080/api/devices/${ARGUS_DEVICE_ID}/ota \
+          DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" --cacert certs/root-ca.pem \
+            -X POST https://localhost:8080/api/devices/${ARGUS_DEVICE_ID}/ota \
             -H "Authorization: Bearer ${JWT_TOKEN}" \
             -H "X-Workspace-ID: ${WORKSPACE_ID}" \
             -H "Content-Type: application/json" \
             -d "{\"artifact_id\":\"${ARTIFACT_ID}\"}")
-          if [ "$HTTP_STATUS" != "201" ]; then
-            echo "Failed to deploy OTA, status $HTTP_STATUS"
+          DEPLOY_STATUS=$(echo "$DEPLOY_RESPONSE" | tail -1)
+          DEPLOY_BODY=$(echo "$DEPLOY_RESPONSE" | head -1)
+          echo "Deploy response: $DEPLOY_BODY"
+          echo "Deploy status: $DEPLOY_STATUS"
+          if [ "$DEPLOY_STATUS" != "201" ]; then
+            echo "Failed to deploy OTA, status $DEPLOY_STATUS"
             kill $TAIL_PID || true
             exit 1
           fi
