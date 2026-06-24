@@ -281,6 +281,8 @@ bool parseOTAManifest(const String& response, OTAManifest& manifest) {
   manifest.expiresAt = doc["expires_at"] | "";
   manifest.allowDowngrade = doc["allow_downgrade"] | false;
 
+  Serial.printf("[OTA] Debug parse doc size=%u, parsed URL length=%u\n", (unsigned int)doc.memoryUsage(), (unsigned int)manifest.downloadUrl.length());
+
   Serial.printf("[OTA] Manifest parsed: deployment_id=%s version=%s size=%u expires_at=%s allow_downgrade=%s\n",
                 manifest.deploymentId.c_str(),
                 manifest.version.c_str(),
