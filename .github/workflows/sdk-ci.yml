@@ -2,9 +2,9 @@ name: SDK CI
 
 on:
   push:
-    branches: [feat/sdk-dev, master]
+    branches: [feat/sdk-dev]
   pull_request:
-    branches: [feat/sdk-dev, master]
+    branches: [feat/sdk-dev]
 
 jobs:
   sdk-compile-check:
