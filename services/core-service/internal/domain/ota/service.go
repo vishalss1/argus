@@ -446,8 +446,14 @@ func (s *Service) manifest(ctx context.Context, deployment *Deployment, artifact
 	if minioPublicHost == "" {
 		minioPublicHost = "minio:9000"
 	}
-	fwURL = strings.Replace(fwURL, "minio:9000", minioPublicHost, -1)
-	fwURL = strings.Replace(fwURL, "localhost:9000", minioPublicHost, -1)
+
+	if os.Getenv("ARGUS_MINIO_PUBLIC_HOST") != "" {
+		fwURL = strings.Replace(fwURL, "http://minio:9000", "https://"+minioPublicHost, -1)
+		fwURL = strings.Replace(fwURL, "http://localhost:9000", "https://"+minioPublicHost, -1)
+	} else {
+		fwURL = strings.Replace(fwURL, "minio:9000", minioPublicHost, -1)
+		fwURL = strings.Replace(fwURL, "localhost:9000", minioPublicHost, -1)
+	}
 
 	return &Manifest{
 		DeploymentID:   deployment.ID,
