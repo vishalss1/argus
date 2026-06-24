@@ -3,11 +3,13 @@ services:
     volumes:
       - ../../certs:/certs:ro
     environment:
-      - MINIO_PUBLIC_URL=https://${DOCKER_HOST_IP:-172.17.0.1}:9000
-      - MINIO_ENDPOINT=minio:9000
       - MINIO_USE_SSL=false
+      - MINIO_ENDPOINT=minio:9000
+      - ARGUS_MINIO_PUBLIC_HOST=172.17.0.1:9000
 
   minio:
-    volumes:
-      - ../../certs/fullchain.pem:/root/.minio/certs/public.crt:ro
-      - ../../certs/privkey.pem:/root/.minio/certs/private.key:ro
+    volumes: !reset
+      - argus_minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-argus}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-arguspassword}
