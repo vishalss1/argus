@@ -199,6 +199,18 @@ services:
     restart: unless-stopped
 
 
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: argus-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      core-service:
+        condition: service_healthy
+    restart: always
+
 volumes:
   argus_postgres_data:
   argus_redis_data:

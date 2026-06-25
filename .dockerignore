@@ -1,7 +1,6 @@
 .git
 .antigravitycli
 .env
-report.md
 tmp
 bin
 dist
