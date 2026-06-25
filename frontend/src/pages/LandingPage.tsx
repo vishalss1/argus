@@ -30,7 +30,7 @@ export function LandingPage() {
           </p>
           <div className="lp-hero-cta">
             <Link className="lp-btn" to="/dashboard">Open Dashboard</Link>
-            <a className="lp-btn" href="#system-flow">Read Architecture</a>
+            <a className="lp-btn" href="/docs">Read Docs</a>
           </div>
         </div>
         <div className="hero-canvas-container" aria-hidden>
@@ -777,12 +777,9 @@ function AnimatedNumber({ value, suffix = "", prefix = "", decimals = 0 }: { val
 
 function ProofSection() {
   const metrics = [
-    { value: 1000, suffix: "+", label: "CONNECTED DEVICES", caption: "Validated one-hour telemetry sessions." },
-    { value: 3.6, suffix: "M", decimals: 1, label: "MESSAGES PROCESSED", caption: "Continuous ingestion with zero loss." },
-    { value: 0, label: "DROPPED MESSAGES", caption: "Every message successfully consumed." },
-    { value: 20, prefix: "<", suffix: "%", label: "PEAK CPU USAGE", caption: "Efficient resource utilization." },
-    { value: 4, prefix: "~", suffix: "s", label: "SESSION FINALIZATION", caption: "Artifact generation and cleanup." },
-    { value: 1, suffix: " Hour", label: "CONTINUOUS RUNTIME", caption: "Stable long-duration workloads." }
+    { value: 1000, suffix: '+', label: 'CONCURRENT DEVICES', caption: 'Simulated IoT fleet in sustained load test.' },
+    { value: 0.00, suffix: '%', decimals: 2, label: 'MESSAGE LOSS', caption: 'Verified across 3.6M+ messages.' },
+    { value: 1, prefix: '<', suffix: 'ms', label: 'P50 LATENCY', caption: 'End-to-end message processing time.' },
   ];
 
   const containerVariants = {

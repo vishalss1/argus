@@ -3,6 +3,7 @@ import { Activity, ArrowRight } from "lucide-react";
 
 const productLinks = [
   { to: "/", label: "Home" },
+  { to: "/docs", label: "Docs" },
   { to: "/about", label: "About" }
 ];
 

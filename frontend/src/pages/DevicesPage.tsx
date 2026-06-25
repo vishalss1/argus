@@ -1,11 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2, Edit2, Save, X, Copy, Check, Wifi, Cpu, Database } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Edit2, Save, X, Copy, Check, Wifi, Download } from "lucide-react";
 import { api } from "../services/api";
-import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
-import { useCreateDevice, useDevices, useUpdateDevice, useAssignDevice, useAlerts, useAllDeployments, useWorkspaces } from "../hooks/useArgusData";
+import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Modal } from "../components/ui";
+import { useCreateDevice, useDevices, useUpdateDevice, useAlerts, useAllDeployments, useWorkspaces } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { Link } from "react-router-dom";
-import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
+import { formatDate } from "../lib/format";
 import type { Device } from "../types/api";
 
 function CredentialCopyButton({ value }: { value: string }) {
@@ -56,32 +56,30 @@ export function DevicesPage() {
   const devices = useDevices();
   const create = useCreateDevice();
   const update = useUpdateDevice();
-  const assignDevice = useAssignDevice();
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
   const [editDevice, setEditDevice] = useState<Device | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState<{ id: string; apiKey: string } | null>(null);
-  const [hasCopiedChecked, setHasCopiedChecked] = useState(false);
+  const [hasDownloaded, setHasDownloaded] = useState(false);
+  const [firmwareFileContent, setFirmwareFileContent] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "telemetry" | "settings">("overview");
 
   // Close drawer on Escape key
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        if (createdCredentials) return; // Do not close if credentials are shown
         setIsDrawerOpen(false);
         setEditDevice(null);
         setFormError("");
-        setCreatedCredentials(null);
-        setHasCopiedChecked(false);
       }
     }
     if (isDrawerOpen) {
       window.addEventListener("keydown", handleKeyDown);
     }
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isDrawerOpen, createdCredentials]);
+  }, [isDrawerOpen]);
 
   const alerts = useAlerts();
   const deployments = useAllDeployments();
@@ -92,22 +90,19 @@ export function DevicesPage() {
     let result = workspaceDevices;
     if (needle) {
       result = workspaceDevices.filter((device) =>
-        [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle) 
+        [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle)
       );
     }
-    // Offline devices automatically sort to top regardless of user sorting.
-    // Operators care about broken devices first.
+    // Offline devices sort to top — operators care about broken devices first.
     return result.sort((a, b) => {
       const aOffline = a.status === "offline" || a.status === "critical" ? 1 : 0;
       const bOffline = b.status === "offline" || b.status === "critical" ? 1 : 0;
-      if (aOffline !== bOffline) {
-        return bOffline - aOffline;
-      }
+      if (aOffline !== bOffline) return bOffline - aOffline;
       return a.name.localeCompare(b.name);
     });
   }, [workspaceDevices, query]);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
     const formElement = event.currentTarget;
@@ -116,46 +111,57 @@ export function DevicesPage() {
       name: String(form.get("name") || ""),
       type: String(form.get("type") || ""),
       firmware_version: String(form.get("firmware_version") || ""),
-      metadata: editDevice ? editDevice.metadata : undefined
     };
+    try {
+      const fileContent = (await create.mutateAsync(payload)) as unknown as string;
+      const deviceIdMatch = fileContent.match(/ARGUS_DEVICE_ID(?:\[\])?\s*(?:=|)\s*"([^"]+)"/);
+      const apiKeyMatch = fileContent.match(/ARGUS_API_KEY(?:\[\])?\s*(?:=|)\s*"([^"]+)"/);
+      const deviceId = deviceIdMatch ? deviceIdMatch[1] : "";
+      const apiKey = apiKeyMatch ? apiKeyMatch[1] : "";
+      formElement.reset();
+      setIsCreateModalOpen(false);
+      if (deviceId && apiKey) {
+        setFirmwareFileContent(fileContent);
+        setCreatedCredentials({ id: deviceId, apiKey: apiKey });
+      }
+    } catch (error) {
+      setFormError((error as Error).message);
+    }
+  }
 
+  async function onEditSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError("");
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      name: String(form.get("name") || ""),
+      type: String(form.get("type") || ""),
+      firmware_version: String(form.get("firmware_version") || ""),
+      metadata: editDevice ? editDevice.metadata : undefined,
+    };
     try {
       if (editDevice) {
         await update.mutateAsync({ id: editDevice.id, payload });
         setEditDevice(null);
         setIsDrawerOpen(false);
-      } else {
-        const fileContent = (await create.mutateAsync(payload)) as unknown as string;
-
-        // Parse credentials from sketch
-        const deviceIdMatch = fileContent.match(/ARGUS_DEVICE_ID(?:\[\])?\s*(?:=|)\s*"([^"]+)"/);
-        const apiKeyMatch = fileContent.match(/ARGUS_API_KEY(?:\[\])?\s*(?:=|)\s*"([^"]+)"/);
-        const deviceId = deviceIdMatch ? deviceIdMatch[1] : "";
-        const apiKey = apiKeyMatch ? apiKeyMatch[1] : "";
-
-        // Trigger file download
-        if (deviceId) {
-          const blob = new Blob([fileContent], { type: "text/plain" });
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = `firmware_${deviceId}.ino`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-        }
-
-        formElement.reset();
-        if (deviceId && apiKey) {
-          setCreatedCredentials({ id: deviceId, apiKey: apiKey });
-        } else {
-          setIsDrawerOpen(false);
-        }
       }
     } catch (error) {
       setFormError((error as Error).message);
     }
+  }
+
+  function triggerFirmwareDownload() {
+    if (!firmwareFileContent || !createdCredentials) return;
+    const blob = new Blob([firmwareFileContent], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `firmware_${createdCredentials.id}.ino`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    setHasDownloaded(true);
   }
 
   async function removeDevice(id: string) {
@@ -178,12 +184,7 @@ export function DevicesPage() {
         </label>
         <button
           className="button primary"
-          onClick={() => {
-            setEditDevice(null);
-            setActiveTab("settings");
-            setFormError("");
-            setIsDrawerOpen(true);
-          }}
+          onClick={() => { setFormError(""); setIsCreateModalOpen(true); }}
           aria-label="Add Device"
         >
           <Plus size={15} /> Add Device
@@ -230,7 +231,7 @@ export function DevicesPage() {
                 return (
                   <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                      <div className={`status-dot ${device.status}`} style={{ width: 10, height: 10, borderRadius: "50%", background: device.status === "online" ? "var(--success)" : device.status === "warning" ? "var(--warning)" : device.status === "critical" ? "var(--danger)" : "var(--text-muted)", margin: "0 auto" }} />
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: device.status === "online" ? "var(--success)" : device.status === "warning" ? "var(--warning)" : device.status === "critical" ? "var(--danger)" : "var(--text-muted)", margin: "0 auto" }} />
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <Link to={`/devices/${device.id}`} style={{ fontWeight: 500, color: "var(--text-primary)", textDecoration: "none" }}>{device.name}</Link>
@@ -271,11 +272,7 @@ export function DevicesPage() {
                       <div className="page-actions" style={{ justifyContent: "flex-end" }}>
                         <button
                           className="button compact secondary"
-                          onClick={() => {
-                            setEditDevice(device);
-                            setIsDrawerOpen(true);
-                            setFormError("");
-                          }}
+                          onClick={() => { setEditDevice(device); setIsDrawerOpen(true); setFormError(""); }}
                           aria-label={`Edit ${device.name}`}
                         >
                           <Edit2 size={14} />
@@ -291,25 +288,18 @@ export function DevicesPage() {
         </div>
       )}
 
-      {/* Drawer Overlay & Panel */}
+      {/* ── Drawer — edit device only ── */}
       <div
         className={`drawer-backdrop ${isDrawerOpen ? "open" : ""}`}
-        onClick={() => {
-          if (createdCredentials) return; // Do not close if credentials are shown
-          setIsDrawerOpen(false);
-          setEditDevice(null);
-          setFormError("");
-          setCreatedCredentials(null);
-          setHasCopiedChecked(false);
-        }}
+        onClick={() => { setIsDrawerOpen(false); setEditDevice(null); setFormError(""); }}
       >
         <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
           <div className="drawer-header" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 16, paddingBottom: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "flex-start" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                {editDevice && <div className={`status-dot ${editDevice.status}`} style={{ width: 12, height: 12, borderRadius: "50%", background: editDevice.status === "online" ? "var(--success)" : editDevice.status === "warning" ? "var(--warning)" : editDevice.status === "critical" ? "var(--danger)" : "var(--text-muted)" }} />}
+                {editDevice && <div style={{ width: 12, height: 12, borderRadius: "50%", background: editDevice.status === "online" ? "var(--success)" : editDevice.status === "warning" ? "var(--warning)" : editDevice.status === "critical" ? "var(--danger)" : "var(--text-muted)" }} />}
                 <div>
-                  <h3 style={{ fontSize: 28, margin: "0 0 4px", fontWeight: 600 }}>{createdCredentials ? "Device Created" : editDevice ? editDevice.name : "Create Device"}</h3>
+                  <h3 style={{ fontSize: 28, margin: "0 0 4px", fontWeight: 600 }}>{editDevice?.name ?? ""}</h3>
                   {editDevice && (
                     <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                       <CopyableID id={editDevice.id} length={12} />
@@ -318,25 +308,17 @@ export function DevicesPage() {
                   )}
                 </div>
               </div>
-              {!createdCredentials && (
-                <button
-                  className="close-btn"
-                  type="button"
-                  onClick={() => {
-                    setIsDrawerOpen(false);
-                    setEditDevice(null);
-                    setFormError("");
-                    setCreatedCredentials(null);
-                    setHasCopiedChecked(false);
-                  }}
-                  aria-label="Close drawer"
-                >
-                  <X size={20} />
-                </button>
-              )}
+              <button
+                className="close-btn"
+                type="button"
+                onClick={() => { setIsDrawerOpen(false); setEditDevice(null); setFormError(""); }}
+                aria-label="Close drawer"
+              >
+                <X size={20} />
+              </button>
             </div>
-            
-            {editDevice && !createdCredentials && (
+
+            {editDevice && (
               <div className="drawer-tabs" style={{ display: "flex", gap: 32, marginTop: 8 }}>
                 {(["overview", "telemetry", "settings"] as const).map(tab => (
                   <button
@@ -348,7 +330,7 @@ export function DevicesPage() {
                       padding: "0 0 12px 0", fontSize: 14, fontWeight: 500, textTransform: "capitalize",
                       color: activeTab === tab ? "var(--text-primary)" : "var(--text-muted)",
                       borderBottom: `2px solid ${activeTab === tab ? "var(--text-primary)" : "transparent"}`,
-                      transition: "all 150ms ease"
+                      transition: "all 150ms ease",
                     }}
                   >
                     {tab}
@@ -357,65 +339,8 @@ export function DevicesPage() {
               </div>
             )}
           </div>
-          {createdCredentials ? (
-            <div className="drawer-body-wrap" style={{ display: "flex", flexDirection: "column", height: "calc(100% - 69px)" }}>
-              <div className="drawer-body">
-                <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
-                  Your device has been created successfully. Please copy the credentials below.
-                </p>
-                <div className="form-grid">
-                  <div className="field full">
-                    <span>DEVICE ID</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: 4 }}>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text-primary)", wordBreak: "break-all" }}>
-                        {createdCredentials.id}
-                      </span>
-                      <CredentialCopyButton value={createdCredentials.id} />
-                    </div>
-                  </div>
-                  
-                  <div className="field full">
-                    <span>API KEY</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: 4 }}>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text-primary)", wordBreak: "break-all" }}>
-                        {createdCredentials.apiKey}
-                      </span>
-                      <CredentialCopyButton value={createdCredentials.apiKey} />
-                    </div>
-                  </div>
 
-                  <div className="form-message error field full" style={{ borderLeft: "3px solid #eab308", background: "rgba(234, 179, 8, 0.05)", margin: "10px 0", color: "#eab308" }}>
-                    This is the only time your API key will be shown. Copy it now — it cannot be recovered.
-                  </div>
-
-                  <label className="checkbox-field field full" style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginTop: 10 }}>
-                    <input
-                      type="checkbox"
-                      checked={hasCopiedChecked}
-                      onChange={(e) => setHasCopiedChecked(e.target.checked)}
-                      style={{ cursor: "pointer" }}
-                    />
-                    <span style={{ fontSize: 13, color: "var(--text-primary)" }}>I have copied my Device ID and API Key</span>
-                  </label>
-                </div>
-              </div>
-              <div className="drawer-footer" style={{ marginTop: "auto" }}>
-                <button
-                  className="button primary"
-                  type="button"
-                  disabled={!hasCopiedChecked}
-                  onClick={() => {
-                    setIsDrawerOpen(false);
-                    setCreatedCredentials(null);
-                    setHasCopiedChecked(false);
-                    void devices.refetch();
-                  }}
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          ) : editDevice && activeTab !== "settings" ? (
+          {editDevice && activeTab !== "settings" ? (
             <div className="drawer-body-wrap" style={{ display: "flex", flexDirection: "column", height: "calc(100% - 120px)" }}>
               <div className="drawer-body" style={{ background: "var(--background)" }}>
                 {activeTab === "overview" && (
@@ -443,58 +368,129 @@ export function DevicesPage() {
             </div>
           ) : (
             <form
-              onSubmit={onSubmit}
-              key={editDevice?.id || "create"}
-              style={{ display: "flex", flexDirection: "column", height: editDevice ? "calc(100% - 120px)" : "calc(100% - 69px)" }}
+              onSubmit={onEditSubmit}
+              key={editDevice?.id ?? "edit"}
+              style={{ display: "flex", flexDirection: "column", height: "calc(100% - 120px)" }}
             >
               <div className="drawer-body" style={{ maxWidth: 600 }}>
-                <h3 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px" }}>{editDevice ? "General Settings" : "Device Settings"}</h3>
+                <h3 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px" }}>General Settings</h3>
                 <p className="muted" style={{ fontSize: 14, marginBottom: 32 }}>
-                  {editDevice
-                    ? "Modify identifying attributes for this registered device."
-                    : "Add a new virtual or physical node to the fleet registry."}
+                  Modify identifying attributes for this registered device.
                 </p>
                 <div className="form-grid">
                   <label className="field full">
                     <span style={{ fontWeight: 500 }}>Device Name</span>
-                    <input name="name" defaultValue={editDevice?.name || ""} required placeholder="e.g. ESP32 Dev Node" style={{ padding: 12 }} />
+                    <input name="name" defaultValue={editDevice?.name ?? ""} required placeholder="e.g. ESP32 Dev Node" style={{ padding: 12 }} />
                   </label>
                   <label className="field full">
                     <span style={{ fontWeight: 500 }}>Device Type</span>
-                    <input name="type" defaultValue={editDevice?.type || ""} required placeholder="e.g. esp32" style={{ padding: 12 }} />
+                    <input name="type" defaultValue={editDevice?.type ?? ""} required placeholder="e.g. esp32" style={{ padding: 12 }} />
                   </label>
                   <label className="field full">
                     <span style={{ fontWeight: 500 }}>Expected Firmware Version</span>
-                    <input name="firmware_version" defaultValue={editDevice?.firmware_version || ""} placeholder="e.g. v1.0.0" style={{ padding: 12 }} />
+                    <input name="firmware_version" defaultValue={editDevice?.firmware_version ?? ""} placeholder="e.g. v1.0.0" style={{ padding: 12 }} />
                   </label>
                   {formError && <p className="form-message error field full" style={{ padding: 16 }}>{formError}</p>}
                 </div>
               </div>
               <div className="drawer-footer">
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => {
-                    setIsDrawerOpen(false);
-                    setEditDevice(null);
-                    setFormError("");
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button primary"
-                  type="submit"
-                  disabled={create.isPending || update.isPending}
-                >
-                  {editDevice ? <Save size={15} /> : <Plus size={15} />}
-                  {editDevice ? "Save Settings" : "Create Device"}
+                <button className="button secondary" type="button" onClick={() => { setIsDrawerOpen(false); setEditDevice(null); setFormError(""); }}>Cancel</button>
+                <button className="button primary" type="submit" disabled={update.isPending}>
+                  <Save size={15} /> Save Settings
                 </button>
               </div>
             </form>
           )}
         </div>
       </div>
+
+      {/* ── Modal — Create Device ── */}
+      <Modal isOpen={isCreateModalOpen} onClose={() => { setIsCreateModalOpen(false); setFormError(""); }} title="Create Device">
+        <form className="form-grid" onSubmit={onCreateSubmit}>
+          <label className="field full">
+            <span>Device Name</span>
+            <input name="name" required placeholder="e.g. ESP32 Dev Node" />
+          </label>
+          <label className="field full">
+            <span>Device Type</span>
+            <input name="type" required placeholder="e.g. esp32" />
+          </label>
+          <label className="field full">
+            <span>Expected Firmware Version</span>
+            <input name="firmware_version" placeholder="e.g. v1.0.0" />
+          </label>
+          {formError && <div className="form-message error field full">{formError}</div>}
+          <div className="modal-actions">
+            <button type="button" className="button secondary" onClick={() => { setIsCreateModalOpen(false); setFormError(""); }}>Cancel</button>
+            <button className="button primary" type="submit" disabled={create.isPending}>
+              <Plus size={14} />
+              {create.isPending ? "Creating..." : "Create Device"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── Modal — Credentials after creation ── */}
+      <Modal isOpen={!!createdCredentials} onClose={() => {}} title="Device Created">
+        <div className="form-grid">
+          <p className="muted field full" style={{ fontSize: 13, margin: 0 }}>
+            Your device has been created. Copy the credentials below, then download the pre-filled firmware sketch.
+          </p>
+
+          <div className="field full">
+            <span>Device ID</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text-primary)", wordBreak: "break-all" }}>{createdCredentials?.id}</span>
+              <CredentialCopyButton value={createdCredentials?.id ?? ""} />
+            </div>
+          </div>
+
+          <div className="field full">
+            <span>API Key</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text-primary)", wordBreak: "break-all" }}>{createdCredentials?.apiKey}</span>
+              <CredentialCopyButton value={createdCredentials?.apiKey ?? ""} />
+            </div>
+          </div>
+
+          <div className="form-message error field full" style={{ borderLeft: "3px solid #eab308", background: "rgba(234,179,8,0.05)", color: "#eab308" }}>
+            This is the only time your API key will be shown. Copy it now — it cannot be recovered.
+          </div>
+
+          <div className="field full">
+            <button
+              type="button"
+              className={`button ${hasDownloaded ? "secondary" : "primary"}`}
+              style={{ width: "100%", justifyContent: "center" }}
+              onClick={triggerFirmwareDownload}
+            >
+              {hasDownloaded ? <Check size={14} /> : <Download size={14} />}
+              {hasDownloaded ? "Firmware Template Downloaded" : "Download Firmware Template"}
+            </button>
+            {!hasDownloaded && (
+              <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, textAlign: "center" }}>
+                Required — download the pre-filled sketch before continuing.
+              </p>
+            )}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, gridColumn: "1 / -1" }}>
+            <button
+              type="button"
+              className="button primary"
+              disabled={!hasDownloaded}
+              onClick={() => {
+                setCreatedCredentials(null);
+                setHasDownloaded(false);
+                setFirmwareFileContent(null);
+                void devices.refetch();
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

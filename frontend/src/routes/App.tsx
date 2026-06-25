@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, Outlet } from "react-router-dom";
 import { AppLayout } from "../layouts/AppLayout";
 import { ProductLayout } from "../layouts/ProductLayout";
 import { AboutPage } from "../pages/AboutPage";
+import { DocumentationPage } from "../pages/DocumentationPage";
 import { AlertsPage } from "../pages/AlertsPage";
 import { CommandsPage } from "../pages/CommandsPage";
 import { DevicesPage } from "../pages/DevicesPage";
@@ -66,6 +67,7 @@ export function App() {
       <Route element={<ProductLayout />}>
         <Route index element={<LandingPage />} />
         <Route path="about" element={<AboutPage />} />
+        <Route path="docs" element={<DocumentationPage />} />
       </Route>
 
       {/* Guest Authentication Routes */}
