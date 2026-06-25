@@ -4,7 +4,6 @@ import { ProductLayout } from "../layouts/ProductLayout";
 import { AboutPage } from "../pages/AboutPage";
 import { AlertsPage } from "../pages/AlertsPage";
 import { CommandsPage } from "../pages/CommandsPage";
-import { DashboardPage } from "../pages/DashboardPage";
 import { DevicesPage } from "../pages/DevicesPage";
 import { LandingPage } from "../pages/LandingPage";
 import { OTAPage } from "../pages/OTAPage";
@@ -12,6 +11,8 @@ import { WorkspacesPage } from "../pages/WorkspacesPage";
 import { SessionDashboardPage } from "../pages/SessionDashboardPage";
 import { SessionReportPage } from "../pages/SessionReportPage";
 import { TelemetryPage } from "../pages/TelemetryPage";
+import { FleetOverviewPage } from "../pages/FleetOverviewPage";
+import { DeviceDetailsPage } from "../pages/DeviceDetailsPage";
 import AIPage from "../pages/AIPage";
 import { LoginPage } from "../pages/LoginPage";
 import { RegisterPage } from "../pages/RegisterPage";
@@ -52,7 +53,7 @@ function AuthRoute() {
   if (isLoading) return null;
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/fleet" replace />;
   }
 
   return <Outlet />;
@@ -79,9 +80,11 @@ export function App() {
           <Route path="workspaces" element={<WorkspacesPage />} />
           <Route path="sessions/:sessionID" element={<SessionDashboardPage />} />
           <Route path="sessions/:sessionID/report" element={<SessionReportPage />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="dashboard" element={<Navigate to="/fleet" replace />} />
+          <Route path="fleet" element={<FleetOverviewPage />} />
           <Route path="telemetry" element={<TelemetryPage />} />
           <Route path="devices" element={<DevicesPage />} />
+          <Route path="devices/:deviceID" element={<DeviceDetailsPage />} />
           <Route path="ota" element={<OTAPage />} />
           <Route path="commands" element={<CommandsPage />} />
           <Route path="automations" element={<AlertsPage />} />

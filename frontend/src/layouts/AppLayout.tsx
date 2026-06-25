@@ -15,29 +15,29 @@ import {
   ArrowRight,
   Plus,
   RefreshCw,
-  LogOut
+  LogOut,
+  TerminalSquare
 } from "lucide-react";
-import { LiveIndicator, SearchBar } from "../components/ui";
-import { useHealth, useCreateWorkspace } from "../hooks/useArgusData";
+import { LiveIndicator } from "../components/ui";
+import { useCreateWorkspace } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { useAuth } from "../context/AuthContext";
 
 const monitorLinks = [
   { to: "/workspaces", label: "Workspaces", icon: Briefcase },
-  { to: "/dashboard", label: "Fleet Overview", icon: BarChart3 },
+  { to: "/fleet", label: "Fleet Overview", icon: BarChart3 },
+  { to: "/devices", label: "Devices", icon: Cpu },
+  { to: "/ota", label: "Deployments", icon: Rocket },
   { to: "/telemetry", label: "Telemetry", icon: Activity },
-  { to: "/devices", label: "Devices", icon: Cpu }
+  { to: "/ai", label: "AI Insights", icon: Brain }
 ];
 
 const controlLinks = [
   { to: "/commands", label: "Commands", icon: Send },
-  { to: "/ota", label: "OTA Updates", icon: Rocket },
   { to: "/automations", label: "Automations", icon: Workflow }
 ];
 
-const observeLinks = [
-  { to: "/ai", label: "AI Insights", icon: Brain }
-];
+const observeLinks: { to: string; label: string; icon: any }[] = [];
 
 const bottomLinks: { to: string; label: string; icon: any }[] = [];
 
@@ -146,7 +146,6 @@ function WorkspaceOnboarding() {
 }
 
 export function AppLayout() {
-  const health = useHealth();
   const { selectedWorkspaceId, setSelectedWorkspaceId, workspaces } = useWorkspaceContext();
   const { logout, user } = useAuth();
 
@@ -162,9 +161,9 @@ export function AppLayout() {
     : "?";
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <NavLink className="sidebar-brand" to="/">
+    <div className="app-container">
+      <header className="app-topbar">
+        <NavLink className="topbar-brand" to="/">
           <span className="brand-mark">
             <Activity size={14} strokeWidth={1.5} aria-hidden />
           </span>
@@ -173,55 +172,54 @@ export function AppLayout() {
             <small>Fleet Control</small>
           </span>
         </NavLink>
+        <LiveIndicator />
+      </header>
 
-        {/* Scrollable Navigation links */}
-        <div className="sidebar-nav">
-          {hasWorkspaces && (
-            <div className="workspace-selector-nav">
-              <label>Active Workspace</label>
-              <div className="workspace-selector-wrap">
-                <select
-                  value={selectedWorkspaceId}
-                  onChange={(e) => setSelectedWorkspaceId(e.target.value)}
-                >
-                  {workspaces.map(ws => (
-                    <option key={ws.id} value={ws.id}>{ws.name}</option>
-                  ))}
-                </select>
-                <Briefcase size={13} className="workspace-selector-icon" aria-hidden />
+      <div className="app-shell">
+        <aside className="sidebar">
+          {/* Scrollable Navigation links */}
+          <div className="sidebar-nav">
+            {hasWorkspaces && (
+              <div className="workspace-selector-nav">
+                <label>Active Workspace</label>
+                <div className="workspace-selector-wrap">
+                  <select
+                    value={selectedWorkspaceId}
+                    onChange={(e) => setSelectedWorkspaceId(e.target.value)}
+                  >
+                    {workspaces.map(ws => (
+                      <option key={ws.id} value={ws.id}>{ws.name}</option>
+                    ))}
+                  </select>
+                  <Briefcase size={13} className="workspace-selector-icon" aria-hidden />
+                </div>
+              </div>
+            )}
+
+            <NavGroup label="Monitor" links={monitorLinks} />
+            <NavGroup label="Control" links={controlLinks} />
+            <NavGroup label="Observe" links={observeLinks} />
+            <NavGroup label="" links={bottomLinks} />
+          </div>
+
+          {/* Fixed Footer with Operator Card & Logout */}
+          <div className="sidebar-footer">
+            <div className="operator-card">
+              <div className="operator-avatar">{initials}</div>
+              <div className="operator-meta">
+                <strong>{user?.name || "Operator"}</strong>
+                <small>{user?.email || "No email"}</small>
               </div>
             </div>
-          )}
-
-          <NavGroup label="Monitor" links={monitorLinks} />
-          <NavGroup label="Control" links={controlLinks} />
-          <NavGroup label="Observe" links={observeLinks} />
-          <NavGroup label="" links={bottomLinks} />
-        </div>
-
-        {/* Fixed Footer with Operator Card & Logout */}
-        <div className="sidebar-footer">
-          <div className="operator-card">
-            <div className="operator-avatar">{initials}</div>
-            <div className="operator-meta">
-              <strong>{user?.name || "Operator"}</strong>
-              <small>{user?.email || "No email"}</small>
-            </div>
+            <button
+              onClick={logout}
+              className="btn-inverse sidebar-logout"
+            >
+              <LogOut size={14} strokeWidth={1.5} />
+              Logout
+            </button>
           </div>
-          <button
-            onClick={logout}
-            className="btn-inverse sidebar-logout"
-          >
-            <LogOut size={14} strokeWidth={1.5} />
-            Logout
-          </button>
-        </div>
-      </aside>
-      <div className="app-main">
-        <header className="app-topbar">
-          <SearchBar placeholder="Search devices..." />
-          <LiveIndicator isOnline={health.data?.ok === true && !health.isError} isChecking={health.isLoading || health.isFetching} />
-        </header>
+        </aside>
         <main className="workspace">
           {hasWorkspaces ? <Outlet /> : <WorkspaceOnboarding />}
         </main>

@@ -274,13 +274,7 @@ export function Pagination({
   );
 }
 
-export function LiveIndicator({
-  isOnline,
-  isChecking = false
-}: {
-  isOnline: boolean;
-  isChecking?: boolean;
-}) {
+export function LiveIndicator() {
   const [time, setTime] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
@@ -288,11 +282,8 @@ export function LiveIndicator({
   }, []);
   const timeStr = time.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = time.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const statusLabel = isChecking ? "Checking" : isOnline ? "Online" : "Offline";
-  const statusClass = isChecking ? "checking" : isOnline ? "online" : "offline";
   return (
     <div className="timestamp-display">
-      <span className={`live-badge ${statusClass}`}><span className="live-dot" />{statusLabel}</span>
       <span>{timeStr} · {dateStr}</span>
     </div>
   );

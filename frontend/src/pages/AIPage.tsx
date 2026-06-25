@@ -121,7 +121,6 @@ const AIPage: React.FC = () => {
               </select>
               <ChevronDown size={14} className="ai-device-select-icon" />
             </div>
-            <div className="live-badge online"><span className="live-dot" />Local Inference</div>
           </div>
         }
       />

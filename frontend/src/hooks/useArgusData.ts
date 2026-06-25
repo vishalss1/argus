@@ -19,6 +19,7 @@ export const queryKeys = {
   deviceStatus: (deviceID: string) => ["ai", "device-status", deviceID] as const,
   sessionActiveIncidents: (sessionID: string) => ["ai", "session-active-incidents", sessionID] as const,
   fleetIncidents: ["ai", "fleet-incidents"] as const,
+  aiEvents: ["ai", "events"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   workspaceDevices: (id: string) => ["workspaces", id, "devices"] as const,
@@ -325,5 +326,13 @@ export function useHeartbeat() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status?: string }) => api.devices.heartbeat(id, status),
     onSuccess: invalidate
+  });
+}
+
+export function useAIEvents() {
+  return useQuery({
+    queryKey: queryKeys.aiEvents,
+    queryFn: () => api.ai.listEvents(20),
+    refetchInterval: 10_000,
   });
 }

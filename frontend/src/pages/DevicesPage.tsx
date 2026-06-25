@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2, Edit2, Save, X, Copy, Check } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Edit2, Save, X, Copy, Check, Wifi, Cpu, Database } from "lucide-react";
 import { api } from "../services/api";
 import { CopyableID, EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip } from "../components/ui";
-import { useCreateDevice, useDevices, useUpdateDevice, useAssignDevice } from "../hooks/useArgusData";
+import { useCreateDevice, useDevices, useUpdateDevice, useAssignDevice, useAlerts, useAllDeployments, useWorkspaces } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
+import { Link } from "react-router-dom";
 import { compactID, formatDate, safeJsonParse, stringifyJson } from "../lib/format";
 import type { Device } from "../types/api";
 
@@ -62,6 +63,7 @@ export function DevicesPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState<{ id: string; apiKey: string } | null>(null);
   const [hasCopiedChecked, setHasCopiedChecked] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "telemetry" | "settings">("overview");
 
   // Close drawer on Escape key
   useEffect(() => {
@@ -81,12 +83,28 @@ export function DevicesPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isDrawerOpen, createdCredentials]);
 
+  const alerts = useAlerts();
+  const deployments = useAllDeployments();
+  const workspaces = useWorkspaces();
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return workspaceDevices;
-    return workspaceDevices.filter((device) =>
-      [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle) 
-    );
+    let result = workspaceDevices;
+    if (needle) {
+      result = workspaceDevices.filter((device) =>
+        [device.name, device.id, device.type, device.status, device.firmware_version].join(" ").toLowerCase().includes(needle) 
+      );
+    }
+    // Offline devices automatically sort to top regardless of user sorting.
+    // Operators care about broken devices first.
+    return result.sort((a, b) => {
+      const aOffline = a.status === "offline" || a.status === "critical" ? 1 : 0;
+      const bOffline = b.status === "offline" || b.status === "critical" ? 1 : 0;
+      if (aOffline !== bOffline) {
+        return bOffline - aOffline;
+      }
+      return a.name.localeCompare(b.name);
+    });
   }, [workspaceDevices, query]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -154,56 +172,103 @@ export function DevicesPage() {
         actions={<button className="button secondary" onClick={() => void devices.refetch()}><RefreshCw size={15} />Refresh</button>}
       />
 
-      <Panel
-        title="Registered Devices"
-        subtitle={`${filtered.length} visible`}
-        actions={
-          <button
-            className="button primary"
-            onClick={() => {
-              setEditDevice(null);
-              setFormError("");
-              setIsDrawerOpen(true);
-            }}
-            aria-label="Add Device"
-          >
-            <Plus size={15} /> Add Device
-          </button>
-        }
-      >
-        <label className="field" style={{ marginBottom: 14 }}>
-          <span>Search</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, ID, type, firmware, status" />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+        <label className="field" style={{ flex: 1, maxWidth: "400px" }}>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, ID, type, or firmware..." />
         </label>
-        {devices.isError ? (
-          <ErrorState message={(devices.error as Error).message} onRetry={() => void devices.refetch()} />
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
+        <button
+          className="button primary"
+          onClick={() => {
+            setEditDevice(null);
+            setActiveTab("settings");
+            setFormError("");
+            setIsDrawerOpen(true);
+          }}
+          aria-label="Add Device"
+        >
+          <Plus size={15} /> Add Device
+        </button>
+      </div>
+
+      {devices.isError ? (
+        <ErrorState message={(devices.error as Error).message} onRetry={() => void devices.refetch()} />
+      ) : (
+        <div className="table-wrapper" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
+          <table className="data-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--text-muted)" }}>
+                <th style={{ padding: "12px 16px", width: 40 }}>Status</th>
+                <th style={{ padding: "12px 16px" }}>Device</th>
+                <th style={{ padding: "12px 16px" }}>Firmware</th>
+                <th style={{ padding: "12px 16px" }}>Last Seen</th>
+                <th style={{ padding: "12px 16px" }}>RSSI</th>
+                <th style={{ padding: "12px 16px", textAlign: "center" }}>Alerts</th>
+                <th style={{ padding: "12px 16px" }}>Deployment</th>
+                <th style={{ padding: "12px 16px" }}>Workspace</th>
+                <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.isLoading && (
                 <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Firmware</th>
-                  <th>Last Seen</th>
-                  <th>Actions</th>
+                  <td colSpan={9} style={{ padding: "24px" }}><LoadingRows rows={6} /></td>
                 </tr>
-              </thead>
-              <tbody>
-                {devices.isLoading && <LoadingRows rows={6} />}
-                {!devices.isLoading && filtered.length === 0 && (
-                  <tr><td colSpan={6}><EmptyState title="No devices registered" description="Create the first device using the button above." /></td></tr>
-                )}
-                {filtered.map((device) => (
-                  <tr key={device.id}>
-                    <td><strong>{device.name}</strong><div><CopyableID id={device.id} /></div></td>
-                    <td>{device.type}</td>
-                    <td><StatusChip value={device.status} /></td>
-                    <td>{device.firmware_version || "Unset"}</td>
-                    <td>{formatDate(device.last_seen)}</td>
-                    <td>
-                      <div className="page-actions">
+              )}
+              {!devices.isLoading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={9} style={{ padding: "24px", textAlign: "center" }}>
+                    <EmptyState title="No devices registered" description="Create the first device using the button above." />
+                  </td>
+                </tr>
+              )}
+              {filtered.map((device) => {
+                const deviceAlerts = (alerts.data ?? []).filter(a => a.device_id === device.id);
+                const deviceDeployments = (deployments.data ?? []).filter(d => d.device_id === device.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                const lastDeploy = deviceDeployments[0];
+                const workspaceName = workspaces.data?.find(w => w.id === selectedWorkspaceId)?.name ?? "Unknown";
+
+                return (
+                  <tr key={device.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      <div className={`status-dot ${device.status}`} style={{ width: 10, height: 10, borderRadius: "50%", background: device.status === "online" ? "var(--success)" : device.status === "warning" ? "var(--warning)" : device.status === "critical" ? "var(--danger)" : "var(--text-muted)", margin: "0 auto" }} />
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <Link to={`/devices/${device.id}`} style={{ fontWeight: 500, color: "var(--text-primary)", textDecoration: "none" }}>{device.name}</Link>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: 4 }}>{device.id.slice(0, 8)}</div>
+                    </td>
+                    <td style={{ padding: "12px 16px", fontFamily: "var(--font-mono)" }}>
+                      v{device.firmware_version || "unset"}
+                    </td>
+                    <td style={{ padding: "12px 16px", color: "var(--text-muted)" }}>
+                      {formatDate(device.last_seen)}
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-muted)" }}>
+                        <Wifi size={12} /> -65 dBm
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      {deviceAlerts.length > 0 ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 20, height: 20, borderRadius: 10, background: "var(--danger)", color: "#fff", fontSize: 11, fontWeight: 600 }}>{deviceAlerts.length}</span>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)" }}>0</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      {lastDeploy ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {lastDeploy.status === "completed" || lastDeploy.status === "success" ? <Check size={12} color="var(--success)" /> : <RefreshCw size={12} color="var(--vercel-cyan)" />}
+                          <span style={{ color: lastDeploy.status === "completed" || lastDeploy.status === "success" ? "var(--success)" : "var(--vercel-cyan)" }}>{lastDeploy.status}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)" }}>None</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 16px", color: "var(--text-muted)" }}>
+                      {workspaceName}
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                      <div className="page-actions" style={{ justifyContent: "flex-end" }}>
                         <button
                           className="button compact secondary"
                           onClick={() => {
@@ -219,12 +284,12 @@ export function DevicesPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Drawer Overlay & Panel */}
       <div
@@ -239,23 +304,57 @@ export function DevicesPage() {
         }}
       >
         <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
-          <div className="drawer-header">
-            <h3>{createdCredentials ? "Device Created" : editDevice ? "Update Device" : "Create Device"}</h3>
-            {!createdCredentials && (
-              <button
-                className="close-btn"
-                type="button"
-                onClick={() => {
-                  setIsDrawerOpen(false);
-                  setEditDevice(null);
-                  setFormError("");
-                  setCreatedCredentials(null);
-                  setHasCopiedChecked(false);
-                }}
-                aria-label="Close drawer"
-              >
-                <X size={18} />
-              </button>
+          <div className="drawer-header" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 16, paddingBottom: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "flex-start" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                {editDevice && <div className={`status-dot ${editDevice.status}`} style={{ width: 12, height: 12, borderRadius: "50%", background: editDevice.status === "online" ? "var(--success)" : editDevice.status === "warning" ? "var(--warning)" : editDevice.status === "critical" ? "var(--danger)" : "var(--text-muted)" }} />}
+                <div>
+                  <h3 style={{ fontSize: 28, margin: "0 0 4px", fontWeight: 600 }}>{createdCredentials ? "Device Created" : editDevice ? editDevice.name : "Create Device"}</h3>
+                  {editDevice && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      <CopyableID id={editDevice.id} length={12} />
+                      <span style={{ padding: "2px 6px", background: "var(--surface-2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>{editDevice.type}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {!createdCredentials && (
+                <button
+                  className="close-btn"
+                  type="button"
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    setEditDevice(null);
+                    setFormError("");
+                    setCreatedCredentials(null);
+                    setHasCopiedChecked(false);
+                  }}
+                  aria-label="Close drawer"
+                >
+                  <X size={20} />
+                </button>
+              )}
+            </div>
+            
+            {editDevice && !createdCredentials && (
+              <div className="drawer-tabs" style={{ display: "flex", gap: 32, marginTop: 8 }}>
+                {(["overview", "telemetry", "settings"] as const).map(tab => (
+                  <button
+                    key={tab}
+                    className={`drawer-tab ${activeTab === tab ? "active" : ""}`}
+                    onClick={() => setActiveTab(tab)}
+                    style={{
+                      background: "transparent", border: "none", cursor: "pointer",
+                      padding: "0 0 12px 0", fontSize: 14, fontWeight: 500, textTransform: "capitalize",
+                      color: activeTab === tab ? "var(--text-primary)" : "var(--text-muted)",
+                      borderBottom: `2px solid ${activeTab === tab ? "var(--text-primary)" : "transparent"}`,
+                      transition: "all 150ms ease"
+                    }}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
           {createdCredentials ? (
@@ -316,38 +415,59 @@ export function DevicesPage() {
                 </button>
               </div>
             </div>
+          ) : editDevice && activeTab !== "settings" ? (
+            <div className="drawer-body-wrap" style={{ display: "flex", flexDirection: "column", height: "calc(100% - 120px)" }}>
+              <div className="drawer-body" style={{ background: "var(--background)" }}>
+                {activeTab === "overview" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 24, paddingBottom: 24, borderBottom: "1px solid var(--border)" }}>
+                      <div>
+                        <h4 style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", margin: "0 0 8px", fontFamily: "var(--font-mono)" }}>Last Seen</h4>
+                        <div style={{ fontSize: 16, color: "var(--text-primary)" }}>{formatDate(editDevice.last_seen)}</div>
+                      </div>
+                      <div>
+                        <h4 style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", margin: "0 0 8px", fontFamily: "var(--font-mono)" }}>Firmware</h4>
+                        <div style={{ fontSize: 16, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{editDevice.firmware_version || "Unset"}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 16px" }}>Recent Activity</h3>
+                      <EmptyState title="No recent activity" description="This device hasn't reported any notable events." />
+                    </div>
+                  </div>
+                )}
+                {activeTab === "telemetry" && (
+                  <EmptyState title="Telemetry Unavailable" description="This view will stream live metrics when connected." />
+                )}
+              </div>
+            </div>
           ) : (
             <form
               onSubmit={onSubmit}
               key={editDevice?.id || "create"}
-              style={{ display: "flex", flexDirection: "column", height: "calc(100% - 69px)" }}
+              style={{ display: "flex", flexDirection: "column", height: editDevice ? "calc(100% - 120px)" : "calc(100% - 69px)" }}
             >
-              <div className="drawer-body">
-                <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
+              <div className="drawer-body" style={{ maxWidth: 600 }}>
+                <h3 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px" }}>{editDevice ? "General Settings" : "Device Settings"}</h3>
+                <p className="muted" style={{ fontSize: 14, marginBottom: 32 }}>
                   {editDevice
-                    ? "Modify attributes for this registered device."
+                    ? "Modify identifying attributes for this registered device."
                     : "Add a new virtual or physical node to the fleet registry."}
                 </p>
                 <div className="form-grid">
                   <label className="field full">
-                    <span>Name</span>
-                    <input name="name" defaultValue={editDevice?.name || ""} required placeholder="e.g. ESP32 Dev Node" />
+                    <span style={{ fontWeight: 500 }}>Device Name</span>
+                    <input name="name" defaultValue={editDevice?.name || ""} required placeholder="e.g. ESP32 Dev Node" style={{ padding: 12 }} />
                   </label>
                   <label className="field full">
-                    <span>Type</span>
-                    <input name="type" defaultValue={editDevice?.type || ""} required placeholder="e.g. esp32" />
+                    <span style={{ fontWeight: 500 }}>Device Type</span>
+                    <input name="type" defaultValue={editDevice?.type || ""} required placeholder="e.g. esp32" style={{ padding: 12 }} />
                   </label>
                   <label className="field full">
-                    <span>Firmware Version</span>
-                    <input name="firmware_version" defaultValue={editDevice?.firmware_version || ""} placeholder="e.g. v1.0.0" />
+                    <span style={{ fontWeight: 500 }}>Expected Firmware Version</span>
+                    <input name="firmware_version" defaultValue={editDevice?.firmware_version || ""} placeholder="e.g. v1.0.0" style={{ padding: 12 }} />
                   </label>
-                  {editDevice && (
-                    <div className="field full status-field">
-                      <span>Status</span>
-                      <StatusChip value={editDevice.status} />
-                    </div>
-                  )}
-                  {formError && <p className="form-message error field full">{formError}</p>}
+                  {formError && <p className="form-message error field full" style={{ padding: 16 }}>{formError}</p>}
                 </div>
               </div>
               <div className="drawer-footer">
@@ -368,7 +488,7 @@ export function DevicesPage() {
                   disabled={create.isPending || update.isPending}
                 >
                   {editDevice ? <Save size={15} /> : <Plus size={15} />}
-                  {editDevice ? "Save Changes" : "Create Device"}
+                  {editDevice ? "Save Settings" : "Create Device"}
                 </button>
               </div>
             </form>

@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState, useRef } from "react";
-import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon, Trash2 } from "lucide-react";
+import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon, Trash2, ChevronDown, ChevronRight, Play } from "lucide-react";
 import {
   CopyableID,
   EmptyState,
@@ -54,6 +54,69 @@ function statusProgress(deployment: Deployment) {
 
 function findDeploymentDeviceName(deployment: Deployment) {
   return deployment.device_name || compactID(deployment.device_id);
+}
+
+function DeploymentRow({ deployment }: { deployment: Deployment }) {
+  const [expanded, setExpanded] = useState(false);
+  const timeline = useDeploymentEvents(expanded ? deployment.id : undefined);
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column" }}>
+      <div 
+        onClick={() => setExpanded(!expanded)} 
+        style={{ display: "flex", alignItems: "center", padding: "8px 16px", cursor: "pointer", gap: 12, background: expanded ? "var(--surface)" : "transparent" }}
+      >
+        <div style={{ color: "var(--text-muted)", display: "flex", alignItems: "center" }}>
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
+        
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flex: 1, fontSize: 13 }}>
+          <div style={{ width: 120, fontWeight: 500 }}>
+            {deployment.version || "Custom Build"}
+          </div>
+          <div style={{ width: 120, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+            {compactID(deployment.artifact_id)}
+          </div>
+          <div style={{ flex: 1, color: "var(--text-primary)" }}>
+            {findDeploymentDeviceName(deployment)}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 24, fontSize: 12 }}>
+          <div style={{ width: 120, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{formatDate(deployment.created_at)}</div>
+          <div style={{ width: 80, textAlign: "right", color: "var(--text-muted)" }}>{durationLabel(deployment)}</div>
+          <div style={{ width: 100, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+            <span style={{ color: ["completed", "acked", "success"].includes(deployment.status) ? "var(--success)" : ["failed", "cancelled", "timeout", "nacked"].includes(deployment.status) ? "var(--danger)" : "var(--vercel-cyan)", textTransform: "capitalize", fontWeight: 500 }}>
+              {deployment.status}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ padding: "0", borderTop: "1px solid var(--border)", background: "var(--background)", fontFamily: "var(--font-mono)" }}>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {(timeline.data ?? []).map((event) => (
+              <div key={event.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "6px 16px 6px 44px", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
+                <div style={{ width: 100, color: "var(--text-muted)" }}>
+                  {formatDate(event.created_at).split(",")[1]?.trim()}
+                </div>
+                <div style={{ width: 100, color: "var(--text-primary)" }}>
+                  {event.status}
+                </div>
+                <div style={{ flex: 1 }}>
+                  {event.progress !== undefined && <span style={{ color: "var(--vercel-cyan)", marginRight: 8 }}>[{event.progress}%]</span>}
+                  {event.message && <span style={{ color: "var(--text-primary)" }}>{event.message}</span>}
+                </div>
+              </div>
+            ))}
+            {timeline.isLoading && <div style={{ padding: "8px 16px 8px 44px", color: "var(--text-muted)", fontSize: 12 }}>Loading timeline...</div>}
+            {!timeline.isLoading && timeline.data?.length === 0 && <div style={{ padding: "8px 16px 8px 44px", color: "var(--text-muted)", fontSize: 12 }}>No recorded events</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function OTAPage() {
@@ -163,13 +226,13 @@ export function OTAPage() {
     }
     try {
       if (!deviceID) {
-        setDeployError("Select a device before creating an OTA deployment.");
+        setDeployError("Select a device before creating a deployment.");
         return;
       }
       const created = await api.deployments.create(deviceID, String(form.get("artifact_id")));
       setManifest(created);
       await Promise.all([deployments.refetch(), allDeployments.refetch(), stats.refetch()]);
-      setDeploySuccess("OTA deployment created successfully.");
+      setDeploySuccess("Deployment created successfully.");
       deployTimeoutRef.current = window.setTimeout(() => {
         setDeploySuccess("");
       }, 4500);
@@ -196,195 +259,63 @@ export function OTAPage() {
   const pendingDevices = stats.data?.devices_pending_update ?? 0;
   const activeCount = (allDeployments.data ?? []).filter((deployment) => ACTIVE_STATUSES.has(deployment.status)).length;
 
+  const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
+  const [releaseAction, setReleaseAction] = useState<"deploy" | "upload">("deploy");
+
   return (
     <>
       <PageHeader
-        eyebrow="OTA Deployment Lifecycle"
-        title="OTA Updates"
-        description="Track firmware rollout state, progress, history, failures, and deployment timing across the fleet."
-        actions={<button className="button secondary" onClick={() => { void allDeployments.refetch(); void stats.refetch(); }}><RefreshCw size={15} />Refresh</button>}
+        title="Deployments"
+        actions={
+          <div style={{ display: "flex", gap: 12 }}>
+            <button className="button secondary" onClick={() => { void allDeployments.refetch(); void stats.refetch(); }}><RefreshCw size={15} />Refresh</button>
+            <button className="button secondary" onClick={() => { setReleaseAction("upload"); setIsReleaseModalOpen(true); }}><Upload size={15} /> Upload Artifact</button>
+            <button className="button primary" onClick={() => { setReleaseAction("deploy"); setIsReleaseModalOpen(true); }}><Play size={15} /> Deploy Release</button>
+          </div>
+        }
       />
 
-      <div className="stat-grid five">
-        <StatCard label="Total Deployments" value={totalDeployments} detail="All time" />
-        <StatCard label="Successful" value={successful} detail="ACK received" tone="success" />
-        <StatCard label="Failed" value={failed} detail="NACK or timeout" tone={failed > 0 ? "danger" : "neutral"} />
-        <StatCard label="Success Rate" value={`${successRate.toFixed(1)}%`} detail="Completed / total" />
-        <StatCard label="Pending Update" value={pendingDevices} detail={`${activeCount} active jobs`} tone={activeCount > 0 ? "warning" : "neutral"} />
-      </div>
+      <div style={{ maxWidth: 900 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <label className="field" style={{ flex: 1, marginRight: 32 }}>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search deployments..." style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", width: "100%", maxWidth: "100%" }} />
+          </label>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <FilterTabs options={STATUS_FILTERS} active={statusFilter} onChange={setStatusFilter} />
+          </div>
+        </div>
 
-      <div className="split">
-        <Panel title="Firmware Artifacts" subtitle="Registered binaries available for rollout">
-          {firmware.isError ? <ErrorState message={(firmware.error as Error).message} onRetry={() => void firmware.refetch()} /> : (
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Version</th><th>Filename</th><th>Size</th><th>Uploaded</th><th style={{ width: 60 }}>Actions</th></tr></thead>
-                <tbody>
-                  {firmware.isLoading && <LoadingRows rows={4} />}
-                  {!firmware.isLoading && (firmware.data?.length ?? 0) === 0 && <tr><td colSpan={5}><EmptyState title="No firmware artifacts" description="Upload firmware to create deployment manifests." /></td></tr>}
-                  {firmware.data?.map((artifact) => (
-                    <tr key={artifact.id}>
-                      <td><strong>{artifact.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={artifact.id} /></div></td>
-                      <td>{artifact.filename}</td>
-                      <td>{formatBytes(artifact.size_bytes)}</td>
-                      <td>{formatDate(artifact.created_at)}</td>
-                      <td>
-                        <button 
-                          className="button compact danger" 
-                          onClick={() => { setArtifactToDelete(artifact); setDeleteError(""); }} 
-                          aria-label={`Delete version ${artifact.version}`}
-                          title="Delete Firmware Artifact"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-        <div className="grid">
-          <Panel title="Upload Firmware" subtitle="Register a signed production binary">
-            <form className="form-grid" onSubmit={upload}>
-              <label className="field full"><span>Version</span><input name="version" placeholder="v1.4.0" required /></label>
-              <label className="field full"><span>Firmware File</span><input name="firmware" type="file" required /></label>
-              {uploadError && <div className="form-message error field full">{uploadError}</div>}
-              {uploadSuccess && <div className="form-message success field full">{uploadSuccess}</div>}
-              <button className="button primary" type="submit"><Upload size={15} />Upload</button>
-            </form>
-          </Panel>
-          <Panel title="Create Deployment" subtitle="Create a pull-based deployment for one device">
-            {(workspaceDevices.length) === 0 || (firmware.data?.length ?? 0) === 0 ? <EmptyState title="Deployment unavailable" description="A deployment requires at least one device and one firmware artifact." /> : (
-              <form className="form-grid" onSubmit={deploy}>
-                <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{workspaceDevices.map((device) => <option key={device.id} value={device.id}>{device.name} · {compactID(device.id)} · {device.firmware_version || "unset"}</option>)}</SelectField></div>
-                <label className="field full"><span>Firmware Artifact</span><select name="artifact_id">{firmware.data?.map((artifact) => <option key={artifact.id} value={artifact.id}>{artifact.version} · {artifact.filename}</option>)}</select></label>
-                {deviceID && <div className="field full"><span>Selected Device ID</span><CopyableID id={deviceID} /></div>}
-                {deployError && <div className="form-message error field full">{deployError}</div>}
-                {deploySuccess && <div className="form-message success field full">{deploySuccess}</div>}
-                <button className="button primary" type="submit" disabled={!deviceID}>Create Deployment</button>
-              </form>
-            )}
-          </Panel>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)", overflow: "hidden" }}>
+          {allDeployments.isLoading && <LoadingRows rows={6} />}
+          {!allDeployments.isLoading && deploymentRows.length === 0 && <EmptyState title="No deployments" description="Create a deployment to populate the release timeline." />}
+          {deploymentRows.map(deployment => (
+            <DeploymentRow key={deployment.id} deployment={deployment} />
+          ))}
         </div>
       </div>
 
-      <div style={{ marginTop: 18 }}>
-        <Panel
-          title="Deployment Table"
-          subtitle={`${deploymentRows.length} visible`}
-          actions={<FilterTabs options={STATUS_FILTERS} active={statusFilter} onChange={setStatusFilter} />}
-        >
-          <div className="table-toolbar">
-            <label className="field"><span>Search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Device, version, status, reason" /></label>
-            <label className="field"><span>Sort</span><select value={sortKey} onChange={(event) => setSortKey(event.target.value as typeof sortKey)}><option value="created_at">Newest</option><option value="status">Status</option><option value="progress">Progress</option><option value="duration">Duration</option></select></label>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Device</th><th>Version</th><th>Status</th><th>Progress</th><th>Started</th><th>Completed</th><th>Duration</th><th>Actions</th></tr></thead>
-              <tbody>
-                {allDeployments.isLoading && <LoadingRows rows={6} />}
-                {!allDeployments.isLoading && deploymentRows.length === 0 && <tr><td colSpan={8}><EmptyState title="No deployments" description="Create a deployment to populate the lifecycle table." /></td></tr>}
-                {deploymentRows.map((deployment) => (
-                  <tr key={deployment.id}>
-                    <td><strong>{findDeploymentDeviceName(deployment)}</strong><div><CopyableID id={deployment.device_id} /></div></td>
-                    <td>{deployment.version ? (<><strong>{deployment.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={deployment.artifact_id} /></div></>) : (<CopyableID id={deployment.artifact_id} />)}<div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{deployment.filename}</div></td>
-                    <td><StatusChip value={deployment.status} /></td>
-                    <td><div className="ota-progress-cell"><ProgressBar value={statusProgress(deployment)} max={100} /><span className="muted">{statusProgress(deployment)}%</span></div></td>
-                    <td>{formatDate(deployment.created_at)}</td>
-                    <td>{formatDate(terminalTime(deployment))}</td>
-                    <td>{durationLabel(deployment)}</td>
-                    <td><button className="button compact secondary" onClick={() => void viewManifest(deployment)}><FileText size={14} />Details</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-      </div>
-
-      <div className="split" style={{ marginTop: 18 }}>
-        <Panel title="Device OTA History" subtitle={deviceID ? "Latest deployments for the selected device" : "Select a device"}>
-          <div className="field" style={{ marginBottom: 14 }}><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{workspaceDevices.map((device) => <option key={device.id} value={device.id}>{device.name} · {compactID(device.id)}</option>)}</SelectField></div>
-          {latestDeviceDeployment && (
-            <div className="settings-row" style={{ marginBottom: 12 }}>
-              <span><strong>Latest Firmware Target</strong><p className="muted">{latestDeviceDeployment.version || "Unknown"} · {latestDeviceDeployment.status}</p></span>
-              <StatusChip value={latestDeviceDeployment.status} />
+      <Modal isOpen={isReleaseModalOpen} onClose={() => setIsReleaseModalOpen(false)} title={releaseAction === "deploy" ? "Deploy Release" : "Upload Firmware Artifact"}>
+        {releaseAction === "deploy" ? (
+          <form className="form-grid" onSubmit={(e) => { deploy(e).then(() => { if (!deployError) setIsReleaseModalOpen(false); }) }}>
+            <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{workspaceDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</SelectField></div>
+            <label className="field full"><span>Firmware Artifact</span><select name="artifact_id">{firmware.data?.map((artifact) => <option key={artifact.id} value={artifact.id}>{artifact.version} ({formatBytes(artifact.size_bytes)})</option>)}</select></label>
+            {deployError && <div className="form-message error field full">{deployError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="button secondary" onClick={() => setIsReleaseModalOpen(false)}>Cancel</button>
+              <button className="button primary" type="submit" disabled={!deviceID || !firmware.data?.length}>Deploy Release</button>
             </div>
-          )}
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Version</th><th>Started</th><th>Duration</th><th>Outcome</th><th>Reason</th></tr></thead>
-              <tbody>
-                {deployments.isLoading && <LoadingRows rows={4} />}
-                {!deployments.isLoading && selectedDeviceDeployments.length === 0 && <tr><td colSpan={5}><EmptyState title="No OTA history" description="This device has not received an OTA deployment." /></td></tr>}
-                {selectedDeviceDeployments.map((deployment) => (
-                  <tr key={deployment.id}>
-                    <td>{deployment.version ? (<div style={{ display: "flex", flexDirection: "column" }}><strong>{deployment.version}</strong><div style={{ marginTop: 2 }}><CopyableID id={deployment.artifact_id} /></div></div>) : (<CopyableID id={deployment.artifact_id} />)}</td>
-                    <td>{formatDate(deployment.created_at)}</td>
-                    <td>{durationLabel(deployment)}</td>
-                    <td><StatusChip value={deployment.status} /></td>
-                    <td>{deployment.failure_reason || deployment.result_message || "None"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-        <Panel
-          title="Deployment Timeline"
-          subtitle={selectedDeployment ? (<div style={{ display: "flex", alignItems: "center", gap: 6 }}><span>Deployment ID:</span><CopyableID id={selectedDeployment.id} /></div>) : "Select Details from the deployment table"}
-          actions={selectedDeployment && <button className="button compact secondary" onClick={() => { setSelectedDeployment(null); setManifest(null); setError(""); }}><XIcon size={14} /></button>}
-        >
-          {error && <div className="form-message error field full" style={{ marginBottom: 14 }}>{error}</div>}
-          {!selectedDeployment ? <EmptyState title="No deployment selected" description="Open a deployment to inspect lifecycle timestamps and diagnostics." /> : (
-            <>
-              <div className="ota-timeline">
-                {(timeline.data ?? []).map((event) => (
-                  <div className="ota-timeline-row" key={event.id}>
-                    <span className="timeline-dot" />
-                    <div>
-                      <strong>{event.status}</strong>
-                      <p className="muted">{formatDate(event.created_at)}{event.progress !== undefined ? ` · ${event.progress}%` : ""}</p>
-                      {event.message && <p>{event.message}</p>}
-                    </div>
-                  </div>
-                ))}
-                {!timeline.isLoading && (timeline.data?.length ?? 0) === 0 && <EmptyState title="No timeline events" description="No lifecycle events have been recorded for this deployment." />}
-              </div>
-              {manifest && (
-                <div style={{ marginTop: 14 }}>
-                  <div className="settings-row"><strong>Manifest</strong><CopyableID id={manifest.deployment_id} /></div>
-                  <pre className="code-block" style={{ margin: 0 }}>{stringifyJson(manifest)}</pre>
-                </div>
-              )}
-            </>
-          )}
-        </Panel>
-      </div>
-
-      <Modal isOpen={Boolean(artifactToDelete)} onClose={() => setArtifactToDelete(null)} title="Delete Firmware Artifact">
-        <div className="modal-form">
-          <p className="modal-text">
-            Are you sure you want to delete firmware version <strong>{artifactToDelete?.version}</strong> ({artifactToDelete?.filename})?
-          </p>
-          <p className="muted modal-text-sub">
-            This action will permanently remove the binary file from secure S3 storage and delete the firmware artifact record from the database.
-            <strong> Any associated OTA deployments and their history will also be permanently deleted.</strong>
-          </p>
-          {deleteError && (
-            <div className="form-message error" style={{ marginBottom: 14 }}>
-              {deleteError}
+          </form>
+        ) : (
+          <form className="form-grid" onSubmit={(e) => { upload(e).then(() => { if (!uploadError) setIsReleaseModalOpen(false); }) }}>
+            <label className="field full"><span>Version</span><input name="version" placeholder="v1.4.0" required /></label>
+            <label className="field full"><span>Binary File</span><input name="firmware" type="file" required /></label>
+            {uploadError && <div className="form-message error field full">{uploadError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="button secondary" onClick={() => setIsReleaseModalOpen(false)}>Cancel</button>
+              <button className="button secondary" type="submit"><Upload size={14} style={{ marginRight: 6 }} /> Upload</button>
             </div>
-          )}
-          <div className="modal-actions">
-            <button type="button" className="button secondary" onClick={() => setArtifactToDelete(null)}>Cancel</button>
-            <button type="button" className="btn-inverse" onClick={handleDeleteFirmware} disabled={isDeleting}>
-              {isDeleting ? "Deleting..." : "Delete Firmware"}
-            </button>
-          </div>
-        </div>
+          </form>
+        )}
       </Modal>
 
     </>
