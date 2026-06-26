@@ -138,3 +138,37 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   return (await response.json()) as T;
 }
+
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const headers = new Headers(options.headers);
+  const hasBody = options.body !== undefined;
+
+  if (hasBody && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const accessToken = localStorage.getItem("argus_access_token");
+  if (accessToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+
+  const activeWorkspaceID = localStorage.getItem("argus_active_workspace_id");
+  if (activeWorkspaceID && !headers.has("X-Workspace-ID")) {
+    headers.set("X-Workspace-ID", activeWorkspaceID);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    const text = await response.text().catch(() => "");
+    if (text) message = text;
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}

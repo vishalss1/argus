@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"sync"
@@ -31,6 +31,7 @@ import (
 	"github.com/vishalss1/argus/core/internal/domain/certificate"
 	commanddomain "github.com/vishalss1/argus/core/internal/domain/command"
 	devicedomain "github.com/vishalss1/argus/core/internal/domain/device"
+	fleetdomain "github.com/vishalss1/argus/core/internal/domain/fleet"
 	otadomain "github.com/vishalss1/argus/core/internal/domain/ota"
 	policydomain "github.com/vishalss1/argus/core/internal/domain/policy"
 	sessiondomain "github.com/vishalss1/argus/core/internal/domain/session"
@@ -44,10 +45,10 @@ import (
 	"github.com/vishalss1/argus/core/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/core/internal/infrastructure/postgres"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
+	coregrpc "github.com/vishalss1/argus/core/internal/transport/grpc"
 	transporthandler "github.com/vishalss1/argus/core/internal/transport/http/handler"
 	transportrouter "github.com/vishalss1/argus/core/internal/transport/http/router"
 	transportws "github.com/vishalss1/argus/core/internal/transport/websocket"
-	coregrpc "github.com/vishalss1/argus/core/internal/transport/grpc"
 	pb "github.com/vishalss1/argus/shared/proto/core"
 	telemetrypb "github.com/vishalss1/argus/shared/proto/telemetry"
 )
@@ -304,6 +305,10 @@ func Bootstrap() (*Server, error) {
 		}
 	}
 
+	fleetRepo := postgres.NewFleetRepository(database)
+	fleetService := fleetdomain.NewService(fleetRepo, deviceService, ca, fwGen)
+	fleetHandler := transporthandler.NewFleetHandler(fleetService)
+
 	websocketHandler := transportws.NewHandler(websocketHub, authService)
 	router := transportrouter.New(
 		deviceRepository,
@@ -315,6 +320,7 @@ func Bootstrap() (*Server, error) {
 		ruleHandler,
 		aiHandler,
 		workspaceHandler,
+		fleetHandler,
 		sessionHandler,
 		authHandler,
 		authService,
@@ -329,7 +335,7 @@ func Bootstrap() (*Server, error) {
 	caCertPool.AppendCertsFromPEM(deviceCABytes)
 
 	server.httpServer = &http.Server{
-		Addr: ":" + cfg.Port,
+		Addr:    ":" + cfg.Port,
 		Handler: router,
 		TLSConfig: &tls.Config{
 			MinVersion:       tls.VersionTLS12,
@@ -469,8 +475,6 @@ func (p *realtimePublisherWrapper) PublishOTAEvent(ctx context.Context, eventTyp
 	p.hub.Broadcast(eventType, deployment)
 }
 
-
-
 func extractCorrelationID(headers []segmentio.Header) string {
 	for _, h := range headers {
 		if h.Key == "correlation_id" {
@@ -500,7 +504,6 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 				}
 				continue
 			}
-
 
 			workerCtx := ctx
 			if corrID := extractCorrelationID(msg.Headers); corrID != "" {
@@ -589,16 +592,16 @@ func monitorPresence(ctx context.Context, s *devicedomain.PresenceService, timeo
 			if lockTTL < 5*time.Second {
 				lockTTL = interval
 			}
-			
+
 			lock := NewTokenLock(redisClient, "lock:presence_monitor", lockTTL)
 			acquired, err := lock.Acquire(ctx)
 			if err != nil || !acquired {
 				continue
 			}
-			
+
 			jobCtx, cancelJob := context.WithCancel(ctx)
 			watchdogDone := make(chan struct{})
-			
+
 			// Start watchdog
 			go func() {
 				defer close(watchdogDone)
@@ -618,14 +621,14 @@ func monitorPresence(ctx context.Context, s *devicedomain.PresenceService, timeo
 					}
 				}
 			}()
-			
+
 			// Run job
 			_, _ = s.MarkStaleOffline(jobCtx, timeout)
-			
+
 			// Stop watchdog
 			cancelJob()
 			<-watchdogDone
-			
+
 			// Release lock
 			_ = lock.Release(ctx)
 		}
@@ -659,9 +662,9 @@ func startSessionReaper(ctx context.Context, manager *sessiondomain.Manager, tim
 			if err != nil || !acquired {
 				continue
 			}
-			
+
 			_, _ = manager.CleanupStaleSessions(ctx, timeout)
-			
+
 			_ = lock.Release(ctx)
 		}
 	}

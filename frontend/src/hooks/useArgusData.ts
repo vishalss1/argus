@@ -3,6 +3,7 @@ import { api } from "../services/api";
 import { withEffectiveDeviceStatus } from "../lib/format";
 
 export const queryKeys = {
+  fleets: ["fleets"] as const,
   devices: ["devices"] as const,
   alerts: ["alerts"] as const,
   rules: ["rules"] as const,
@@ -210,6 +211,25 @@ export function useDevices({ realtime = false, enabled = true }: { realtime?: bo
     select: (devices) => {
       const now = Date.now();
       return devices.map((device) => withEffectiveDeviceStatus(device, now));
+    }
+  });
+}
+
+export function useFleets() {
+  return useQuery({
+    queryKey: queryKeys.fleets,
+    queryFn: api.fleets.list,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useCreateFleet() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.fleets.create,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.fleets });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.devices });
     }
   });
 }

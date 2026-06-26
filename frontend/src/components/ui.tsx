@@ -379,18 +379,22 @@ export function Modal({
   isOpen,
   onClose,
   title,
-  children
+  children,
+  className = "",
+  style
 }: {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
 }) {
   if (!isOpen) return null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className={`modal-content ${className}`} style={style} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button type="button" onClick={onClose} className="modal-close" aria-label="Close dialog">

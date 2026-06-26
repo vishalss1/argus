@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -37,9 +38,16 @@ type Workspace struct {
 	Name string `json:"name"`
 }
 
-type CreateDeviceRequest struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+type CreateFleetRequest struct {
+	Name             string `json:"name"`
+	NodeRole         string `json:"node_role"`
+	HardwareType     string `json:"hardware_type"`
+	NodePrefix       string `json:"node_prefix"`
+	NodeCount        int    `json:"node_count"`
+	FirmwareVersion  string `json:"firmware_version"`
+	FirmwareTemplate string `json:"firmware_template"`
+	WiFiSSID         string `json:"wifi_ssid"`
+	WiFiPassword     string `json:"wifi_password"`
 }
 
 func main() {
@@ -246,34 +254,59 @@ func runProvisioning(client *http.Client, baseURL, outputPath string) error {
 
 	_ = os.WriteFile("workspace_id.txt", []byte(workspaceID), 0644)
 
-	// Create Device
-	devReq := CreateDeviceRequest{
-		Name: "sdk-ci-test-device",
-		Type: "esp32",
+	// Create Fleet (which creates devices)
+	devReq := CreateFleetRequest{
+		Name:             "sdk-ci-test-fleet",
+		HardwareType:     "esp32",
+		NodeCount:        1,
+		FirmwareVersion:  "1.0.0",
+		FirmwareTemplate: "void setup() { Serial.begin(115200); argusBegin(); }\nvoid loop() { argusLoop(); }",
 	}
 	devBody, _ := json.Marshal(devReq)
-	req, _ := http.NewRequest("POST", baseURL+"/api/devices/", bytes.NewBuffer(devBody))
+	req, _ := http.NewRequest("POST", baseURL+"/api/fleets/", bytes.NewBuffer(devBody))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("X-Workspace-ID", workspaceID)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("create device request failed: %w", err)
+		return fmt.Errorf("create fleet request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("create device failed status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("create fleet failed status %d: %s", resp.StatusCode, string(body))
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read device response: %w", err)
+		return fmt.Errorf("failed to read fleet response: %w", err)
 	}
 
-	inoContent := string(bodyBytes)
+	// Parse ZIP response to get node-1.ino
+	zr, err := zip.NewReader(bytes.NewReader(bodyBytes), int64(len(bodyBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to parse zip response: %w", err)
+	}
+
+	var inoContent string
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, ".ino") {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			content, _ := io.ReadAll(rc)
+			rc.Close()
+			inoContent = string(content)
+			break
+		}
+	}
+
+	if inoContent == "" {
+		return fmt.Errorf("failed to find .ino file in fleet zip")
+	}
 
 	// Parse .ino content using regexes
 	deviceID := extractRegex(inoContent, `const char ARGUS_DEVICE_ID\[\] = "(.*?)";`)

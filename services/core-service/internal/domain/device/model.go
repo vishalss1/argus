@@ -14,6 +14,7 @@ type Device struct {
 	Metadata        json.RawMessage `json:"metadata" db:"metadata" swaggertype:"object"`
 	LastSeen        *time.Time      `json:"last_seen,omitempty" db:"last_seen"`
 	WorkspaceID     *string         `json:"workspace_id,omitempty" db:"workspace_id"`
+	FleetID         *string         `json:"fleet_id,omitempty" db:"fleet_id"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
 
@@ -39,6 +40,7 @@ type UpdateInput struct {
 	Metadata        *json.RawMessage
 	APIKeyHash      []byte
 	APIKeyPrefix    *string
+	FleetID         *string
 }
 
 type HeartbeatInput struct {

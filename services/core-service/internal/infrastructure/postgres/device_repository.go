@@ -36,8 +36,8 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 	}
 
 	const query = `
-		INSERT INTO devices (id, name, type, firmware_version, status, metadata, api_key_hash, api_key_prefix, workspace_id)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::uuid)
+		INSERT INTO devices (id, name, type, firmware_version, status, metadata, api_key_hash, api_key_prefix, workspace_id, fleet_id)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7, $8, $9::uuid, $10::uuid)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			type = EXCLUDED.type,
@@ -47,8 +47,9 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 			api_key_hash = EXCLUDED.api_key_hash,
 			api_key_prefix = EXCLUDED.api_key_prefix,
 			workspace_id = EXCLUDED.workspace_id,
+			fleet_id = EXCLUDED.fleet_id,
 			updated_at = NOW()
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix`
 
 	created, err := scanDevice(r.db.QueryRowContext(
 		ctx,
@@ -62,6 +63,7 @@ func (r *DeviceRepository) Create(ctx context.Context, entity device.Device) (*d
 		entity.APIKeyHash,
 		entity.APIKeyPrefix,
 		wID,
+		entity.FleetID,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create device: %w", err)
@@ -76,7 +78,7 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 
 	if wID, ok := common.GetWorkspaceID(ctx); ok {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE workspace_id = $1::uuid
 			ORDER BY created_at DESC
@@ -84,7 +86,7 @@ func (r *DeviceRepository) List(ctx context.Context) ([]device.Device, error) {
 		rows, err = r.db.QueryContext(ctx, query, wID)
 	} else {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			ORDER BY created_at DESC
 			LIMIT 1000`
@@ -132,7 +134,7 @@ func (r *DeviceRepository) Search(ctx context.Context, terms []string, limit int
 	var err error
 	if wID, ok := common.GetWorkspaceID(ctx); ok {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE workspace_id = $1::uuid
 			  AND EXISTS (
@@ -146,7 +148,7 @@ func (r *DeviceRepository) Search(ctx context.Context, terms []string, limit int
 		rows, err = r.db.QueryContext(ctx, query, wID, pq.Array(cleanTerms), limit)
 	} else {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE EXISTS (
 				SELECT 1 FROM unnest($1::text[]) term
@@ -182,13 +184,13 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Devi
 
 	if wID, ok := common.GetWorkspaceID(ctx); ok {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE id = $1::uuid AND workspace_id = $2::uuid`
 		row = r.db.QueryRowContext(ctx, query, id, wID)
 	} else {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE id = $1::uuid`
 		row = r.db.QueryRowContext(ctx, query, id)
@@ -210,7 +212,7 @@ func (r *DeviceRepository) GetByHardwareID(ctx context.Context, hardwareID strin
 
 	if wID, ok := common.GetWorkspaceID(ctx); ok {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE metadata->>'hardware_id' = $1 AND workspace_id = $2::uuid
 			ORDER BY created_at ASC
@@ -218,7 +220,7 @@ func (r *DeviceRepository) GetByHardwareID(ctx context.Context, hardwareID strin
 		row = r.db.QueryRowContext(ctx, query, hardwareID, wID)
 	} else {
 		const query = `
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE metadata->>'hardware_id' = $1
 			ORDER BY created_at ASC
@@ -239,7 +241,7 @@ func (r *DeviceRepository) GetByHardwareID(ctx context.Context, hardwareID strin
 
 func (r *DeviceRepository) GetByAPIKeyPrefix(ctx context.Context, prefix string) (*device.Device, error) {
 	const query = `
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 		FROM devices
 		WHERE api_key_prefix = $1`
 
@@ -282,6 +284,9 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 	if input.APIKeyPrefix != nil {
 		current.APIKeyPrefix = input.APIKeyPrefix
 	}
+	if input.FleetID != nil {
+		current.FleetID = input.FleetID
+	}
 
 	var row *sql.Row
 
@@ -295,9 +300,10 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 				metadata = $6::jsonb,
 				api_key_hash = $8,
 				api_key_prefix = $9,
+				fleet_id = $10::uuid,
 				updated_at = NOW()
 			WHERE id = $1::uuid AND workspace_id = $7::uuid
-			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix`
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix`
 		row = r.db.QueryRowContext(
 			ctx,
 			query,
@@ -310,6 +316,7 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 			wID,
 			current.APIKeyHash,
 			current.APIKeyPrefix,
+			current.FleetID,
 		)
 	} else {
 		const query = `
@@ -321,9 +328,10 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 				metadata = $6::jsonb,
 				api_key_hash = $7,
 				api_key_prefix = $8,
+				fleet_id = $9::uuid,
 				updated_at = NOW()
 			WHERE id = $1::uuid
-			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix`
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix`
 		row = r.db.QueryRowContext(
 			ctx,
 			query,
@@ -335,6 +343,7 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 			current.Metadata,
 			current.APIKeyHash,
 			current.APIKeyPrefix,
+			current.FleetID,
 		)
 	}
 
@@ -352,7 +361,7 @@ func (r *DeviceRepository) Update(ctx context.Context, id string, input device.U
 func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, status string, firmwareVersion string) (*device.Device, error) {
 	const query = `
 		WITH target AS (
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE id = $1::uuid
 		), updated AS (
@@ -367,11 +376,11 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 				OR last_seen IS NULL
 				OR last_seen < NOW() - INTERVAL '15 seconds'
 			  )
-			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 		)
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix FROM updated
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix FROM updated
 		UNION ALL
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix FROM target
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix FROM target
 		WHERE NOT EXISTS (SELECT 1 FROM updated)
 		LIMIT 1`
 
@@ -389,7 +398,7 @@ func (r *DeviceRepository) UpdateHeartbeat(ctx context.Context, id string, statu
 func (r *DeviceRepository) UpdatePresence(ctx context.Context, id string, status string, timestamp time.Time) (*device.Device, error) {
 	const query = `
 		WITH target AS (
-			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 			FROM devices
 			WHERE id = $1::uuid
 		), updated AS (
@@ -403,11 +412,11 @@ func (r *DeviceRepository) UpdatePresence(ctx context.Context, id string, status
 				OR last_seen IS NULL
 				OR last_seen < $3::timestamptz - INTERVAL '15 seconds'
 			  )
-			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix
+			RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix
 		)
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix FROM updated
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix FROM updated
 		UNION ALL
-		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix FROM target
+		SELECT id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix FROM target
 		WHERE NOT EXISTS (SELECT 1 FROM updated)
 		LIMIT 1`
 
@@ -430,7 +439,7 @@ func (r *DeviceRepository) MarkStaleOffline(ctx context.Context, timeout time.Du
 		WHERE status <> 'offline'
 			AND last_seen IS NOT NULL
 			AND last_seen < NOW() - ($1::bigint * INTERVAL '1 second')
-		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, created_at, updated_at, api_key_hash, api_key_prefix`
+		RETURNING id, name, type, firmware_version, status, metadata, last_seen, workspace_id, fleet_id, created_at, updated_at, api_key_hash, api_key_prefix`
 
 	rows, err := r.db.QueryContext(ctx, query, int64(timeout.Seconds()))
 	if err != nil {
@@ -494,6 +503,7 @@ func scanDevice(scanner deviceScanner) (*device.Device, error) {
 		&entity.Metadata,
 		&entity.LastSeen,
 		&entity.WorkspaceID,
+		&entity.FleetID,
 		&entity.CreatedAt,
 		&entity.UpdatedAt,
 		&entity.APIKeyHash,

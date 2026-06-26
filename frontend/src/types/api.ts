@@ -16,6 +16,7 @@ export interface Device {
   status: DeviceStatus;
   metadata?: JsonValue;
   workspace_id?: string;
+  fleet_id?: string;
   last_seen?: string;
   created_at: string;
   updated_at: string;
@@ -29,6 +30,36 @@ export interface CreateDeviceRequest {
   firmware_version: string;
   status?: string;
   metadata?: JsonValue;
+  fleet_id?: string;
+}
+
+export interface Fleet {
+	id: string;
+	workspace_id: string;
+	name: string;
+	node_role: string;
+	hardware_type: string;
+	node_prefix: string;
+	firmware_version: string;
+	firmware_template: string;
+	node_count: number;
+	total_nodes: number;
+	online_nodes: number;
+	offline_nodes: number;
+	devices?: Device[];
+	created_at: string;
+}
+
+export interface CreateFleetRequest {
+	name: string;
+	node_role: string;
+	hardware_type: string;
+	node_prefix: string;
+	node_count: number;
+	firmware_version: string;
+	firmware_template: string;
+	wifi_ssid?: string;
+	wifi_password?: string;
 }
 
 export interface Telemetry {

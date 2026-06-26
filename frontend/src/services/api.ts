@@ -21,14 +21,15 @@ import type {
   Workspace,
   Session,
   SessionEvent,
-  SessionAlert,
   SessionCommand,
   SessionStatistics,
   SessionArtifact,
   DeviceStatusInfo,
-  ActiveIncident
+  ActiveIncident,
+  Fleet,
+  CreateFleetRequest
 } from "../types/api";
-import { request } from "./http";
+import { request, requestBlob } from "./http";
 
 export const api = {
   health: async () => {
@@ -56,6 +57,17 @@ export const api = {
         method: "POST",
         body: JSON.stringify(status ? { status } : {})
       })
+  },
+
+  fleets: {
+    list: () => request<Fleet[]>("/fleets"),
+    get: (id: string) => request<Fleet>(`/fleets/${id}`),
+    create: (payload: CreateFleetRequest) =>
+      requestBlob("/fleets", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }),
+    remove: (id: string) => request<void>(`/fleets/${id}`, { method: "DELETE" })
   },
 
   telemetry: {

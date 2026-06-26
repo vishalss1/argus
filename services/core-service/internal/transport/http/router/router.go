@@ -24,6 +24,7 @@ func New(
 	ruleHandler *handler.RuleHandler,
 	aiHandler *handler.AIHandler,
 	workspaceHandler *handler.WorkspaceHandler,
+	fleetHandler *handler.FleetHandler,
 	sessionHandler *handler.SessionHandler,
 	authHandler *handler.AuthHandler,
 	authService *auth.Service,
@@ -112,6 +113,17 @@ func New(
 				r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
 				r.Post("/sessions", sessionHandler.Create)
 				r.Get("/sessions", sessionHandler.List)
+			})
+
+			r.Route("/fleets", func(r chi.Router) {
+				r.Get("/", fleetHandler.ListFleets)
+				r.Post("/", fleetHandler.CreateFleet)
+				r.Get("/{fleetID}", func(w http.ResponseWriter, r *http.Request) {
+					fleetHandler.GetFleet(w, r, chi.URLParam(r, "fleetID"))
+				})
+				r.Delete("/{fleetID}", func(w http.ResponseWriter, r *http.Request) {
+					fleetHandler.DeleteFleet(w, r, chi.URLParam(r, "fleetID"))
+				})
 			})
 
 			r.Route("/sessions/{sessionID}", func(r chi.Router) {

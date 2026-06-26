@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { request } from "../services/http";
 
 export interface User {
@@ -29,6 +30,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(() => {
@@ -45,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       localStorage.removeItem("argus_active_workspace_id");
     }
+    queryClient.clear();
   };
 
   const refreshMe = async () => {

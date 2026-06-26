@@ -268,7 +268,7 @@ export function OTAPage() {
         title="Deployments"
         actions={
           <div style={{ display: "flex", gap: 12 }}>
-            <button className="button secondary" onClick={() => { void allDeployments.refetch(); void stats.refetch(); }}><RefreshCw size={15} />Refresh</button>
+            <button className="button secondary" onClick={() => { void allDeployments.refetch(); void stats.refetch(); void firmware.refetch(); }}><RefreshCw size={15} />Refresh</button>
             <button className="button secondary" onClick={() => { setReleaseAction("upload"); setIsReleaseModalOpen(true); }}><Upload size={15} /> Upload Artifact</button>
             <button className="button primary" onClick={() => { setReleaseAction("deploy"); setIsReleaseModalOpen(true); }}><Play size={15} /> Deploy Release</button>
           </div>
@@ -276,6 +276,40 @@ export function OTAPage() {
       />
 
       <div style={{ maxWidth: 900 }}>
+        {/* Artifacts Section */}
+        <h3 style={{ marginTop: 0, marginBottom: 16 }}>Available Artifacts</h3>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)", overflow: "hidden", marginBottom: 32 }}>
+          {firmware.isLoading && <LoadingRows rows={3} />}
+          {!firmware.isLoading && (firmware.data?.length === 0 || !firmware.data) && (
+            <EmptyState title="No artifacts" description="Upload a firmware artifact to get started." />
+          )}
+          {firmware.data?.map(artifact => (
+            <div key={artifact.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <FileText size={16} color="var(--text-muted)" />
+                <div style={{ fontWeight: 500 }}>{artifact.version}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 13 }}><CopyableID id={artifact.id} /></div>
+                <div style={{ color: "var(--text-muted)", fontSize: 13, fontFamily: "var(--font-mono)" }}>{formatBytes(artifact.size_bytes)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{formatDate(artifact.created_at)}</div>
+                <button
+                  className="button icon-only"
+                  style={{ color: "var(--danger)" }}
+                  title="Delete Artifact"
+                  onClick={() => setArtifactToDelete(artifact)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Deployments Section */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>Deployment Timeline</h3>
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
           <label className="field" style={{ flex: 1, marginRight: 32 }}>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search deployments..." style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", width: "100%", maxWidth: "100%" }} />
@@ -316,6 +350,19 @@ export function OTAPage() {
             </div>
           </form>
         )}
+      </Modal>
+
+      <Modal isOpen={!!artifactToDelete} onClose={() => setArtifactToDelete(null)} title="Delete Artifact">
+        <div style={{ marginBottom: 24, fontSize: 14 }}>
+          Are you sure you want to delete the firmware artifact <strong>{artifactToDelete?.version}</strong>? This cannot be undone, but existing deployments using this artifact will not be affected on devices that have already downloaded it.
+        </div>
+        {deleteError && <div className="form-message error field full">{deleteError}</div>}
+        <div className="modal-actions">
+          <button type="button" className="button secondary" onClick={() => setArtifactToDelete(null)} disabled={isDeleting}>Cancel</button>
+          <button className="button primary" style={{ background: "var(--danger)", borderColor: "var(--danger)" }} onClick={handleDeleteFirmware} disabled={isDeleting}>
+            {isDeleting ? "Deleting..." : "Delete Artifact"}
+          </button>
+        </div>
       </Modal>
 
     </>

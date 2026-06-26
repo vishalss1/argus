@@ -45,6 +45,19 @@ type TemplateData struct {
 	RootCAPEM              string
 	DeviceCertPEM          string
 	DevicePrivateKeyPEM    string
+	UserCode               string
+}
+
+type GenerateOptions struct {
+	DeviceID        string
+	WorkspaceID     string
+	APIKey          string
+	FirmwareVersion string
+	CertPEM         string
+	PrivKeyPEM      string
+	WiFiSSID        string
+	WiFiPassword    string
+	UserCode        string
 }
 
 func validatePEM(name, pemStr, expectedType string) error {
@@ -187,37 +200,60 @@ func NewGenerator(config GeneratorConfig) (*Generator, error) {
 }
 
 func (g *Generator) Generate(deviceID, workspaceID, apiKey, firmwareVersion, certPEM, privKeyPEM string) ([]byte, error) {
-	certPEM, err := preparePEM("device certificate", certPEM, "CERTIFICATE")
+	return g.GenerateWithOptions(GenerateOptions{
+		DeviceID:        deviceID,
+		WorkspaceID:     workspaceID,
+		APIKey:          apiKey,
+		FirmwareVersion: firmwareVersion,
+		CertPEM:         certPEM,
+		PrivKeyPEM:      privKeyPEM,
+	})
+}
+
+func (g *Generator) GenerateWithOptions(opts GenerateOptions) ([]byte, error) {
+	certPEM, err := preparePEM("device certificate", opts.CertPEM, "CERTIFICATE")
 	if err != nil {
 		return nil, fmt.Errorf("invalid device certificate: %w", err)
 	}
-	privKeyPEM, err = preparePEM("device private key", privKeyPEM, "PRIVATE KEY")
+	privKeyPEM, err := preparePEM("device private key", opts.PrivKeyPEM, "PRIVATE KEY")
 	if err != nil {
 		return nil, fmt.Errorf("invalid device private key: %w", err)
 	}
 
+	firmwareVersion := opts.FirmwareVersion
 	if firmwareVersion == "" {
 		firmwareVersion = g.config.DefaultFirmwareVersion
 	}
 	if firmwareVersion == "" {
 		firmwareVersion = "0.0.0"
 	}
+	
+	wifiSSID := opts.WiFiSSID
+	if wifiSSID == "" {
+		wifiSSID = g.config.WiFiSSID
+	}
+	
+	wifiPassword := opts.WiFiPassword
+	if wifiPassword == "" {
+		wifiPassword = g.config.WiFiPassword
+	}
 
 	data := TemplateData{
-		DeviceID:               deviceID,
-		WorkspaceID:            workspaceID,
-		APIKey:                 apiKey,
+		DeviceID:               opts.DeviceID,
+		WorkspaceID:            opts.WorkspaceID,
+		APIKey:                 opts.APIKey,
 		ServerHost:             g.config.ServerHost,
 		HTTPPort:               g.config.HTTPPort,
 		MQTTPort:               g.config.MQTTPort,
-		WiFiSSID:               g.config.WiFiSSID,
-		WiFiPassword:           g.config.WiFiPassword,
+		WiFiSSID:               wifiSSID,
+		WiFiPassword:           wifiPassword,
 		OTASigningKeyID:        g.config.OTASigningKeyID,
 		OTASigningPublicKeyB64: g.config.OTASigningPublicKeyB64,
 		FirmwareVersion:        firmwareVersion,
 		RootCAPEM:              g.config.RootCAPEM,
 		DeviceCertPEM:          certPEM,
 		DevicePrivateKeyPEM:    privKeyPEM,
+		UserCode:               opts.UserCode,
 	}
 
 	var buf bytes.Buffer

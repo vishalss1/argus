@@ -1,0 +1,2 @@
+ALTER TABLE devices DROP COLUMN IF EXISTS fleet_id;
+DROP TABLE IF EXISTS fleets;

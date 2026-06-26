@@ -35,6 +35,9 @@ const char ARGUS_DEVICE_PRIVATE_KEY[] PROGMEM = R"EOF(
 
 // ================= USER CODE =================
 
+{{if .UserCode}}
+{{.UserCode}}
+{{else}}
 void setup()
 {
     Serial.begin(115200);
@@ -45,3 +48,4 @@ void loop()
 {
     argusLoop();
 }
+{{end}}
