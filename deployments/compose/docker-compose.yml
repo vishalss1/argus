@@ -10,6 +10,12 @@ services:
       - "5433:5432"
     volumes:
       - argus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argus} -d ${POSTGRES_DB:-argus}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -150,11 +156,16 @@ services:
       - "8080:8080"
       - "50051:50051"
     depends_on:
-      - postgres
-      - redis
-      - redpanda
-      - minio
-      - mosquitto
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      redpanda:
+        condition: service_started
+      minio:
+        condition: service_started
+      mosquitto:
+        condition: service_started
     volumes:
       - ../../certs:/certs:ro
     healthcheck:
