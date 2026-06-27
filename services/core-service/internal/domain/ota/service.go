@@ -143,7 +143,7 @@ func (s *Service) Deploy(ctx context.Context, deviceID string, input DeployInput
 		return nil, errors.New("firmware artifact id is required")
 	}
 
-	resolvedDeviceID, err := s.repo.ResolveDeviceID(ctx, requestedDeviceID)
+	resolvedDeviceID, deviceStatus, err := s.repo.ResolveDeviceID(ctx, requestedDeviceID)
 	if err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			log.Printf("[OTA] deployment create rejected device=%s reason=device not registered", requestedDeviceID)
@@ -164,11 +164,20 @@ func (s *Service) Deploy(ctx context.Context, deviceID string, input DeployInput
 		return nil, err
 	}
 
+	deployStatus := StatusPending
+	var failureReason *string
+	if deviceStatus == "offline" {
+		deployStatus = StatusNacked
+		reason := "Device is offline"
+		failureReason = &reason
+	}
+
 	deployment, err := s.repo.CreateDeployment(ctx, Deployment{
-		ID:         id,
-		DeviceID:   resolvedDeviceID,
-		ArtifactID: artifact.ID,
-		Status:     StatusPending,
+		ID:            id,
+		DeviceID:      resolvedDeviceID,
+		ArtifactID:    artifact.ID,
+		Status:        deployStatus,
+		FailureReason: failureReason,
 	})
 	if err != nil {
 		return nil, err

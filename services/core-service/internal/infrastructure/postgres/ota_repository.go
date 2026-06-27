@@ -127,34 +127,34 @@ func (r *OTARepository) DeleteArtifact(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *OTARepository) ResolveDeviceID(ctx context.Context, idOrHardwareID string) (string, error) {
+func (r *OTARepository) ResolveDeviceID(ctx context.Context, idOrHardwareID string) (string, string, error) {
 	const query = `
-		SELECT id
+		SELECT id, status
 		FROM devices
 		WHERE id::text = $1 OR metadata->>'hardware_id' = $1
 		ORDER BY CASE WHEN id::text = $1 THEN 0 ELSE 1 END, created_at ASC
 		LIMIT 1`
 
-	var id string
-	err := r.db.QueryRowContext(ctx, query, idOrHardwareID).Scan(&id)
+	var id, status string
+	err := r.db.QueryRowContext(ctx, query, idOrHardwareID).Scan(&id, &status)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", device.ErrDeviceNotFound
+		return "", "", device.ErrDeviceNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("resolve ota device id: %w", err)
+		return "", "", fmt.Errorf("resolve ota device id: %w", err)
 	}
-	return id, nil
+	return id, status, nil
 }
 
 func (r *OTARepository) CreateDeployment(ctx context.Context, deployment ota.Deployment) (*ota.Deployment, error) {
 	query := `
 		WITH created AS (
-			INSERT INTO ota_deployments (id, device_id, artifact_id, status, progress)
-			VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 0)
+			INSERT INTO ota_deployments (id, device_id, artifact_id, status, progress, failure_reason)
+			VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 0, $5)
 			RETURNING *
 		), event AS (
 			INSERT INTO ota_deployment_events (deployment_id, device_id, status, progress, message)
-			SELECT id, device_id, status, progress, 'Deployment created'
+			SELECT id, device_id, status, progress, COALESCE(NULLIF($5, ''), 'Deployment created')
 			FROM created
 		)
 		SELECT ` + deploymentColumns("created") + `
@@ -169,6 +169,7 @@ func (r *OTARepository) CreateDeployment(ctx context.Context, deployment ota.Dep
 		deployment.DeviceID,
 		deployment.ArtifactID,
 		deployment.Status,
+		deployment.FailureReason,
 	))
 	if isForeignKeyViolation(err) {
 		return nil, device.ErrDeviceNotFound

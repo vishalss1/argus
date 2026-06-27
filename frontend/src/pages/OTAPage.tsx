@@ -154,6 +154,9 @@ export function OTAPage() {
   const [fleetDeploySuccess, setFleetDeploySuccess] = useState("");
   const fleetDeployTimeoutRef = useRef<number | null>(null);
 
+  const [deployTarget, setDeployTarget] = useState<"fleet" | "devices">("fleet");
+  const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState("");
   const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
 
   const deploymentRows = useMemo(() => {
@@ -285,6 +288,30 @@ export function OTAPage() {
     }
   }
 
+  async function devicesDeployHandler(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFleetDeployError("");
+    setFleetDeploySuccess("");
+    if (fleetDeployTimeoutRef.current) {
+      window.clearTimeout(fleetDeployTimeoutRef.current);
+    }
+    if (selectedDevices.length === 0 || !fleetArtifactID) {
+      setFleetDeployError("Select at least one device and an artifact.");
+      return;
+    }
+    try {
+      await Promise.all(selectedDevices.map(id => api.deployments.create(id, fleetArtifactID)));
+      await Promise.all([allDeployments.refetch(), stats.refetch()]);
+      setFleetDeploySuccess(`Successfully queued deployment for ${selectedDevices.length} devices.`);
+      setSelectedDevices([]); // clear selection
+      fleetDeployTimeoutRef.current = window.setTimeout(() => {
+        setFleetDeploySuccess("");
+      }, 5000);
+    } catch (err) {
+      setFleetDeployError((err as Error).message);
+    }
+  }
+
   const totalDeployments = stats.data?.total_deployments ?? 0;
   const successful = stats.data?.successful_deployments ?? 0;
   const failed = stats.data?.failed_deployments ?? 0;
@@ -339,16 +366,63 @@ export function OTAPage() {
           ))}
         </div>
 
-        {/* Fleet OTA Deploy Section */}
+        {/* OTA Deploy Section */}
         <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)", padding: "16px 20px", marginBottom: 32 }}>
-          <h3 style={{ marginTop: 0, marginBottom: 16, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-secondary)" }}>Fleet OTA Deploy</h3>
-          <form style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }} onSubmit={fleetDeployHandler}>
-            <SelectField label="Fleet" value={fleetID} onChange={setFleetID}>
-              <option value="">Select fleet</option>
-              {(fleets.data ?? []).map((fleet) => (
-                <option key={fleet.id} value={fleet.id}>{fleet.name} ({fleet.total_nodes} nodes)</option>
-              ))}
-            </SelectField>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-secondary)" }}>OTA Deployment</h3>
+            <div style={{ display: "flex", gap: 16 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                <input type="radio" name="deployTarget" value="fleet" checked={deployTarget === "fleet"} onChange={() => setDeployTarget("fleet")} style={{ width: "auto", margin: 0 }} /> Fleet
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                <input type="radio" name="deployTarget" value="devices" checked={deployTarget === "devices"} onChange={() => setDeployTarget("devices")} style={{ width: "auto", margin: 0 }} /> Specific Devices
+              </label>
+            </div>
+          </div>
+
+          <form style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }} onSubmit={deployTarget === "fleet" ? fleetDeployHandler : devicesDeployHandler}>
+            {deployTarget === "fleet" ? (
+              <SelectField label="Fleet" value={fleetID} onChange={setFleetID}>
+                <option value="">Select fleet</option>
+                {(fleets.data ?? []).map((fleet) => (
+                  <option key={fleet.id} value={fleet.id}>{fleet.name} ({fleet.total_nodes} nodes)</option>
+                ))}
+              </SelectField>
+            ) : (
+              <div className="field" style={{ flex: 1, minWidth: 200, maxWidth: 300 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Devices (Select multiple)</span>
+                <input 
+                  type="text" 
+                  placeholder="Search devices..." 
+                  value={deviceSearchQuery} 
+                  onChange={(e) => setDeviceSearchQuery(e.target.value)} 
+                  style={{ width: "100%", marginBottom: 8, padding: "6px 10px", fontSize: 13, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}
+                />
+                <div style={{ width: "100%", height: 100, padding: "8px 12px", background: "var(--background)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {workspaceDevices.filter(device => device.name.toLowerCase().includes(deviceSearchQuery.toLowerCase())).map(device => (
+                    <label key={device.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", color: "var(--text-primary)" }}>
+                      <input 
+                        type="checkbox" 
+                        style={{ width: "auto", margin: 0 }}
+                        checked={selectedDevices.includes(device.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedDevices(prev => [...prev, device.id]);
+                          } else {
+                            setSelectedDevices(prev => prev.filter(id => id !== device.id));
+                          }
+                        }}
+                      />
+                      {device.name}
+                    </label>
+                  ))}
+                  {workspaceDevices.filter(device => device.name.toLowerCase().includes(deviceSearchQuery.toLowerCase())).length === 0 && (
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "10px 0" }}>No devices found</div>
+                  )}
+                </div>
+              </div>
+            )}
+            
             <SelectField label="Artifact" value={fleetArtifactID} onChange={setFleetArtifactID}>
               <option value="">Select artifact</option>
               {(firmware.data ?? []).map((artifact) => (
@@ -358,11 +432,11 @@ export function OTAPage() {
             <button
               className="button primary"
               type="submit"
-              disabled={!fleetID || !fleetArtifactID || fleetDeploy.isPending}
-              style={{ height: 36 }}
+              disabled={(deployTarget === "fleet" ? !fleetID : selectedDevices.length === 0) || !fleetArtifactID || fleetDeploy.isPending}
+              style={{ height: 36, marginBottom: deployTarget === "devices" ? 64 : 0 }}
             >
               <Play size={14} style={{ marginRight: 6 }} />
-              {fleetDeploy.isPending ? "Deploying..." : "Deploy to Fleet"}
+              {fleetDeploy.isPending ? "Deploying..." : "Deploy"}
             </button>
           </form>
           {fleetDeployError && (

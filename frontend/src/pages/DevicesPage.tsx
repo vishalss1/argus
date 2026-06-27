@@ -24,6 +24,18 @@ export function DevicesPage() {
   } | null>(null);
   const [hasDownloaded, setHasDownloaded] = useState(false);
 
+  const [isAddDevicesModalOpen, setIsAddDevicesModalOpen] = useState(false);
+  const [fleetToAddDevices, setFleetToAddDevices] = useState<any | null>(null);
+  const [addDevicesFormError, setAddDevicesFormError] = useState("");
+  const [isAddingDevices, setIsAddingDevices] = useState(false);
+  const [addedDevicesData, setAddedDevicesData] = useState<{
+    blobUrl: string;
+    filename: string;
+    fleet_name: string;
+    node_count: number;
+    node_prefix: string;
+  } | null>(null);
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return fleets.data ?? [];
@@ -66,6 +78,53 @@ export function DevicesPage() {
       setHasDownloaded(false);
     } catch (error) {
       setFormError((error as Error).message);
+    }
+  }
+
+  async function onAddDevices(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAddDevicesFormError("");
+    if (!fleetToAddDevices) return;
+    
+    setIsAddingDevices(true);
+    const form = new FormData(event.currentTarget);
+    const node_count = Number(form.get("node_count") || 1);
+    const node_prefix = String(form.get("node_prefix") || fleetToAddDevices.node_prefix || "Node");
+    
+    try {
+      const blob = await api.fleets.addDevices(fleetToAddDevices.id, {
+        node_count,
+        node_prefix,
+        wifi_ssid: String(form.get("wifi_ssid") || ""),
+        wifi_password: String(form.get("wifi_password") || "")
+      });
+      
+      const url = window.URL.createObjectURL(blob);
+      setAddedDevicesData({
+        blobUrl: url,
+        filename: `fleet_${fleetToAddDevices.name.replace(/\s+/g, "_")}_new_devices.zip`,
+        fleet_name: fleetToAddDevices.name,
+        node_count,
+        node_prefix
+      });
+      setHasDownloaded(false);
+    } catch (error) {
+      setAddDevicesFormError((error as Error).message);
+    } finally {
+      setIsAddingDevices(false);
+    }
+  }
+
+  async function removeDevice(id: string) {
+    if (window.confirm("Are you sure you want to delete this device?")) {
+      try {
+        await api.devices.remove(id);
+        // Force reload to update context
+        window.location.reload();
+      } catch (err) {
+        console.error("Failed to delete device", err);
+        alert("Failed to delete device: " + (err as Error).message);
+      }
     }
   }
 
@@ -137,6 +196,7 @@ export function DevicesPage() {
                         <td>{fleet.firmware_version || "Unset"}</td>
                         <td onClick={e => e.stopPropagation()}>
                           <div className="page-actions">
+                            <button className="button compact secondary" onClick={(e) => { e.stopPropagation(); setFleetToAddDevices(fleet); setIsAddDevicesModalOpen(true); }} aria-label={`Add Devices to ${fleet.name}`}><Plus size={14} /></button>
                             <button className="button compact secondary" onClick={() => void api.fleets.firmware(fleet.id)} aria-label={`Download Firmware for ${fleet.name}`}><Download size={14} /></button>
                             <button className="button compact danger" onClick={() => void removeFleet(fleet.id)} aria-label={`Delete ${fleet.name}`}><Trash2 size={14} /></button>
                           </div>
@@ -155,6 +215,7 @@ export function DevicesPage() {
                                     <th>Firmware</th>
                                     <th>Last Seen</th>
                                     <th>RSSI</th>
+                                    <th style={{ textAlign: "right" }}>Actions</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -170,6 +231,11 @@ export function DevicesPage() {
                                         <td>{fleet.firmware_version || "Unset"}</td>
                                         <td>{formatDate(device.last_seen)}</td>
                                         <td>{device.status === 'online' ? "-65 dBm" : "--"}</td>
+                                        <td style={{ textAlign: "right" }}>
+                                          <button className="button compact danger icon-only" onClick={(e) => { e.stopPropagation(); removeDevice(device.id); }} aria-label={`Delete ${device.name}`}>
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </td>
                                       </tr>
                                     ));
                                   })()}
@@ -271,6 +337,67 @@ export function DevicesPage() {
               }}>
                 Done
               </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal 
+        isOpen={isAddDevicesModalOpen} 
+        onClose={() => {
+          if (addedDevicesData && !hasDownloaded) return;
+          setIsAddDevicesModalOpen(false);
+          if (addedDevicesData) {
+            window.URL.revokeObjectURL(addedDevicesData.blobUrl);
+            setAddedDevicesData(null);
+            fleets.refetch();
+          }
+        }} 
+        title={addedDevicesData ? "Devices Provisioned" : `Add Devices to ${fleetToAddDevices?.name}`} 
+        style={{ maxWidth: 500, width: "90vw" }}
+      >
+        {!addedDevicesData ? (
+          <form className="form-grid" onSubmit={onAddDevices} style={{ padding: "16px 0 0 0", display: "flex", flexDirection: "column", gap: "16px" }}>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="field full" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", margin: 0 }}>
+                <label className="field" style={{ margin: 0 }}><span>Node Prefix</span><input name="node_prefix" required defaultValue={fleetToAddDevices?.node_prefix || "Node"} /></label>
+                <label className="field" style={{ margin: 0 }}><span>New Node Count</span><input name="node_count" type="number" min="1" required defaultValue="1" /></label>
+              </div>
+              <div className="field full" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", margin: 0, paddingTop: "12px", borderTop: "1px solid var(--border-color)" }}>
+                <label className="field" style={{ margin: 0 }}><span>Target WiFi SSID</span><input name="wifi_ssid" placeholder="IoT_Network" /></label>
+                <label className="field" style={{ margin: 0 }}><span>WiFi Password</span><input name="wifi_password" type="password" placeholder="••••••••" /></label>
+              </div>
+            </div>
+
+            {addDevicesFormError && <p className="muted field full" style={{ margin: 0 }}>{addDevicesFormError}</p>}
+            <div className="page-actions field full" style={{ gridColumn: "1 / -1", marginTop: "16px", justifyContent: "flex-end", display: "flex", gap: "12px", paddingTop: "20px", borderTop: "1px solid var(--border-color)" }}>
+              <button className="button secondary" type="button" onClick={() => setIsAddDevicesModalOpen(false)}>Cancel</button>
+              <button className="button primary" type="submit" disabled={isAddingDevices}><Plus size={15} />Add Devices</button>
+            </div>
+          </form>
+        ) : (
+          <div style={{ padding: "24px 0 0 0", display: "flex", flexDirection: "column", gap: "24px" }}>
+            <div style={{ padding: "16px", backgroundColor: "rgba(0, 255, 128, 0.05)", border: "1px solid rgba(0, 255, 128, 0.2)", borderRadius: "8px" }}>
+              <h3 style={{ color: "var(--accent-green)", margin: "0 0 8px 0" }}>Successfully Added to {addedDevicesData.fleet_name}</h3>
+              <p style={{ margin: 0, color: "var(--text-secondary)" }}>
+                Generated {addedDevicesData.node_count} node(s) with prefix "{addedDevicesData.node_prefix}".
+              </p>
+            </div>
+            
+            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", paddingTop: "20px", borderTop: "1px solid var(--border-color)" }}>
+              <button className="button primary" onClick={() => {
+                const a = document.createElement("a");
+                a.href = addedDevicesData.blobUrl;
+                a.download = addedDevicesData.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setHasDownloaded(true);
+              }}>
+                <Download size={15} /> Download ZIP
+              </button>
+              {hasDownloaded && <button className="button secondary" onClick={() => setIsAddDevicesModalOpen(false)}>Close</button>}
             </div>
           </div>
         )}

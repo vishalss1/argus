@@ -60,6 +60,42 @@ func (h *FleetHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(result.ZipData)
 }
 
+// AddDevices godoc
+// @Summary Add devices to fleet
+// @Tags fleets
+// @Accept json
+// @Produce application/zip
+// @Param fleetID path string true "Fleet ID"
+// @Param request body dto.AddFleetDevicesRequest true "Add devices payload"
+// @Success 201
+// @Failure 400 {object} dto.ErrorResponse
+// @Router /fleets/{fleetID}/devices [post]
+func (h *FleetHandler) AddDevices(w http.ResponseWriter, r *http.Request, id string) {
+	var req dto.AddFleetDevicesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	result, err := h.service.AddDevicesToFleet(r.Context(), fleet.AddDevicesInput{
+		FleetID:      id,
+		NodeCount:    req.NodeCount,
+		NodePrefix:   req.NodePrefix,
+		WiFiSSID:     req.WiFiSSID,
+		WiFiPassword: req.WiFiPassword,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	filename := fmt.Sprintf("fleet_%s_new_devices.zip", strings.ReplaceAll(result.Fleet.Name, " ", "_"))
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write(result.ZipData)
+}
+
 // ListFleets godoc
 // @Summary List fleets
 // @Tags fleets

@@ -11,7 +11,7 @@ type Repository interface {
 	ListArtifacts(ctx context.Context) ([]FirmwareArtifact, error)
 	GetArtifact(ctx context.Context, id string) (*FirmwareArtifact, error)
 	DeleteArtifact(ctx context.Context, id string) error
-	ResolveDeviceID(ctx context.Context, idOrHardwareID string) (string, error)
+	ResolveDeviceID(ctx context.Context, idOrHardwareID string) (string, string, error)
 	CreateDeployment(ctx context.Context, deployment Deployment) (*Deployment, error)
 	ListDeployments(ctx context.Context) ([]Deployment, error)
 	ListDeploymentsByDevice(ctx context.Context, deviceID string) ([]Deployment, error)

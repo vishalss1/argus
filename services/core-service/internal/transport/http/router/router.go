@@ -130,6 +130,9 @@ func New(
 				r.Get("/{fleetID}/firmware", func(w http.ResponseWriter, r *http.Request) {
 					fleetHandler.DownloadFleetFirmware(w, r, chi.URLParam(r, "fleetID"))
 				})
+				r.Post("/{fleetID}/devices", func(w http.ResponseWriter, r *http.Request) {
+					fleetHandler.AddDevices(w, r, chi.URLParam(r, "fleetID"))
+				})
 			})
 
 			r.Route("/sessions/{sessionID}", func(r chi.Router) {

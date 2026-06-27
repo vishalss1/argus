@@ -80,6 +80,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload)
       }),
+    addDevices: (fleetID: string, payload: { node_count: number, node_prefix?: string, wifi_ssid?: string, wifi_password?: string }) =>
+      requestBlob(`/fleets/${fleetID}/devices`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }),
     remove: (id: string) => request<void>(`/fleets/${id}`, { method: "DELETE" }),
     deploy: (fleetID: string, artifactID: string) =>
       request<FleetDeployResponse>(`/fleets/${fleetID}/ota`, {

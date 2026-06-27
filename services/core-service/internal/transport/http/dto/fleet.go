@@ -19,6 +19,13 @@ type CreateFleetRequest struct {
 	WiFiPassword     string `json:"wifi_password"`
 }
 
+type AddFleetDevicesRequest struct {
+	NodeCount    int    `json:"node_count" validate:"min=1,max=500"`
+	NodePrefix   string `json:"node_prefix"`
+	WiFiSSID     string `json:"wifi_ssid"`
+	WiFiPassword string `json:"wifi_password"`
+}
+
 type FleetResponse struct {
 	ID               string          `json:"id"`
 	WorkspaceID      string          `json:"workspace_id"`
