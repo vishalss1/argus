@@ -5,6 +5,7 @@
  */
 
 #include "argus.h"
+#include "argus_nvs.h"
 #include "argus_version.h"
 #include <sodium.h>
 #include <WiFi.h>
@@ -71,6 +72,14 @@ void internalPublishTelemetry() {
 }
 
 void argusBegin() {
+  // NVS must be loaded before anything else so all extern symbols are
+  // populated.  A missing device identity would cause silent misbehaviour
+  // (empty device ID in MQTT topics, TLS without a CA, etc.).
+  if (!argusNVSLoad()) {
+    Serial.println("[BOOT] NVS not provisioned — halting");
+    while (true) { delay(1000); }
+  }
+
   delay(100);
   setenv("TZ", "UTC0", 1);
   tzset();

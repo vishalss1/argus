@@ -10,7 +10,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/firmware.ino.tmpl
+//go:embed templates/firmware.ino.tmpl templates/provision.ino.tmpl templates/fleet_firmware.ino.tmpl
 var templatesFS embed.FS
 
 type GeneratorConfig struct {
@@ -125,6 +125,16 @@ func cppString(value string) string {
 	return replacer.Replace(value)
 }
 
+// nvsPEM prepares a PEM string for storage in ESP32 NVS.
+//
+// NVS string entries are null-terminated C strings; raw '\n' bytes can cause
+// truncation on some ESP-IDF versions.  We replace each newline with the
+// two-character literal sequence '\''n' so the value survives the round-trip.
+// The argus_nvs.cpp loader reverses this substitution when reading at runtime.
+func nvsPEM(pem string) string {
+	return strings.ReplaceAll(pem, "\n", `\n`)
+}
+
 func validateRenderedPEM(sketch, symbol, expected string) error {
 	prefix := `const char ` + symbol + `[] PROGMEM = R"EOF(` + "\n"
 	start := strings.Index(sketch, prefix)
@@ -181,16 +191,35 @@ func NewGenerator(config GeneratorConfig) (*Generator, error) {
 	}
 	config.RootCAPEM = rootCA
 
+	funcMap := template.FuncMap{
+		"cppString": cppString,
+		"nvsPEM":    nvsPEM,
+	}
+
+	// Parse all three templates from the embedded FS.
 	tmplBytes, err := templatesFS.ReadFile("templates/firmware.ino.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read firmware template: %w", err)
 	}
-
-	tmpl, err := template.New("firmware.ino").Funcs(template.FuncMap{
-		"cppString": cppString,
-	}).Parse(string(tmplBytes))
+	tmpl, err := template.New("firmware.ino").Funcs(funcMap).Parse(string(tmplBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse firmware template: %w", err)
+	}
+
+	provBytes, err := templatesFS.ReadFile("templates/provision.ino.tmpl")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read provision template: %w", err)
+	}
+	if _, err = tmpl.New("provision.ino").Funcs(funcMap).Parse(string(provBytes)); err != nil {
+		return nil, fmt.Errorf("failed to parse provision template: %w", err)
+	}
+
+	fleetBytes, err := templatesFS.ReadFile("templates/fleet_firmware.ino.tmpl")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read fleet_firmware template: %w", err)
+	}
+	if _, err = tmpl.New("fleet_firmware.ino").Funcs(funcMap).Parse(string(fleetBytes)); err != nil {
+		return nil, fmt.Errorf("failed to parse fleet_firmware template: %w", err)
 	}
 
 	return &Generator{
@@ -275,5 +304,73 @@ func (g *Generator) GenerateWithOptions(opts GenerateOptions) ([]byte, error) {
 		}
 	}
 
+	return buf.Bytes(), nil
+}
+
+// GenerateProvision renders the per-device provisioning sketch.
+// The returned bytes should be saved as config_<deviceID>.ino.
+func (g *Generator) GenerateProvision(opts GenerateOptions) ([]byte, error) {
+	certPEM, err := preparePEM("device certificate", opts.CertPEM, "CERTIFICATE")
+	if err != nil {
+		return nil, fmt.Errorf("invalid device certificate: %w", err)
+	}
+	privKeyPEM, err := preparePEM("device private key", opts.PrivKeyPEM, "PRIVATE KEY")
+	if err != nil {
+		return nil, fmt.Errorf("invalid device private key: %w", err)
+	}
+
+	firmwareVersion := opts.FirmwareVersion
+	if firmwareVersion == "" {
+		firmwareVersion = g.config.DefaultFirmwareVersion
+	}
+	if firmwareVersion == "" {
+		firmwareVersion = "0.0.0"
+	}
+
+	wifiSSID := opts.WiFiSSID
+	if wifiSSID == "" {
+		wifiSSID = g.config.WiFiSSID
+	}
+	wifiPassword := opts.WiFiPassword
+	if wifiPassword == "" {
+		wifiPassword = g.config.WiFiPassword
+	}
+
+	data := TemplateData{
+		DeviceID:               opts.DeviceID,
+		WorkspaceID:            opts.WorkspaceID,
+		APIKey:                 opts.APIKey,
+		ServerHost:             g.config.ServerHost,
+		HTTPPort:               g.config.HTTPPort,
+		MQTTPort:               g.config.MQTTPort,
+		WiFiSSID:               wifiSSID,
+		WiFiPassword:           wifiPassword,
+		OTASigningKeyID:        g.config.OTASigningKeyID,
+		OTASigningPublicKeyB64: g.config.OTASigningPublicKeyB64,
+		FirmwareVersion:        firmwareVersion,
+		RootCAPEM:              g.config.RootCAPEM,
+		DeviceCertPEM:          certPEM,
+		DevicePrivateKeyPEM:    privKeyPEM,
+		UserCode:               opts.UserCode,
+	}
+
+	var buf bytes.Buffer
+	if err := g.tmpl.ExecuteTemplate(&buf, "provision.ino", data); err != nil {
+		return nil, fmt.Errorf("failed to execute provision template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// GenerateFleetFirmware renders the fleet firmware sketch.
+// The binary compiled from this sketch is identical for all fleet devices;
+// device identity is loaded from NVS at boot via argusNVSLoad().
+func (g *Generator) GenerateFleetFirmware(userCode string) ([]byte, error) {
+	data := TemplateData{
+		UserCode: userCode,
+	}
+	var buf bytes.Buffer
+	if err := g.tmpl.ExecuteTemplate(&buf, "fleet_firmware.ino", data); err != nil {
+		return nil, fmt.Errorf("failed to execute fleet_firmware template: %w", err)
+	}
 	return buf.Bytes(), nil
 }

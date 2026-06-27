@@ -1,0 +1,82 @@
+/**
+ * ARGUS ESP32 Device Provisioning Sketch
+ * Generated for device: {{cppString .DeviceID}}
+ *
+ * Flash this sketch ONCE to write device-specific identity values into NVS.
+ * After provisioning completes the device reboots and you should flash the
+ * fleet_firmware sketch (or any argus.h-based sketch) to begin normal
+ * operation.
+ *
+ * Download filename: config_{{.DeviceID}}.ino
+ */
+
+#include <Preferences.h>
+
+// ---------------------------------------------------------------------------
+// Helper: write a PEM string to NVS.
+//
+// Raw newlines cannot be stored reliably in NVS string entries on all
+// ESP-IDF versions (the underlying nvs_set_str treats the value as a
+// null-terminated C string, and some drivers stop at embedded '\n').
+// We therefore store PEM content with literal two-character '\''n' sequences
+// in place of real newlines.  The argus_nvs.cpp loader reverses this
+// conversion when reading at runtime.
+// ---------------------------------------------------------------------------
+static void putPEM(Preferences& prefs, const char* key, const char* pem) {
+    // Build a copy with real newlines replaced by the two-char literal \n.
+    // Maximum expected PEM is ~4 KiB; 8 KiB is a safe upper bound for the
+    // escaped form.
+    static char escaped[8192];
+    size_t r = 0, w = 0;
+    while (pem[r] != '\0' && w + 3 < sizeof(escaped)) {
+        if (pem[r] == '\n') {
+            escaped[w++] = '\\';
+            escaped[w++] = 'n';
+        } else {
+            escaped[w++] = pem[r];
+        }
+        r++;
+    }
+    escaped[w] = '\0';
+    prefs.putString(key, escaped);
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(500);
+    Serial.println("[PROVISION] Writing device configuration to NVS ...");
+
+    Preferences prefs;
+    prefs.begin("argus_cfg", /*readOnly=*/false);
+
+    // ---- String fields ----
+    prefs.putString("device_id",   "{{cppString .DeviceID}}");
+    prefs.putString("api_key",     "{{cppString .APIKey}}");
+    prefs.putString("server_host", "{{cppString .ServerHost}}");
+    prefs.putString("mqtt_host",   "{{cppString .ServerHost}}");
+    prefs.putString("wifi_ssid",   "{{cppString .WiFiSSID}}");
+    prefs.putString("wifi_pass",   "{{cppString .WiFiPassword}}");
+    prefs.putString("ota_key_id",  "{{cppString .OTASigningKeyID}}");
+    prefs.putString("ota_pub_key", "{{cppString .OTASigningPublicKeyB64}}");
+    prefs.putString("fw_version",  "{{cppString .FirmwareVersion}}");
+
+    // ---- Port scalars ----
+    prefs.putUInt("http_port", {{.HTTPPort}});
+    prefs.putUInt("mqtt_port", {{.MQTTPort}});
+
+    // ---- PEM fields (stored with literal \n between lines) ----
+    putPEM(prefs, "root_ca",  "{{nvsPEM .RootCAPEM}}");
+    putPEM(prefs, "dev_cert", "{{nvsPEM .DeviceCertPEM}}");
+    putPEM(prefs, "dev_key",  "{{nvsPEM .DevicePrivateKeyPEM}}");
+
+    prefs.end();
+
+    Serial.println("[PROVISION] Device provisioned successfully");
+    Serial.println("[PROVISION] Rebooting in 2 seconds ...");
+    delay(2000);
+    ESP.restart();
+}
+
+void loop() {
+    // Unreachable — setup() calls ESP.restart().
+}
