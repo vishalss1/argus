@@ -86,6 +86,12 @@ jobs:
             -f sdk_tests/ci/docker-compose.ci.yml \
             up -d --build
 
+      - name: Dump core-service logs
+        if: always()
+        run: |
+          sleep 10
+          docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml logs core-service
+
       - name: Wait for core-service
         run: |
           echo "Waiting for core-service to be healthy..."
