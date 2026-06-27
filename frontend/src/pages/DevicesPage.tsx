@@ -1,11 +1,13 @@
 import { FormEvent, useMemo, useState, Fragment } from "react";
-import { Plus, RefreshCw, Trash2, ChevronDown, ChevronRight, Server } from "lucide-react";
+import { Plus, RefreshCw, Trash2, ChevronDown, ChevronRight, Server, Download } from "lucide-react";
 import { api } from "../services/api";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip, Modal } from "../components/ui";
 import { useFleets, useCreateFleet } from "../hooks/useArgusData";
+import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate, safeJsonParse } from "../lib/format";
 
 export function DevicesPage() {
+  const { workspaceDevices } = useWorkspaceContext();
   const fleets = useFleets();
   const create = useCreateFleet();
   const [query, setQuery] = useState("");
@@ -135,6 +137,7 @@ export function DevicesPage() {
                         <td>{fleet.firmware_version || "Unset"}</td>
                         <td onClick={e => e.stopPropagation()}>
                           <div className="page-actions">
+                            <button className="button compact secondary" onClick={() => void api.fleets.firmware(fleet.id)} aria-label={`Download Firmware for ${fleet.name}`}><Download size={14} /></button>
                             <button className="button compact danger" onClick={() => void removeFleet(fleet.id)} aria-label={`Delete ${fleet.name}`}><Trash2 size={14} /></button>
                           </div>
                         </td>
@@ -155,10 +158,12 @@ export function DevicesPage() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {!fleet.devices || fleet.devices.length === 0 ? (
-                                    <tr><td colSpan={5}><EmptyState title="No devices" description="This fleet currently has no devices." /></td></tr>
-                                  ) : (
-                                    fleet.devices.map(device => (
+                                  {(() => {
+                                    const fleetDevices = workspaceDevices.filter(d => d.fleet_id === fleet.id);
+                                    if (!fleetDevices || fleetDevices.length === 0) {
+                                      return <tr><td colSpan={5}><EmptyState title="No devices" description="This fleet currently has no devices." /></td></tr>;
+                                    }
+                                    return fleetDevices.map(device => (
                                       <tr key={device.id}>
                                         <td><StatusChip value={device.status} /></td>
                                         <td><strong>{device.name}</strong><div className="muted mono">{compactID(device.id)}</div></td>
@@ -166,8 +171,8 @@ export function DevicesPage() {
                                         <td>{formatDate(device.last_seen)}</td>
                                         <td>{device.status === 'online' ? "-65 dBm" : "--"}</td>
                                       </tr>
-                                    ))
-                                  )}
+                                    ));
+                                  })()}
                                 </tbody>
                               </table>
                             </div>

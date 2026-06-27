@@ -32,6 +32,18 @@ import type {
 } from "../types/api";
 import { request, requestBlob } from "./http";
 
+export const download = async (path: string, filename: string) => {
+  const blob = await requestBlob(path);
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
 export const api = {
   health: async () => {
     await request<void>("/healthz");
@@ -73,7 +85,9 @@ export const api = {
       request<FleetDeployResponse>(`/fleets/${fleetID}/ota`, {
         method: "POST",
         body: JSON.stringify({ artifact_id: artifactID })
-      })
+      }),
+    firmware: (fleetID: string) =>
+      download(`/fleets/${fleetID}/firmware`, `fleet_firmware_${fleetID}.ino`)
   },
 
   telemetry: {

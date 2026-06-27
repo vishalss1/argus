@@ -153,6 +153,23 @@ func (h *FleetHandler) DeployFleetOTA(w http.ResponseWriter, r *http.Request, fl
 	})
 }
 
+func (h *FleetHandler) DownloadFleetFirmware(w http.ResponseWriter, r *http.Request, fleetID string) {
+	bytes, err := h.service.GenerateFleetFirmware(r.Context(), fleetID)
+	if errors.Is(err, fleet.ErrFleetNotFound) {
+		writeError(w, http.StatusNotFound, "fleet not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate fleet firmware")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/x-arduino")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"fleet_firmware_%s.ino\"", fleetID))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(bytes)
+}
+
 func mapFleetToDTO(f fleet.FleetWithStats) dto.FleetResponse {
 	return dto.FleetResponse{
 		ID:               f.ID,

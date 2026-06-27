@@ -133,7 +133,8 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 		}
 
 		// Add to zip
-		fileName := fmt.Sprintf("config_%s.ino", dev.ID)
+		baseName := fmt.Sprintf("config_%s", dev.ID)
+		fileName := fmt.Sprintf("%s/%s.ino", baseName, baseName)
 		fWriter, err := zipWriter.Create(fileName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create zip entry for node %d: %w", i, err)
@@ -141,6 +142,19 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 		if _, err := fWriter.Write(fwBytes); err != nil {
 			return nil, fmt.Errorf("failed to write firmware for node %d to zip: %w", i, err)
 		}
+	}
+
+	fleetFWBytes, err := s.fwGen.GenerateFleetFirmware(input.FirmwareTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate fleet firmware: %w", err)
+	}
+	fleetFWBase := fmt.Sprintf("fleet_firmware_%s", createdFleet.ID)
+	fleetFWWriter, err := zipWriter.Create(fmt.Sprintf("%s/%s.ino", fleetFWBase, fleetFWBase))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zip entry for fleet firmware: %w", err)
+	}
+	if _, err := fleetFWWriter.Write(fleetFWBytes); err != nil {
+		return nil, fmt.Errorf("failed to write fleet firmware to zip: %w", err)
 	}
 
 	if err := zipWriter.Close(); err != nil {
@@ -159,6 +173,15 @@ func (s *Service) List(ctx context.Context) ([]FleetWithStats, error) {
 
 func (s *Service) GetByID(ctx context.Context, id string) (*Fleet, error) {
 	return s.repo.GetByID(ctx, id)
+}
+
+func (s *Service) GenerateFleetFirmware(ctx context.Context, fleetID string) ([]byte, error) {
+	fleet, err := s.repo.GetByID(ctx, fleetID)
+	if err != nil {
+		return nil, fmt.Errorf("fleet not found: %w", err)
+	}
+
+	return s.fwGen.GenerateFleetFirmware(fleet.FirmwareTemplate)
 }
 
 func (s *Service) GetWithDevices(ctx context.Context, id string) (*FleetWithStats, error) {

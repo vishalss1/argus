@@ -4,7 +4,9 @@ import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate, countByStatus } from "../lib/format";
 import type { Deployment } from "../types/api";
 import { PageHeader, Card, CardHeader, CardContent, CardTitle, StatusChip } from "../components/ui";
-import { AlertTriangle, CheckCircle2, Activity, Package, AlertOctagon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Activity, Package, AlertOctagon, Download, FileCode } from "lucide-react";
+import { useFleets } from "../hooks/useArgusData";
+import { api } from "../services/api";
 
 export function FleetOverviewPage() {
   const { workspaceDevices } = useWorkspaceContext();
@@ -86,7 +88,10 @@ export function FleetOverviewPage() {
           />
         </div>
 
-        <ActiveDeployments deploymentsByVersion={deploymentsByVersion} />
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24 }}>
+          <ActiveDeployments deploymentsByVersion={deploymentsByVersion} />
+          <FleetFirmwareCard />
+        </div>
       </div>
     </div>
   );
@@ -330,6 +335,60 @@ function ActiveDeployments({ deploymentsByVersion }: { deploymentsByVersion: [st
                 </div>
               );
             })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FleetFirmwareCard() {
+  const fleets = useFleets();
+  const fleetList = fleets.data ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <FileCode size={18} />
+            FIRMWARE
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {fleetList.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <div style={{ color: "var(--text-muted)" }}>No fleets available</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {fleetList.map(fleet => (
+              <div key={fleet.id} style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 16px",
+                background: "var(--surface)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--radius-sm)",
+              }}>
+                <div>
+                  <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 2 }}>{fleet.name}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                    {compactID(fleet.id)}
+                  </div>
+                </div>
+                <button
+                  className="button compact secondary"
+                  onClick={() => void api.fleets.firmware(fleet.id)}
+                  title={`Download Fleet Firmware`}
+                >
+                  <Download size={14} style={{ marginRight: 6 }} />
+                  Download
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>
