@@ -309,17 +309,17 @@ func runProvisioning(client *http.Client, baseURL, outputPath string) error {
 	}
 
 	// Parse .ino content using regexes
-	deviceID := extractRegex(inoContent, `(?:const )?char ARGUS_DEVICE_ID\[\] = "(.*?)";`)
-	apiKey := extractRegex(inoContent, `(?:const )?char ARGUS_API_KEY\[\] = "(.*?)";`)
-	httpPort := extractRegex(inoContent, `(?:const )?uint16_t ARGUS_HTTP_PORT = (\d+);`)
-	mqttPort := extractRegex(inoContent, `(?:const )?uint16_t ARGUS_MQTT_PORT = (\d+);`)
+	deviceID := extractRegex(inoContent, `prefs\.putString\("device_id",\s*"(.*?)"\);`)
+	apiKey := extractRegex(inoContent, `prefs\.putString\("api_key",\s*"(.*?)"\);`)
+	httpPort := extractRegex(inoContent, `prefs\.putUInt\("http_port",\s*(\d+)\);`)
+	mqttPort := extractRegex(inoContent, `prefs\.putUInt\("mqtt_port",\s*(\d+)\);`)
 	_ = mqttPort
-	otaKeyID := extractRegex(inoContent, `(?:const )?char ARGUS_OTA_KEY_ID\[\] = "(.*?)";`)
-	otaPubKeyB64 := extractRegex(inoContent, `(?:const )?char ARGUS_OTA_PUBLIC_KEY_B64\[\] = "(.*?)";`)
+	otaKeyID := extractRegex(inoContent, `prefs\.putString\("ota_key_id",\s*"(.*?)"\);`)
+	otaPubKeyB64 := extractRegex(inoContent, `prefs\.putString\("ota_pub_key",\s*"(.*?)"\);`)
 
-	rootCA := extractPEM(inoContent, "ARGUS_ROOT_CA")
-	deviceCert := extractPEM(inoContent, "ARGUS_DEVICE_CERT")
-	deviceKey := extractPEM(inoContent, "ARGUS_DEVICE_PRIVATE_KEY")
+	rootCA := extractPEM(inoContent, "root_ca")
+	deviceCert := extractPEM(inoContent, "dev_cert")
+	deviceKey := extractPEM(inoContent, "dev_key")
 
 	if deviceID == "" || apiKey == "" {
 		return fmt.Errorf("failed to extract critical config fields from .ino response")
@@ -404,9 +404,9 @@ func extractRegex(content, pattern string) string {
 	return ""
 }
 
-func extractPEM(content, varName string) string {
-	// Match R"EOF( ... )EOF" block
-	pattern := fmt.Sprintf(`(?:const )?char %s\[\]\s*(?:PROGMEM\s*)?=\s*R"EOF\([\r\n]+([\s\S]*?)\)EOF";`, varName)
+func extractPEM(content, key string) string {
+	// Match putPEM(prefs, "key", "value") where value is an escaped PEM string
+	pattern := fmt.Sprintf(`putPEM\(\s*prefs,\s*"%s",\s*"((?:[^"\\]|\\.)*)"\s*\);`, key)
 	re := regexp.MustCompile(pattern)
 	m := re.FindStringSubmatch(content)
 	if len(m) > 1 {
