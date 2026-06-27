@@ -309,13 +309,13 @@ func runProvisioning(client *http.Client, baseURL, outputPath string) error {
 	}
 
 	// Parse .ino content using regexes
-	deviceID := extractRegex(inoContent, `const char ARGUS_DEVICE_ID\[\] = "(.*?)";`)
-	apiKey := extractRegex(inoContent, `const char ARGUS_API_KEY\[\] = "(.*?)";`)
-	httpPort := extractRegex(inoContent, `const uint16_t ARGUS_HTTP_PORT = (\d+);`)
-	mqttPort := extractRegex(inoContent, `const uint16_t ARGUS_MQTT_PORT = (\d+);`)
+	deviceID := extractRegex(inoContent, `(?:const )?char ARGUS_DEVICE_ID\[\] = "(.*?)";`)
+	apiKey := extractRegex(inoContent, `(?:const )?char ARGUS_API_KEY\[\] = "(.*?)";`)
+	httpPort := extractRegex(inoContent, `(?:const )?uint16_t ARGUS_HTTP_PORT = (\d+);`)
+	mqttPort := extractRegex(inoContent, `(?:const )?uint16_t ARGUS_MQTT_PORT = (\d+);`)
 	_ = mqttPort
-	otaKeyID := extractRegex(inoContent, `const char ARGUS_OTA_KEY_ID\[\] = "(.*?)";`)
-	otaPubKeyB64 := extractRegex(inoContent, `const char ARGUS_OTA_PUBLIC_KEY_B64\[\] = "(.*?)";`)
+	otaKeyID := extractRegex(inoContent, `(?:const )?char ARGUS_OTA_KEY_ID\[\] = "(.*?)";`)
+	otaPubKeyB64 := extractRegex(inoContent, `(?:const )?char ARGUS_OTA_PUBLIC_KEY_B64\[\] = "(.*?)";`)
 
 	rootCA := extractPEM(inoContent, "ARGUS_ROOT_CA")
 	deviceCert := extractPEM(inoContent, "ARGUS_DEVICE_CERT")
