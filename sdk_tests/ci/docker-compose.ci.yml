@@ -10,7 +10,7 @@ services:
       - HTTPS_TLS_KEY_FILE=/certs/privkey.pem
       - DEVICE_CA_ROOT_CERT_FILE=/certs/root-ca.pem
       - DEVICE_CA_PRIVATE_KEY_FILE=/certs/root-ca.key
-      - SERVER_CA_CERT_FILE=/certs/root-ca.pem
+      - SERVER_CA_CERT_FILE=/certs/ca.pem
 
   minio:
     volumes: !reset
