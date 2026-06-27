@@ -136,7 +136,7 @@ func nvsPEM(pem string) string {
 }
 
 func validateRenderedPEM(sketch, symbol, expected string) error {
-	prefix := `const char ` + symbol + `[] PROGMEM = R"EOF(` + "\n"
+	prefix := `char ` + symbol + `[] PROGMEM = R"EOF(` + "\n"
 	start := strings.Index(sketch, prefix)
 	if start < 0 {
 		return fmt.Errorf("%s: generated declaration not found", symbol)

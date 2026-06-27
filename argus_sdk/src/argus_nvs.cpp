@@ -9,13 +9,23 @@
 // declarations in argus_config.h — transparently, as if the values had been
 // baked into a device-specific firmware.ino at compile time.
 //
-// Design note on const-correctness
-// ----------------------------------
-// argus_config.h declares the symbols as `extern const char FOO[]` /
-// `extern const uint16_t PORT`.  In C++ the definition is allowed to omit
-// `const` (the object is non-const; only the re-declaration in the header
-// promises not to write through it).  Defining the storage as non-const here
-// lets argusNVSLoad() write into the buffers without any undefined behaviour.
+// Design note on const and writability
+// --------------------------------------
+// argus_config.h declares all 14 symbols as non-const externs.  This is a
+// deliberate choice that supports two definition paths:
+//
+//   1. NVS loader path (this file, fleet OTA binary): argusNVSLoad() writes
+//      into the buffers at boot after reading from the "argus_cfg" NVS
+//      namespace.  Non-const storage is required for those direct assignments.
+//
+//   2. Monolithic baked-in path (firmware.ino.tmpl): the sketch defines the
+//      same symbols with compile-time string/integer initialisers.  The
+//      linker resolves extern references to whichever TU provides the storage.
+//
+// In C++ a const-qualified definition is NOT compatible with a non-const
+// extern declaration (they are different types), so removing const from the
+// header declarations is the only correct fix.  Code that must treat these
+// values as read-only should use const pointers/references at call sites.
 //
 // Native-host guard
 // -----------------
