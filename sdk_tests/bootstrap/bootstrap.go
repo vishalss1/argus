@@ -406,7 +406,7 @@ func extractRegex(content, pattern string) string {
 
 func extractPEM(content, varName string) string {
 	// Match R"EOF( ... )EOF" block
-	pattern := fmt.Sprintf(`const char %s\[\]\s*(?:PROGMEM\s*)?=\s*R"EOF\([\r\n]+([\s\S]*?)\)EOF";`, varName)
+	pattern := fmt.Sprintf(`(?:const )?char %s\[\]\s*(?:PROGMEM\s*)?=\s*R"EOF\([\r\n]+([\s\S]*?)\)EOF";`, varName)
 	re := regexp.MustCompile(pattern)
 	m := re.FindStringSubmatch(content)
 	if len(m) > 1 {
