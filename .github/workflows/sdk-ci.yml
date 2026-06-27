@@ -30,22 +30,7 @@ jobs:
           mkdir -p /tmp/argus_compile_test
           cat > /tmp/argus_compile_test/argus_compile_test.ino << 'SKETCH'
           #include <argus.h>
-          
-          const char ARGUS_DEVICE_ID[] = "test-device-001";
-          const char ARGUS_API_KEY[] = "test-api-key-placeholder";
-          const char ARGUS_SERVER_HOST[] = "192.168.1.1";
-          const uint16_t ARGUS_HTTP_PORT = 8080;
-          const char ARGUS_MQTT_HOST[] = "192.168.1.1";
-          const uint16_t ARGUS_MQTT_PORT = 1883;
-          const char WIFI_SSID[] = "TestNetwork";
-          const char WIFI_PASSWORD[] = "TestPassword";
-          const char ARGUS_FW_VERSION[] = "1.0.0";
-          const char ARGUS_OTA_KEY_ID[] = "test-key-id";
-          const char ARGUS_OTA_PUBLIC_KEY_B64[] = "";
-          const char ARGUS_ROOT_CA[] PROGMEM = "";
-          const char ARGUS_DEVICE_CERT[] PROGMEM = "";
-          const char ARGUS_DEVICE_PRIVATE_KEY[] PROGMEM = "";
-          
+
           void setup() { Serial.begin(115200); argusBegin(); }
           void loop() { argusLoop(); }
           SKETCH
@@ -100,6 +85,12 @@ jobs:
             -f deployments/compose/docker-compose.yml \
             -f sdk_tests/ci/docker-compose.ci.yml \
             up -d --build
+
+      - name: Dump core-service logs
+        if: always()
+        run: |
+          sleep 10
+          docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml logs core-service
 
       - name: Wait for core-service
         run: |

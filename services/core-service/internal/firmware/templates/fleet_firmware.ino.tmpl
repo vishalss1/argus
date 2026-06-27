@@ -1,0 +1,30 @@
+/**
+ * ARGUS ESP32 Fleet Firmware
+ * --------------------------
+ * This sketch contains NO device-specific values.  All identity data
+ * (device ID, API key, TLS certificates, Wi-Fi credentials, …) is read
+ * from NVS at boot by the ARGUS SDK.
+ *
+ * Flash an identical binary of this sketch to every device in the fleet.
+ * Each device must have been provisioned first with its config_<deviceID>.ino
+ * provisioning sketch so that the argus_cfg NVS namespace is populated.
+ */
+
+#include <argus.h>
+
+// ================= USER CODE =================
+
+{{if .UserCode}}
+{{.UserCode}}
+{{else}}
+void setup()
+{
+    Serial.begin(115200);
+    argusBegin();
+}
+
+void loop()
+{
+    argusLoop();
+}
+{{end}}

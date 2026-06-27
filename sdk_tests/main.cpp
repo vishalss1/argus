@@ -60,7 +60,8 @@ int main() {
         {"HTTPS rejected", "HTTPS rejected", false},
         {"Ed25519 public key is missing", "Ed25519 public key is missing", false},
         {"[AUTH] Device API key not set", "[AUTH] Device API key not set", false},
-        {"[MQTT] Connection failed", "[MQTT] Connection failed", false}
+        {"[MQTT] Connection failed", "[MQTT] Connection failed", false},
+        {"[BOOT] NVS not provisioned", "[BOOT] NVS not provisioned", false}
     };
 
     std::cout << "[TEST] Validation Results Scorecard:" << std::endl;

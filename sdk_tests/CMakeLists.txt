@@ -74,6 +74,7 @@ set(SOURCES
     ../argus_sdk/src/argus_http.cpp
     ../argus_sdk/src/argus_mqtt.cpp
     ../argus_sdk/src/argus_network.cpp
+    ../argus_sdk/src/argus_nvs.cpp
     ../argus_sdk/src/argus_ota.cpp
     ../argus_sdk/src/argus_rollback.cpp
     ../argus_sdk/src/argus_security.cpp
@@ -82,6 +83,8 @@ set(SOURCES
 )
 
 add_executable(argus_sdk_test ${SOURCES})
+
+target_compile_definitions(argus_sdk_test PRIVATE ARGUS_NATIVE_BUILD)
 
 # Target link libraries
 target_link_libraries(argus_sdk_test

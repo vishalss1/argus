@@ -32,9 +32,21 @@ func InitDB(databaseURL string) (*sql.DB, error) {
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	err = db.Ping()
-	if err != nil {
-		return nil, fmt.Errorf("failed to ping database: %v", err)
+	// Retry connection with backoff — postgres may not be ready yet
+	var pingErr error
+	for attempt := 1; attempt <= 10; attempt++ {
+		pingErr = db.Ping()
+		if pingErr == nil {
+			break
+		}
+		log.Printf("Database ping attempt %d/10 failed: %v", attempt, pingErr)
+		if attempt < 10 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+	if pingErr != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to ping database after 10 attempts: %v", pingErr)
 	}
 
 	log.Println("successfully connected to the database")

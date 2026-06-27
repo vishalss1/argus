@@ -71,3 +71,7 @@ __attribute__((constructor)) static void constructor_init() {
     initEnvVars();
 }
 #endif
+
+// NVS stubs for native host build — identity loaded from env vars via initEnvVars()
+bool argusNVSLoad() { return true; }   // env vars already loaded by constructor
+bool argusIsProvisioned() { return true; }
