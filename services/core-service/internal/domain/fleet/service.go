@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/vishalss1/argus/shared/common"
 	"github.com/vishalss1/argus/core/internal/domain/certificate"
 	"github.com/vishalss1/argus/core/internal/domain/device"
 	"github.com/vishalss1/argus/core/internal/firmware"
+	"github.com/vishalss1/argus/core/internal/domain/ota"
 )
 
 type Service struct {
@@ -19,6 +21,7 @@ type Service struct {
 	deviceService *device.Service
 	ca            *certificate.CertificateAuthority
 	fwGen         *firmware.Generator
+	otaService    *ota.Service
 }
 
 func NewService(
@@ -26,12 +29,14 @@ func NewService(
 	deviceService *device.Service,
 	ca *certificate.CertificateAuthority,
 	fwGen *firmware.Generator,
+	otaService *ota.Service,
 ) *Service {
 	return &Service{
 		repo:          repo,
 		deviceService: deviceService,
 		ca:            ca,
 		fwGen:         fwGen,
+		otaService:    otaService,
 	}
 }
 
@@ -112,7 +117,7 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 		}
 
 		// Generate firmware
-		fwBytes, err := s.fwGen.GenerateWithOptions(firmware.GenerateOptions{
+		fwBytes, err := s.fwGen.GenerateProvision(firmware.GenerateOptions{
 			DeviceID:        dev.ID,
 			WorkspaceID:     *wID,
 			APIKey:          apiKey,
@@ -128,8 +133,7 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 		}
 
 		// Add to zip
-		folderName := fmt.Sprintf("%s/node-%d/", createdFleet.ID, i)
-		fileName := fmt.Sprintf("%snode-%d.ino", folderName, i)
+		fileName := fmt.Sprintf("config_%s.ino", dev.ID)
 		fWriter, err := zipWriter.Create(fileName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create zip entry for node %d: %w", i, err)
@@ -163,4 +167,42 @@ func (s *Service) GetWithDevices(ctx context.Context, id string) (*FleetWithStat
 
 func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
+}
+
+func (s *Service) DeployToFleet(ctx context.Context, fleetID string, artifactID string) (*FleetDeployResult, error) {
+	if fleetID == "" || artifactID == "" {
+		return nil, fmt.Errorf("fleetID and artifactID are required")
+	}
+
+	fleetWithStats, err := s.repo.GetWithDevices(ctx, fleetID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.otaService.GetFirmware(ctx, artifactID)
+	if err != nil {
+		return nil, fmt.Errorf("artifact not found: %w", err)
+	}
+
+	var errorsList []FleetDeployError
+	deployedCount := 0
+
+	for _, dev := range fleetWithStats.Devices {
+		// ponytail: log and continue on failure
+		_, err := s.otaService.Deploy(ctx, dev.ID, ota.DeployInput{ArtifactID: artifactID})
+		if err != nil {
+			log.Printf("[FLEET] OTA deploy failed device=%s error=%v", dev.ID, err)
+			errorsList = append(errorsList, FleetDeployError{DeviceID: dev.ID, Error: err.Error()})
+			continue
+		}
+		deployedCount++
+	}
+
+	return &FleetDeployResult{
+		FleetID:       fleetID,
+		ArtifactID:    artifactID,
+		DeployedCount: deployedCount,
+		TotalCount:    len(fleetWithStats.Devices),
+		Errors:        errorsList,
+	}, nil
 }

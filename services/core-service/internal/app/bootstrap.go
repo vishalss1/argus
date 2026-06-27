@@ -306,8 +306,8 @@ func Bootstrap() (*Server, error) {
 	}
 
 	fleetRepo := postgres.NewFleetRepository(database)
-	fleetService := fleetdomain.NewService(fleetRepo, deviceService, ca, fwGen)
-	fleetHandler := transporthandler.NewFleetHandler(fleetService)
+	fleetService := fleetdomain.NewService(fleetRepo, deviceService, ca, fwGen, otaService)
+	fleetHandler := transporthandler.NewFleetHandler(fleetService, otaService)
 
 	websocketHandler := transportws.NewHandler(websocketHub, authService)
 	router := transportrouter.New(

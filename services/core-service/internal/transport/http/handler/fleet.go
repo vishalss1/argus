@@ -8,15 +8,17 @@ import (
 	"strings"
 
 	"github.com/vishalss1/argus/core/internal/domain/fleet"
+	"github.com/vishalss1/argus/core/internal/domain/ota"
 	"github.com/vishalss1/argus/core/internal/transport/http/dto"
 )
 
 type FleetHandler struct {
-	service *fleet.Service
+	service    *fleet.Service
+	otaService *ota.Service
 }
 
-func NewFleetHandler(service *fleet.Service) *FleetHandler {
-	return &FleetHandler{service: service}
+func NewFleetHandler(service *fleet.Service, otaService *ota.Service) *FleetHandler {
+	return &FleetHandler{service: service, otaService: otaService}
 }
 
 // CreateFleet godoc
@@ -123,6 +125,32 @@ func (h *FleetHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, id st
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *FleetHandler) DeployFleetOTA(w http.ResponseWriter, r *http.Request, fleetID string) {
+	var req dto.FleetDeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	result, err := h.service.DeployToFleet(r.Context(), fleetID, req.ArtifactID)
+	if errors.Is(err, fleet.ErrFleetNotFound) {
+		writeError(w, http.StatusNotFound, "fleet not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.FleetDeployResponse{
+		FleetID:       result.FleetID,
+		ArtifactID:    result.ArtifactID,
+		DeployedCount: result.DeployedCount,
+		TotalCount:    result.TotalCount,
+		Errors:        result.Errors,
+	})
 }
 
 func mapFleetToDTO(f fleet.FleetWithStats) dto.FleetResponse {

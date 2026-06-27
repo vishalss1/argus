@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/vishalss1/argus/core/internal/domain/device"
+	"github.com/vishalss1/argus/core/internal/domain/fleet"
 )
 
 type CreateFleetRequest struct {
@@ -34,4 +35,16 @@ type FleetResponse struct {
 	Devices          []device.Device `json:"devices,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
+}
+
+type FleetDeployRequest struct {
+	ArtifactID string `json:"artifact_id" validate:"required"`
+}
+
+type FleetDeployResponse struct {
+	FleetID       string                   `json:"fleet_id"`
+	ArtifactID    string                   `json:"artifact_id"`
+	DeployedCount int                      `json:"deployed_count"`
+	TotalCount    int                      `json:"total_count"`
+	Errors        []fleet.FleetDeployError `json:"errors,omitempty"`
 }

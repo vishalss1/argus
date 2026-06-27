@@ -124,6 +124,9 @@ func New(
 				r.Delete("/{fleetID}", func(w http.ResponseWriter, r *http.Request) {
 					fleetHandler.DeleteFleet(w, r, chi.URLParam(r, "fleetID"))
 				})
+				r.Post("/{fleetID}/ota", func(w http.ResponseWriter, r *http.Request) {
+					fleetHandler.DeployFleetOTA(w, r, chi.URLParam(r, "fleetID"))
+				})
 			})
 
 			r.Route("/sessions/{sessionID}", func(r chi.Router) {

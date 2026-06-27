@@ -45,3 +45,16 @@ type FleetProvisionResult struct {
 	Fleet   Fleet
 	ZipData []byte
 }
+
+type FleetDeployResult struct {
+	FleetID       string             `json:"fleet_id"`
+	ArtifactID    string             `json:"artifact_id"`
+	DeployedCount int                `json:"deployed_count"`
+	TotalCount    int                `json:"total_count"`
+	Errors        []FleetDeployError `json:"errors,omitempty"`
+}
+
+type FleetDeployError struct {
+	DeviceID string `json:"device_id"`
+	Error    string `json:"error"`
+}
