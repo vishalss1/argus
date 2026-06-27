@@ -20,6 +20,8 @@ import {
   useDeployments,
   useDevices,
   useFirmware,
+  useFleets,
+  useFleetDeploy,
   useOTAStats
 } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
@@ -144,6 +146,14 @@ export function OTAPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [sortKey, setSortKey] = useState<"created_at" | "status" | "progress" | "duration">("created_at");
 
+  const fleets = useFleets();
+  const fleetDeploy = useFleetDeploy();
+  const [fleetID, setFleetID] = useState("");
+  const [fleetArtifactID, setFleetArtifactID] = useState("");
+  const [fleetDeployError, setFleetDeployError] = useState("");
+  const [fleetDeploySuccess, setFleetDeploySuccess] = useState("");
+  const fleetDeployTimeoutRef = useRef<number | null>(null);
+
   const activeDeviceIds = useMemo(() => new Set(workspaceDevices.map(d => d.id)), [workspaceDevices]);
 
   const deploymentRows = useMemo(() => {
@@ -252,6 +262,29 @@ export function OTAPage() {
     }
   }
 
+  async function fleetDeployHandler(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFleetDeployError("");
+    setFleetDeploySuccess("");
+    if (fleetDeployTimeoutRef.current) {
+      window.clearTimeout(fleetDeployTimeoutRef.current);
+    }
+    if (!fleetID || !fleetArtifactID) {
+      setFleetDeployError("Select both a fleet and an artifact.");
+      return;
+    }
+    try {
+      const result = await fleetDeploy.mutateAsync({ fleetID, artifactID: fleetArtifactID });
+      await Promise.all([allDeployments.refetch(), stats.refetch()]);
+      setFleetDeploySuccess(`${result.deployed_count} of ${result.total_count} devices queued for deployment.`);
+      fleetDeployTimeoutRef.current = window.setTimeout(() => {
+        setFleetDeploySuccess("");
+      }, 5000);
+    } catch (err) {
+      setFleetDeployError((err as Error).message);
+    }
+  }
+
   const totalDeployments = stats.data?.total_deployments ?? 0;
   const successful = stats.data?.successful_deployments ?? 0;
   const failed = stats.data?.failed_deployments ?? 0;
@@ -304,6 +337,44 @@ export function OTAPage() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Fleet OTA Deploy Section */}
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)", padding: "16px 20px", marginBottom: 32 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 16, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-secondary)" }}>Fleet OTA Deploy</h3>
+          <form style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }} onSubmit={fleetDeployHandler}>
+            <SelectField label="Fleet" value={fleetID} onChange={setFleetID}>
+              <option value="">Select fleet</option>
+              {(fleets.data ?? []).map((fleet) => (
+                <option key={fleet.id} value={fleet.id}>{fleet.name} ({fleet.total_nodes} nodes)</option>
+              ))}
+            </SelectField>
+            <SelectField label="Artifact" value={fleetArtifactID} onChange={setFleetArtifactID}>
+              <option value="">Select artifact</option>
+              {(firmware.data ?? []).map((artifact) => (
+                <option key={artifact.id} value={artifact.id}>{artifact.version} ({formatBytes(artifact.size_bytes)})</option>
+              ))}
+            </SelectField>
+            <button
+              className="button primary"
+              type="submit"
+              disabled={!fleetID || !fleetArtifactID || fleetDeploy.isPending}
+              style={{ height: 36 }}
+            >
+              <Play size={14} style={{ marginRight: 6 }} />
+              {fleetDeploy.isPending ? "Deploying..." : "Deploy to Fleet"}
+            </button>
+          </form>
+          {fleetDeployError && (
+            <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 6, fontSize: 13, color: "var(--danger)" }}>
+              {fleetDeployError}
+            </div>
+          )}
+          {fleetDeploySuccess && (
+            <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 6, fontSize: 13, color: "var(--success)" }}>
+              {fleetDeploySuccess}
+            </div>
+          )}
         </div>
 
         {/* Deployments Section */}

@@ -27,7 +27,8 @@ import type {
   DeviceStatusInfo,
   ActiveIncident,
   Fleet,
-  CreateFleetRequest
+  CreateFleetRequest,
+  FleetDeployResponse
 } from "../types/api";
 import { request, requestBlob } from "./http";
 
@@ -67,7 +68,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload)
       }),
-    remove: (id: string) => request<void>(`/fleets/${id}`, { method: "DELETE" })
+    remove: (id: string) => request<void>(`/fleets/${id}`, { method: "DELETE" }),
+    deploy: (fleetID: string, artifactID: string) =>
+      request<FleetDeployResponse>(`/fleets/${fleetID}/ota`, {
+        method: "POST",
+        body: JSON.stringify({ artifact_id: artifactID })
+      })
   },
 
   telemetry: {

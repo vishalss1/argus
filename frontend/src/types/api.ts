@@ -62,6 +62,19 @@ export interface CreateFleetRequest {
 	wifi_password?: string;
 }
 
+export interface FleetDeployResponse {
+  fleet_id: string;
+  artifact_id: string;
+  deployed_count: number;
+  total_count: number;
+  errors?: FleetDeployError[];
+}
+
+export interface FleetDeployError {
+  device_id: string;
+  error: string;
+}
+
 export interface Telemetry {
   id: string;
   device_id: string;

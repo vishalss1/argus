@@ -47,7 +47,7 @@ export function DevicesPage() {
         node_prefix,
         node_count,
         firmware_version: String(form.get("firmware_version") || ""),
-        firmware_template: String(form.get("firmware_template") || ""),
+        firmware_template: "",
         wifi_ssid: String(form.get("wifi_ssid") || ""),
         wifi_password: String(form.get("wifi_password") || "")
       });
@@ -195,10 +195,10 @@ export function DevicesPage() {
           }
         }} 
         title={createdFleetData ? "Fleet Provisioned" : "Create Fleet"} 
-        style={{ maxWidth: 860, width: "90vw" }}
+        style={{ maxWidth: 580, width: "90vw" }}
       >
         {!createdFleetData ? (
-          <form className="form-grid" onSubmit={onCreate} style={{ padding: "16px 0 0 0", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px", alignItems: "stretch" }}>
+          <form className="form-grid" onSubmit={onCreate} style={{ padding: "16px 0 0 0", display: "flex", flexDirection: "column", gap: "16px" }}>
             
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <label className="field full" style={{ margin: 0 }}><span>Fleet Name</span><input name="name" required placeholder="Factory Sensors" /></label>
@@ -223,14 +223,7 @@ export function DevicesPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <label className="field full" style={{ display: "flex", flexDirection: "column", height: "100%", margin: 0 }}>
-                <span>Firmware Setup Code (C++)</span>
-                <textarea name="firmware_template" defaultValue={`void setup() {\n    Serial.begin(115200);\n    argusBegin();\n}\n\nvoid loop() {\n    argusLoop();\n}`} style={{ fontFamily: "monospace", fontSize: "12px", flex: 1, minHeight: "320px", resize: "none" }} />
-              </label>
-            </div>
-
-            {formError && <p className="muted field full" style={{ gridColumn: "1 / -1", margin: 0 }}>{formError}</p>}
+            {formError && <p className="muted field full" style={{ margin: 0 }}>{formError}</p>}
             <div className="page-actions field full" style={{ gridColumn: "1 / -1", marginTop: "16px", justifyContent: "flex-end", display: "flex", gap: "12px", paddingTop: "20px", borderTop: "1px solid var(--border-color)" }}>
               <button className="button secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</button>
               <button className="button primary" type="submit" disabled={create.isPending}><Plus size={15} />Create Fleet</button>

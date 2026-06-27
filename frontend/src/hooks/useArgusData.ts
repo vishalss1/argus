@@ -234,6 +234,18 @@ export function useCreateFleet() {
   });
 }
 
+export function useFleetDeploy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ fleetID, artifactID }: { fleetID: string; artifactID: string }) =>
+      api.fleets.deploy(fleetID, artifactID),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allDeployments });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.otaStats });
+    }
+  });
+}
+
 export function useAlerts() {
   return useQuery({ queryKey: queryKeys.alerts, queryFn: api.alerts.list });
 }
