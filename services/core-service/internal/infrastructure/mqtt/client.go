@@ -13,7 +13,6 @@ import (
 	"github.com/vishalss1/argus/core/internal/domain/command"
 	"github.com/vishalss1/argus/core/internal/domain/device"
 	"github.com/vishalss1/argus/core/internal/domain/ota"
-	"github.com/vishalss1/argus/core/internal/domain/telemetry"
 )
 
 type Config struct {
@@ -25,11 +24,9 @@ type Config struct {
 
 type Client struct {
 	client           paho.Client
-	telemetryService *telemetry.Service
 	presenceService  *device.PresenceService
 	commandService   *command.Service
 	otaService       *ota.Service
-	telemetryTopic   string
 	stateTopic       string
 	resultTopic      string
 	otaStatusTopic   string
@@ -62,7 +59,7 @@ type otaStatusMessage struct {
 	Message      string `json:"message,omitempty"`
 }
 
-func New(config Config, telemetryService *telemetry.Service, presenceService *device.PresenceService, commandService *command.Service, otaService *ota.Service) (*Client, error) {
+func New(config Config, presenceService *device.PresenceService, commandService *command.Service, otaService *ota.Service) (*Client, error) {
 	if config.BrokerURL == "" {
 		return nil, fmt.Errorf("mqtt broker url is required")
 	}
@@ -79,11 +76,9 @@ func New(config Config, telemetryService *telemetry.Service, presenceService *de
 	otaStatusTopic := "argus/devices/+/ota/status"
 
 	mqttClient := &Client{
-		telemetryService: telemetryService,
 		presenceService:  presenceService,
 		commandService:   commandService,
 		otaService:       otaService,
-		telemetryTopic:   config.TelemetryTopic,
 		stateTopic:       config.StateTopic,
 		resultTopic:      resultTopic,
 		otaStatusTopic:   otaStatusTopic,
@@ -166,8 +161,6 @@ func (c *Client) dispatch(message paho.Message) {
 	switch {
 	case topicMatches(c.stateTopic, message.Topic()):
 		c.handleStateMessage(message)
-	case topicMatches(c.telemetryTopic, message.Topic()):
-		c.handleTelemetryMessage(message)
 	case topicMatches(c.resultTopic, message.Topic()):
 		c.handleResultMessage(message)
 	case topicMatches(c.otaStatusTopic, message.Topic()):
@@ -189,18 +182,6 @@ func (c *Client) subscribe(client paho.Client) {
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.stateTopic)
-
-	if token := client.Subscribe(c.telemetryTopic, 0, func(_ paho.Client, msg paho.Message) {
-		select {
-		case c.msgChan <- msg:
-		default:
-			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
-		}
-	}); token.Wait() && token.Error() != nil {
-		log.Printf("mqtt subscribe telemetry topic failed: %v", token.Error())
-		return
-	}
-	log.Printf("mqtt subscribed to %s", c.telemetryTopic)
 
 	if token := client.Subscribe(c.resultTopic, 1, func(_ paho.Client, msg paho.Message) {
 		select {
@@ -225,40 +206,6 @@ func (c *Client) subscribe(client paho.Client) {
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.otaStatusTopic)
-}
-
-func (c *Client) handleTelemetryMessage(message paho.Message) {
-	rawID, err := deviceIDFromTopic(c.telemetryTopic, message.Topic())
-	if err != nil {
-		log.Printf("[MQTT] topic match failed: %v", err)
-		return
-	}
-
-	// 1. Resolve UUID (topic might contain Hardware ID)
-	var deviceID string
-	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
-	if err != nil {
-		log.Printf("[MQTT] device resolution failed for %q: %v. Ensure device is provisioned.", rawID, err)
-		return
-	}
-	deviceID = device.ID
-
-	// 2. Decode Payload
-	var payload telemetryMessage
-	if err := json.Unmarshal(message.Payload(), &payload); err != nil {
-		log.Printf("[MQTT] telemetry JSON decode failed for device %s: %v", deviceID, err)
-		return
-	}
-
-	// 3. Ingest
-	_, err = c.telemetryService.Ingest(context.Background(), deviceID, telemetry.CreateInput{
-		RecordedAt: payload.RecordedAt,
-		Metrics:    payload.Metrics,
-	})
-	if err != nil {
-		log.Printf("[MQTT] telemetry ingestion failed for device %s: %v", deviceID, err)
-		return
-	}
 }
 
 func (c *Client) handleStateMessage(message paho.Message) {

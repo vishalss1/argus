@@ -119,21 +119,7 @@ func NewProducer(config Config) (*Producer, error) {
 }
 
 func (p *Producer) PublishTelemetry(ctx context.Context, event telemetry.Telemetry) error {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("marshal telemetry event: %w", err)
-	}
-
-	err = p.telemetryWriter.WriteMessages(ctx, segmentio.Message{
-		Key:     []byte(event.DeviceID),
-		Value:   payload,
-		Headers: getCorrelationHeader(ctx),
-		Time:    time.Now().UTC(),
-	})
-	if err != nil {
-		return fmt.Errorf("write telemetry event: %w", err)
-	}
-
+	// ponytail: no-op, Telemetry Service now produces telemetry to Kafka directly
 	return nil
 }
 

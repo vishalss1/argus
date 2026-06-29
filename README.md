@@ -35,7 +35,7 @@ A production-grade system spanning **Go microservices**, a **C++ ESP32 SDK**, an
 
 Most IoT projects stop at "sensor sends data to a dashboard." ARGUS goes further — every ESP32 device is a remotely observable, controllable, and versioned compute node with cryptographic identity, fleet-wide OTA deployments, and local AI that detects anomalies without sending a single byte to an external embedding API.
 
-Built as a learning project that grew into a real distributed system. Two Go microservices, a C++ device SDK that compiles and runs on Linux for hardware-free testing, and a 16-page React dashboard — all wired together with Kafka, MQTT, gRPC, and PostgreSQL, containerised in 10 Docker services with full Kubernetes manifests.
+Built as a learning project that grew into a real distributed system. Two Go microservices — one for fleet management and device control, one for high-volume telemetry ingestion and AI analytics — wired together with Kafka, MQTT, gRPC, and PostgreSQL, containerised in Docker with full Kubernetes manifests.
 
 ---
 
@@ -47,7 +47,7 @@ A few design choices that shaped how ARGUS works.
 
 **ESP32 C++ that tests without hardware.** A POSIX/OpenSSL HAL layer stubs out `WiFiClientSecure`, `PubSubClient`, `HTTPClient`, `Preferences`, and `Update.h` using real TCP sockets. The SDK compiles and runs on Linux x86_64, making actual HTTPS and MQTT connections to a Dockerised backend. libsodium and mbedTLS run natively. Ed25519 OTA verification is real, not mocked — which is what makes CI possible.
 
-**Auditable command lifecycle.** Commands move through `PENDING → DISPATCHED → ACKED / NACKED / TIMEOUT` — written to Postgres, published to Kafka, consumed by an MQTT bridge, delivered over Mosquitto, with the device response flowing back through MQTT → Kafka → Postgres. A background goroutine sweeps unacknowledged commands to `TIMED_OUT`. Every transition is recorded.
+**Auditable command lifecycle.** Commands move through `PENDING → DISPATCHED → ACKED / NACKED / TIMEOUT` — written to Postgres, published to Kafka, consumed by an MQTT bridge, delivered over Mosquitto, with the device response flowing back through MQTT → Kafka → Postgres. A background goroutine sweeps unacknowledged commands to `TIMED_OUT`. Every transition is recorded. Core Service handles only low-volume MQTT traffic (state, commands, OTA) while Telemetry Service independently ingests high-volume device telemetry directly from the broker.
 
 **Four-layer OTA verification.** Before a single byte touches flash: TLS cert pinning prevents MITM, SHA-256 checksum is verified chunk-by-chunk, Ed25519 signature (libsodium) is validated against the provisioned public key, and key ID is checked against what was written at provisioning. Any failure aborts the update and publishes a NACK.
 
@@ -60,45 +60,51 @@ A few design choices that shaped how ARGUS works.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              Frontend  (React 18 + TypeScript)          │
-│          nginx  ──►  /api proxy  ──►  core-service      │
-└───────────────────────────┬─────────────────────────────┘
-                            │ HTTP/REST + WebSocket
-                ┌───────────┴────────────┐
-                │     Core Service       │ ◄──gRPC──► ┌──────────────────────┐
-                │       Go  :8080        │            │  Telemetry Service   │
-                │   gRPC server :50051   │            │    Go  :8081         │
-                │                        │            │  gRPC server :50052  │
-                │  Device registry       │            │                      │
-                │  Fleet management      │            │  Kafka consumer      │
-                │  Command dispatch      │            │  Anomaly detection   │
-                │  OTA lifecycle         │            │  ONNX embeddings     │
-                │  Shadow state          │            │  pgvector RAG        │
-                │  Internal CA           │            │  Rules + alerts      │
-                │  JWT auth              │            │  Action engine       │
-                └──┬───┬───┬───┬────────┘            └──┬───┬───┬───┬───────┘
-                   │   │   │   │                         │   │   │   │
-                  PG Redis MQTT Kafka                    PG Redis Kafka MinIO
-                 +vec       Mosq. /RP                  +vec        /RP
-                       │
-                       │ MQTT
-                ┌──────┴──────────────┐
-                │    ESP32 Devices    │
-                │   (argus_sdk C++)   │
-                │  NVS identity       │
-                │  mTLS + API key     │
-                │  Ed25519 OTA verify │
-                │  State machine      │
-                └─────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│               Frontend  (React 18 + TypeScript)             │
+│           nginx  ──►  /api proxy  ──►  core-service         │
+└────────────────────────────┬────────────────────────────────┘
+                             │ HTTP/REST + WebSocket
+                 ┌───────────┴────────────┐
+                 │     Core Service       │ ◄──gRPC──► ┌──────────────────────────┐
+                 │       Go  :8080        │            │    Telemetry Service     │
+                 │   gRPC server :50051   │            │      Go  :8081           │
+                 │                        │            │    gRPC server :50052     │
+                 │  Device registry       │            │                          │
+                 │  Fleet management      │            │  MQTT subscriber         │
+                 │  Command dispatch      │            │  (argus/+/telemetry)     │
+                 │  OTA lifecycle         │            │  Kafka consumer          │
+                 │  Shadow state          │            │  Anomaly detection       │
+                 │  Internal CA           │            │  ONNX embeddings         │
+                 │  JWT auth              │            │  pgvector RAG            │
+                 │  WebSocket broadcast   │            │  Rules + alerts          │
+                 └──┬───┬───┬────────────┘            └──┬───┬───┬───┬───────────┘
+                    │   │   │                             │   │   │   │
+                   PG Redis MQTT                      PG Redis Kafka MinIO
+                  +vec  (state,     Mosquitto           +vec        /RP
+                       commands,
+                       OTA only)
+                        │                                    │
+                        │ MQTT                               │ Kafka
+                 ┌──────┴──────────────┐          ┌──────────┴──────────┐
+                 │    ESP32 Devices    │          │  telemetry.raw      │
+                 │   (argus_sdk C++)   │          │  (Telemetry → Core  │
+                 │  NVS identity       │          │   for WS broadcast) │
+                 │  mTLS + API key     │          └─────────────────────┘
+                 │  Ed25519 OTA verify │
+                 │  State machine      │
+                 └─────────────────────┘
 ```
 
 | Channel | Flow | Purpose |
 |:--------|:-----|:--------|
-| gRPC | Core ↔ Telemetry | AI queries, snapshots, rules, incidents, policy |
-| Kafka `telemetry.raw` | Core → Telemetry | Raw telemetry from MQTT bridge |
+| gRPC | Core ↔ Telemetry | AI queries, snapshots, rules, incidents, device resolution |
+| MQTT `argus/+/telemetry` | Device → Telemetry | High-volume telemetry ingestion (direct from broker, QoS 0) |
+| MQTT `argus/+/state` | Device → Core | Device state updates, LWT presence |
+| MQTT `argus/+/results` | Device → Core | Command result payloads |
+| MQTT `argus/+/ota/status` | Device → Core | OTA progress updates |
+| Kafka `telemetry.raw` | Telemetry → Core | Ingested telemetry for WebSocket broadcast to frontend |
 | Kafka `telemetry.incidents` | Telemetry → Core | Anomaly incidents |
-| MQTT | Device ↔ Core | Telemetry publish, commands, LWT presence |
 
 
 ---
@@ -178,7 +184,8 @@ Arduino-cli compile check against ESP32 core. Native C++ integration test (120s)
 Full reports: [`benchmark_10_devices_20min.md`](./benchmark_10_devices_20min.md) · [`benchmark_100_devices_60min.md`](./benchmark_100_devices_60min.md)
 
 > Hardware: ASUS ROG Zephyrus G14 2022 (Ryzen 9 6900HS, 16 GB DDR5) — core-service as a native Go binary, all infra in Docker.
-> Pipeline: Virtual ESP32 → MQTT → Redpanda → Redis → gRPC → MinIO artifact.
+> Pipeline: Virtual ESP32 → MQTT (Telemetry Service) → Kafka → Core Service WebSocket → Frontend.
+> MQTT topic split: Core Service handles `state`, `results`, `ota/status`. Telemetry Service handles `telemetry` independently.
 
 | | 10 devices · 20 min | 100 devices · 60 min |
 |:--|:--|:--|
@@ -230,7 +237,8 @@ argus/
 │   └── telemetry-service/       # AI + analytics  — HTTP :8081, gRPC :50052
 │       └── internal/
 │           ├── ai/              # Anomaly, embeddings, RAG, actions, memory
-│           └── infrastructure/  # Kafka, Redis, Postgres+pgvector, ONNX, Groq
+│           ├── domain/          # Telemetry service, rule engine
+│           └── infrastructure/  # MQTT (direct ingestion), Kafka, Redis, Postgres+pgvector, ONNX, Groq
 ├── shared/                      # Shared Go modules + Protobuf definitions
 ├── frontend/                    # React 18 SPA — 16 pages
 ├── argus_sdk/src/               # C++ ESP32 SDK

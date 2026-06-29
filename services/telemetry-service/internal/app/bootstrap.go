@@ -38,6 +38,7 @@ import (
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/embedding"
 	grpcinfra "github.com/vishalss1/argus/telemetry/internal/infrastructure/grpc"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/minio"
+	"github.com/vishalss1/argus/telemetry/internal/infrastructure/mqtt"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/telemetry/internal/infrastructure/postgres"
 	redisinfra "github.com/vishalss1/argus/telemetry/internal/infrastructure/redis"
@@ -45,6 +46,13 @@ import (
 	telemetrygrpc "github.com/vishalss1/argus/telemetry/internal/transport/grpc"
 	"go.uber.org/zap"
 )
+
+// ponytail: minimal repository that just returns the entity, as we publish via Kafka
+type noopTelemetryRepo struct{}
+
+func (n noopTelemetryRepo) Create(ctx context.Context, t telemetrydomain.Telemetry) (*telemetrydomain.Telemetry, error) {
+	return &t, nil
+}
 
 type Server struct {
 	db          *sql.DB
@@ -55,6 +63,7 @@ type Server struct {
 	embedProvider *embedding.LocalProvider
 	cancel        context.CancelFunc
 	wg          sync.WaitGroup
+	mqttClient  *mqtt.Client
 }
 
 func Bootstrap() (*Server, error) {
@@ -151,6 +160,26 @@ func Bootstrap() (*Server, error) {
 		ruleService.SetPublisher(kafkaProducer)
 	}
 	ruleService.SetLimiter(redisinfra.NewAlertLimiter(redisClient))
+
+	telemetryService := telemetrydomain.NewService(noopTelemetryRepo{})
+
+	if cfg.MQTTBrokerURL != "" {
+		mqttClient, err := mqtt.New(mqtt.Config{
+			BrokerURL:      cfg.MQTTBrokerURL,
+			ClientID:       cfg.MQTTClientID,
+			TelemetryTopic: cfg.MQTTTelemetryTopic,
+		}, telemetryService, kafkaProducer, logger)
+		if err != nil {
+			log.Printf("[MQTT] Failed to create MQTT client: %v", err)
+		} else {
+			if err := mqttClient.Start(); err != nil {
+				log.Printf("[MQTT] Failed to start MQTT client: %v", err)
+			} else {
+				server.mqttClient = mqttClient
+				log.Printf("[MQTT] Telemetry ingestion started")
+			}
+		}
+	}
 
 	planner := query.NewPlanner()
 	snapshotBuilder := query.NewSnapshotBuilder(deviceRepo, eventRepo, contextRepo, redisClient)
@@ -307,6 +336,9 @@ func (s *Server) Close() error {
 
 	if s.embedProvider != nil {
 		_ = s.embedProvider.Close()
+	}
+	if s.mqttClient != nil {
+		s.mqttClient.Close()
 	}
 	if s.coreClient != nil {
 		s.coreClient.Close()
