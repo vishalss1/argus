@@ -132,6 +132,15 @@ func Bootstrap() (*Server, error) {
 	websocketHub := transportws.NewHub(redisClient)
 	server.websocketHub = websocketHub
 
+	// ponytail: broadcast raw telemetry from Kafka directly to WebSocket
+	if len(cfg.KafkaBrokers) > 0 {
+		server.wg.Add(1)
+		go func() {
+			defer server.wg.Done()
+			startTelemetryBroadcastConsumer(appCtx, cfg, websocketHub)
+		}()
+	}
+
 	// Setup simple realtime publisher
 	realtime := &realtimePublisherWrapper{hub: websocketHub}
 
@@ -296,9 +305,8 @@ func Bootstrap() (*Server, error) {
 		mqttClient, err = mqtt.New(mqtt.Config{
 			BrokerURL:      cfg.MQTTBrokerURL,
 			ClientID:       cfg.MQTTClientID,
-			TelemetryTopic: cfg.MQTTTelemetryTopic,
 			StateTopic:     cfg.MQTTStateTopic,
-		}, telemetryService, presenceService, commandService, otaService)
+		}, presenceService, commandService, otaService)
 		if err == nil {
 			_ = mqttClient.Start()
 			server.mqttClient = mqttClient
@@ -521,6 +529,36 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 				})
 			}
 			consumer.CommitMessages(workerCtx, msg)
+		}
+	}
+}
+
+func startTelemetryBroadcastConsumer(ctx context.Context, cfg *config.Config, hub *transportws.Hub) {
+	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
+		Brokers: cfg.KafkaBrokers,
+		Topic:   cfg.KafkaTelemetryTopic,
+		GroupID: "argus-telemetry-broadcast",
+	})
+	defer consumer.Close()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			msg, err := consumer.FetchMessage(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				continue
+			}
+
+			var t telemetrydomain.Telemetry
+			if err := json.Unmarshal(msg.Value, &t); err == nil {
+				hub.Broadcast("telemetry", t)
+			}
+			consumer.CommitMessages(ctx, msg)
 		}
 	}
 }

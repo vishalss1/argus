@@ -35,5 +35,6 @@ sdk_tests/bootstrap/device.env
 sdk_tests/bootstrap/device_id.txt
 sdk_tests/bootstrap/workspace_id.txt
 ota_keys.env
-deployments/k8s/secrets.env
+deployments/k8s/base/secrets.env
+deployments/k8s/overlays/dev/certs/*
 deployments/k8s/*

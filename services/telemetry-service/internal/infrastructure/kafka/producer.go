@@ -68,7 +68,10 @@ func NewProducer(config Config) (*Producer, error) {
 			Topic:                  config.TelemetryTopic,
 			Balancer:               &segmentio.Hash{},
 			AllowAutoTopicCreation: true,
-			Async:                  false,
+			Async:                  true,
+			BatchTimeout:           100 * time.Millisecond,
+			BatchSize:              100,
+			BatchBytes:             1048576,
 		},
 		alertWriter: &segmentio.Writer{
 			Addr:                   segmentio.TCP(config.Brokers...),

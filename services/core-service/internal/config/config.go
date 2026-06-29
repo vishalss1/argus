@@ -17,7 +17,6 @@ type Config struct {
 	MQTTBrokerURL        string
 	MQTTClientID         string
 	MQTTStateTopic       string
-	MQTTTelemetryTopic   string
 	KafkaBrokers         []string
 	KafkaTelemetryTopic  string
 	KafkaCommandTopic    string
@@ -78,7 +77,6 @@ func Load() *Config {
 		MQTTBrokerURL:        os.Getenv("MQTT_BROKER_URL"),
 		MQTTClientID:         os.Getenv("MQTT_CLIENT_ID"),
 		MQTTStateTopic:       os.Getenv("MQTT_STATE_TOPIC"),
-		MQTTTelemetryTopic:   os.Getenv("MQTT_TELEMETRY_TOPIC"),
 		KafkaBrokers:         splitCSV(os.Getenv("KAFKA_BROKERS")),
 		KafkaTelemetryTopic:  os.Getenv("KAFKA_TELEMETRY_TOPIC"),
 		KafkaCommandTopic:    os.Getenv("KAFKA_COMMAND_TOPIC"),
@@ -115,9 +113,6 @@ func Load() *Config {
 	}
 	if cfg.MQTTStateTopic == "" {
 		cfg.MQTTStateTopic = "argus/devices/+/state"
-	}
-	if cfg.MQTTTelemetryTopic == "" {
-		cfg.MQTTTelemetryTopic = "argus/devices/+/telemetry"
 	}
 	if cfg.KafkaTelemetryTopic == "" {
 		cfg.KafkaTelemetryTopic = "argus.telemetry"
