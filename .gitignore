@@ -25,6 +25,8 @@ vite.config.d.ts
 *test*
 
 *.md
+!benchmark_10_devices_20min.md
+!benchmark_100_devices_60min.md
 !README.md
 !sdk_tests/
 sdk_tests/third_party/
