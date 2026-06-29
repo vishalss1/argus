@@ -67,6 +67,7 @@ func NewTelemetryClient(addr string) (*TelemetryClient, error) {
 	conn, err := grpc.Dial(addr, 
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUnaryInterceptor(clientInterceptor),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(128*1024*1024)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial telemetry service at %s: %w", addr, err)

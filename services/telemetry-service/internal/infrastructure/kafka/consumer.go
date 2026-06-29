@@ -19,13 +19,13 @@ type ConsumerConfig struct {
 
 func (c ConsumerConfig) WithDefaults() ConsumerConfig {
 	if c.MinBytes <= 0 {
-		c.MinBytes = 1e3 // 1KB
+		c.MinBytes = 10e3 // 10KB
 	}
 	if c.MaxBytes <= 0 {
-		c.MaxBytes = 1e6 // 1MB
+		c.MaxBytes = 10e6 // 10MB
 	}
 	if c.MaxWait <= 0 {
-		c.MaxWait = 100 * time.Millisecond
+		c.MaxWait = 500 * time.Millisecond
 	}
 	if c.QueueCapacity <= 0 {
 		c.QueueCapacity = 10000

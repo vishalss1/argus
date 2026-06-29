@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
@@ -32,6 +33,8 @@ type Client struct {
 	stateTopic       string
 	resultTopic      string
 	otaStatusTopic   string
+	msgChan          chan paho.Message
+	wg               sync.WaitGroup
 }
 
 type telemetryMessage struct {
@@ -84,6 +87,7 @@ func New(config Config, telemetryService *telemetry.Service, presenceService *de
 		stateTopic:       config.StateTopic,
 		resultTopic:      resultTopic,
 		otaStatusTopic:   otaStatusTopic,
+		msgChan:          make(chan paho.Message, 16384),
 	}
 
 	options := paho.NewClientOptions().
@@ -103,13 +107,29 @@ func New(config Config, telemetryService *telemetry.Service, presenceService *de
 		SetReconnectingHandler(func(_ paho.Client, _ *paho.ClientOptions) {
 			log.Printf("mqtt reconnecting: broker=%s client_id=%s", config.BrokerURL, config.ClientID)
 		}).
-		SetDefaultPublishHandler(mqttClient.handleMessage)
+		SetDefaultPublishHandler(func(_ paho.Client, msg paho.Message) {
+			select {
+			case mqttClient.msgChan <- msg:
+			default:
+				log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+			}
+		})
 
 	mqttClient.client = paho.NewClient(options)
 	return mqttClient, nil
 }
 
 func (c *Client) Start() error {
+	for range 16 {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			for msg := range c.msgChan {
+				c.dispatch(msg)
+			}
+		}()
+	}
+
 	if token := c.client.Connect(); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("connect mqtt broker: %w", token.Error())
 	}
@@ -123,6 +143,8 @@ func (c *Client) Close() {
 	}
 
 	c.client.Disconnect(250)
+	close(c.msgChan)
+	c.wg.Wait()
 }
 
 func (c *Client) Publish(topic string, qos byte, retained bool, payload interface{}) error {
@@ -140,7 +162,7 @@ func (c *Client) Publish(topic string, qos byte, retained bool, payload interfac
 	return nil
 }
 
-func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
+func (c *Client) dispatch(message paho.Message) {
 	switch {
 	case topicMatches(c.stateTopic, message.Topic()):
 		c.handleStateMessage(message)
@@ -156,25 +178,49 @@ func (c *Client) handleMessage(_ paho.Client, message paho.Message) {
 }
 
 func (c *Client) subscribe(client paho.Client) {
-	if token := client.Subscribe(c.stateTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe(c.stateTopic, 1, func(_ paho.Client, msg paho.Message) {
+		select {
+		case c.msgChan <- msg:
+		default:
+			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+		}
+	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe state topic failed: %v", token.Error())
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.stateTopic)
 
-	if token := client.Subscribe(c.telemetryTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe(c.telemetryTopic, 0, func(_ paho.Client, msg paho.Message) {
+		select {
+		case c.msgChan <- msg:
+		default:
+			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+		}
+	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe telemetry topic failed: %v", token.Error())
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.telemetryTopic)
 
-	if token := client.Subscribe(c.resultTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe(c.resultTopic, 1, func(_ paho.Client, msg paho.Message) {
+		select {
+		case c.msgChan <- msg:
+		default:
+			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+		}
+	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe result topic failed: %v", token.Error())
 		return
 	}
 	log.Printf("mqtt subscribed to %s", c.resultTopic)
 
-	if token := client.Subscribe(c.otaStatusTopic, 1, c.handleMessage); token.Wait() && token.Error() != nil {
+	if token := client.Subscribe(c.otaStatusTopic, 1, func(_ paho.Client, msg paho.Message) {
+		select {
+		case c.msgChan <- msg:
+		default:
+			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+		}
+	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe ota status topic failed: %v", token.Error())
 		return
 	}

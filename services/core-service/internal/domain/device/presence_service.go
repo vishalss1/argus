@@ -10,9 +10,15 @@ import (
 )
 
 type PresenceService struct {
-	deviceService *Service
-	mu            sync.RWMutex
-	cache         map[string]PresenceState
+	deviceService   *Service
+	mu              sync.RWMutex
+	cache           map[string]PresenceState
+	resolutionCache sync.Map // key: string -> resolvedDevice
+}
+
+type resolvedDevice struct {
+	device  *Device
+	expires time.Time
 }
 
 func NewPresenceService(deviceService *Service) *PresenceService {
@@ -78,7 +84,7 @@ func (s *PresenceService) RecordHeartbeat(deviceID string, timestamp time.Time) 
 	s.cache[deviceID] = state
 }
 
-func (s *PresenceService) GetDeviceByIDOrHardwareID(ctx context.Context, idOrHardwareID string) (*Device, error) {
+func (s *PresenceService) getUncached(ctx context.Context, idOrHardwareID string) (*Device, error) {
 	// Try UUID first
 	device, err := s.deviceService.GetByID(ctx, idOrHardwareID)
 	if err == nil {
@@ -87,6 +93,26 @@ func (s *PresenceService) GetDeviceByIDOrHardwareID(ctx context.Context, idOrHar
 
 	// Try Hardware ID
 	return s.deviceService.repo.GetByHardwareID(ctx, idOrHardwareID)
+}
+
+func (s *PresenceService) GetDeviceByIDOrHardwareID(ctx context.Context, raw string) (*Device, error) {
+	if v, ok := s.resolutionCache.Load(raw); ok {
+		if e := v.(resolvedDevice); !e.expires.Before(time.Now()) {
+			return e.device, nil
+		}
+	}
+	d, err := s.getUncached(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	entry := resolvedDevice{device: d, expires: time.Now().Add(24 * time.Hour)}
+	s.resolutionCache.Store(raw, entry)
+	s.resolutionCache.Store(d.ID, entry) // also cache canonical UUID key
+	return d, nil
+}
+
+func (s *PresenceService) InvalidateResolutionCache(rawID string) {
+	s.resolutionCache.Delete(rawID)
 }
 
 func (s *PresenceService) MarkStaleOffline(ctx context.Context, timeout time.Duration) ([]Device, error) {

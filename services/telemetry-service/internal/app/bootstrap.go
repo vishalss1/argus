@@ -182,6 +182,8 @@ func Bootstrap() (*Server, error) {
 
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(correlationServerUnaryInterceptor),
+		grpc.MaxRecvMsgSize(128*1024*1024),
+		grpc.MaxSendMsgSize(128*1024*1024),
 	)
 	deviceService := redisinfra.NewDeviceService(redisClient)
 	telemetryGRPCServer := telemetrygrpc.NewServer(queryEngine, eventRepo, contextService, ruleService, redisClient, deviceService, fleetService)
@@ -439,13 +441,13 @@ func startAIWorker(ctx context.Context, cfg *config.Config, analyticsEngine *ana
 }
 
 const (
-	telemetryLiveMsgChanSize     = 1000
+	telemetryLiveMsgChanSize     = 2000
 	telemetryLiveCommitBatchSize = 100
 	telemetryLiveCommitInterval  = 1 * time.Second
 	telemetryLiveRedisBatchSize  = 100
 	telemetryLiveWorkspaceTTL    = 60 * time.Second
 	telemetryLiveSessionTTL      = 30 * time.Second
-	telemetryLiveWorkers         = 4
+	telemetryLiveWorkers         = 32
 )
 
 func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemetryRepo *redisinfra.TelemetryRepository, redisClient *redisinfra.Client, kafkaProducer *kafka.Producer) {
@@ -726,9 +728,9 @@ func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postg
 
 	log.Printf("[ALERT CONSUMER] started, consuming topic: alerts.generated")
 
-	batchSize := 500
-	flushInterval := 100 * time.Millisecond
-	kafkaMsgChan := make(chan segmentio.Message, batchSize*2)
+		batchSize := 100
+	flushInterval := 500 * time.Millisecond
+	kafkaMsgChan := make(chan segmentio.Message, 2000)
 
 	go func() {
 		for {
@@ -754,155 +756,140 @@ func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postg
 		}
 	}()
 
-	var batchAlerts []ruledomain.Alert
-	var batchMessages []segmentio.Message
-	knownRules := make(map[string]struct{})
-	deviceWorkspaces := make(map[string]string)
+	var workerWg sync.WaitGroup
+	for w := 1; w <= 32; w++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			var batchAlerts []ruledomain.Alert
+			var batchMessages []segmentio.Message
+			knownRules := make(map[string]struct{})
+			deviceWorkspaces := make(map[string]string)
+			ticker := time.NewTicker(flushInterval)
+			defer ticker.Stop()
 
-	ticker := time.NewTicker(flushInterval)
-	defer ticker.Stop()
-
-	flush := func() {
-		if len(batchAlerts) == 0 {
-			return
-		}
-
-		err := withRetry(3, func() error {
-			return ruleRepo.CreateAlertsBatch(ctx, batchAlerts)
-		})
-
-		if err != nil {
-			log.Printf("[ALERT CONSUMER] permanent error persisting alert batch (size %d): %v", len(batchAlerts), err)
-			if kafkaProducer != nil {
-				for idx := range batchAlerts {
-					msg := batchMessages[idx]
-					_ = kafkaProducer.PublishDLQ(ctx, "alerts.generated", msg.Key, msg.Value, err.Error())
+			flush := func() {
+				if len(batchAlerts) == 0 {
+					return
 				}
-			}
-		} else {
-			pipe := redisClient.Client().Pipeline()
-			for _, alert := range batchAlerts {
-				cooldownKey := fmt.Sprintf("alert:cooldown:%s:%s", alert.RuleID, alert.DeviceID)
-				cooldownTTL := time.Duration(cfg.AlertCooldownSeconds) * time.Second
-				pipe.Set(ctx, cooldownKey, "1", cooldownTTL)
-			}
-			_, _ = pipe.Exec(ctx)
-		}
-
-		if err := consumer.CommitMessages(ctx, batchMessages...); err != nil {
-			log.Printf("[ALERT CONSUMER] failed to commit messages: %v", err)
-		}
-
-		batchAlerts = batchAlerts[:0]
-		batchMessages = batchMessages[:0]
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			flush()
-			return
-		case msg := <-kafkaMsgChan:
-			workerCtx := ctx
-			if corrID := extractCorrelationID(msg.Headers); corrID != "" {
-				workerCtx = common.WithCorrelationID(ctx, corrID)
-			}
-
-			var a ruledomain.Alert
-			if err := json.Unmarshal(msg.Value, &a); err != nil {
-				log.Printf("[ALERT CONSUMER] decode error: %v", err)
-				consumer.CommitMessages(workerCtx, msg)
-				continue
-			}
-
-			if _, cached := knownRules[a.RuleID]; !cached {
-				ruleEntity, err := ruleRepo.GetRule(workerCtx, a.RuleID)
-				if err == nil && ruleEntity != nil {
-					knownRules[a.RuleID] = struct{}{}
+				err := withRetry(3, func() error {
+					return ruleRepo.CreateAlertsBatch(ctx, batchAlerts)
+				})
+				if err != nil {
+					log.Printf("[ALERT CONSUMER] permanent error persisting alert batch: %v", err)
 				} else {
-					log.Printf("[ALERT CONSUMER] Unknown rule %s for alert, auto-provisioning...", a.RuleID)
-					autoRule := ruledomain.Rule{
-						ID:        a.RuleID,
-						Name:      fmt.Sprintf("Auto-Provisioned Rule %s", a.RuleID),
-						Metric:    a.Metric,
-						Operator:  a.Operator,
-						Threshold: a.Threshold,
-						Enabled:   true,
+					pipe := redisClient.Client().Pipeline()
+					for _, alert := range batchAlerts {
+						cooldownKey := fmt.Sprintf("alert:cooldown:%s:%s", alert.RuleID, alert.DeviceID)
+						cooldownTTL := time.Duration(cfg.AlertCooldownSeconds) * time.Second
+						pipe.Set(ctx, cooldownKey, "1", cooldownTTL)
 					}
-					if _, err := ruleRepo.CreateRule(workerCtx, autoRule); err != nil {
-						if !strings.Contains(err.Error(), "unique") && !strings.Contains(err.Error(), "duplicate key") {
-							log.Printf("[ALERT CONSUMER] Failed to auto-provision rule %s: %v", a.RuleID, err)
-							consumer.CommitMessages(workerCtx, msg)
-							continue
-						}
-					}
-					knownRules[a.RuleID] = struct{}{}
+					_, _ = pipe.Exec(ctx)
 				}
+				_ = consumer.CommitMessages(ctx, batchMessages...)
+				batchAlerts = batchAlerts[:0]
+				batchMessages = batchMessages[:0]
 			}
 
-			var wsID string
-			var deviceEntity *devicedomain.Device
-			var err error
 			for {
-				if cachedWsID, cached := deviceWorkspaces[a.DeviceID]; cached {
-					wsID = cachedWsID
-					break
-				}
-				deviceEntity, err = deviceRepo.GetByID(workerCtx, a.DeviceID)
-				if err == nil && deviceEntity != nil {
-					if deviceEntity.WorkspaceID != nil {
-						wsID = *deviceEntity.WorkspaceID
+				select {
+				case <-ctx.Done():
+					flush()
+					return
+				case msg := <-kafkaMsgChan:
+					workerCtx := ctx
+					if corrID := extractCorrelationID(msg.Headers); corrID != "" {
+						workerCtx = common.WithCorrelationID(ctx, corrID)
 					}
-					deviceWorkspaces[a.DeviceID] = wsID
-					break
-				}
-				if err != nil && isTransientError(err) {
-					log.Printf("[ALERT CONSUMER] transient error fetching device %s: %v. Retrying in 5 seconds...", a.DeviceID, err)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(5 * time.Second):
+
+					var a ruledomain.Alert
+					if err := json.Unmarshal(msg.Value, &a); err != nil {
+						_ = consumer.CommitMessages(workerCtx, msg)
 						continue
 					}
+
+					if _, cached := knownRules[a.RuleID]; !cached {
+						ruleEntity, err := ruleRepo.GetRule(workerCtx, a.RuleID)
+						if err == nil && ruleEntity != nil {
+							knownRules[a.RuleID] = struct{}{}
+						} else {
+							autoRule := ruledomain.Rule{
+								ID:        a.RuleID,
+								Name:      fmt.Sprintf("Auto-Provisioned Rule %s", a.RuleID),
+								Metric:    a.Metric,
+								Operator:  a.Operator,
+								Threshold: a.Threshold,
+								Enabled:   true,
+							}
+							if _, err := ruleRepo.CreateRule(workerCtx, autoRule); err != nil {
+								if !strings.Contains(err.Error(), "unique") && !strings.Contains(err.Error(), "duplicate key") {
+									_ = consumer.CommitMessages(workerCtx, msg)
+									continue
+								}
+							}
+							knownRules[a.RuleID] = struct{}{}
+						}
+					}
+
+					var wsID string
+					var deviceEntity *devicedomain.Device
+					var err error
+					for {
+						if cachedWsID, cached := deviceWorkspaces[a.DeviceID]; cached {
+							wsID = cachedWsID
+							break
+						}
+						deviceEntity, err = deviceRepo.GetByID(workerCtx, a.DeviceID)
+						if err == nil && deviceEntity != nil {
+							if deviceEntity.WorkspaceID != nil {
+								wsID = *deviceEntity.WorkspaceID
+							}
+							deviceWorkspaces[a.DeviceID] = wsID
+							break
+						}
+						if err != nil && isTransientError(err) {
+							time.Sleep(5 * time.Second)
+							continue
+						}
+						_ = consumer.CommitMessages(workerCtx, msg)
+						break
+					}
+					if wsID == "" && err != nil && !isTransientError(err) {
+						continue
+					}
+					a.WorkspaceID = wsID
+
+					duplicateInBatch := false
+					for _, batched := range batchAlerts {
+						if batched.RuleID == a.RuleID && batched.DeviceID == a.DeviceID {
+							duplicateInBatch = true
+							break
+						}
+					}
+					if duplicateInBatch {
+						_ = consumer.CommitMessages(workerCtx, msg)
+						continue
+					}
+
+					cooldownKey := fmt.Sprintf("alert:cooldown:%s:%s", a.RuleID, a.DeviceID)
+					exists, err := redisClient.Client().Exists(workerCtx, cooldownKey).Result()
+					if err == nil && exists > 0 {
+						_ = consumer.CommitMessages(workerCtx, msg)
+						continue
+					}
+
+					batchAlerts = append(batchAlerts, a)
+					batchMessages = append(batchMessages, msg)
+					if len(batchAlerts) >= batchSize {
+						flush()
+					}
+				case <-ticker.C:
+					flush()
 				}
-				log.Printf("[ALERT CONSUMER] Skipping alert for unknown device %s: %v", a.DeviceID, err)
-				consumer.CommitMessages(workerCtx, msg)
-				break
 			}
-			if wsID == "" && err != nil && !isTransientError(err) {
-				continue
-			}
-			a.WorkspaceID = wsID
-
-			duplicateInBatch := false
-			for _, batched := range batchAlerts {
-				if batched.RuleID == a.RuleID && batched.DeviceID == a.DeviceID {
-					duplicateInBatch = true
-					break
-				}
-			}
-			if duplicateInBatch {
-				consumer.CommitMessages(workerCtx, msg)
-				continue
-			}
-
-			cooldownKey := fmt.Sprintf("alert:cooldown:%s:%s", a.RuleID, a.DeviceID)
-			exists, err := redisClient.Client().Exists(workerCtx, cooldownKey).Result()
-			if err == nil && exists > 0 {
-				consumer.CommitMessages(workerCtx, msg)
-				continue
-			}
-
-			batchAlerts = append(batchAlerts, a)
-			batchMessages = append(batchMessages, msg)
-
-			if len(batchAlerts) >= batchSize {
-				flush()
-			}
-		case <-ticker.C:
-			flush()
-		}
+		}()
 	}
+	workerWg.Wait()
 }
 
 func startIncidentConsumer(ctx context.Context, cfg *config.Config, eventRepo eventdomain.Repository, embedSvc *memory.EmbeddingService, kafkaProducer *kafka.Producer, deviceRepo devicedomain.Repository) {
@@ -914,132 +901,159 @@ func startIncidentConsumer(ctx context.Context, cfg *config.Config, eventRepo ev
 	defer consumer.Close()
 
 	log.Printf("[INCIDENT CONSUMER] started, consuming topic: %s", cfg.KafkaIncidentTopic)
-	deviceWorkspaces := make(map[string]string)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			msg, err := consumer.FetchMessage(ctx)
-			if err != nil {
-				if ctx.Err() != nil {
+	kafkaMsgChan := make(chan segmentio.Message, 2000)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				msg, err := consumer.FetchMessage(ctx)
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					log.Printf("[INCIDENT CONSUMER] fetch error: %v", err)
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				select {
+				case kafkaMsgChan <- msg:
+				case <-ctx.Done():
 					return
 				}
-				log.Printf("[INCIDENT CONSUMER] fetch error: %v", err)
-				time.Sleep(1 * time.Second)
-				continue
+			}
+		}
+	}()
+
+	var workerWg sync.WaitGroup
+	for w := 1; w <= 32; w++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			deviceWorkspaces := make(map[string]string)
+			var batchMessages []segmentio.Message
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+
+			flush := func() {
+				if len(batchMessages) == 0 {
+					return
+				}
+				_ = consumer.CommitMessages(ctx, batchMessages...)
+				batchMessages = batchMessages[:0]
 			}
 
-
-			workerCtx := ctx
-			if corrID := extractCorrelationID(msg.Headers); corrID != "" {
-				workerCtx = common.WithCorrelationID(ctx, corrID)
-			}
-
-			var inc kafka.IncidentEvent
-			if err := json.Unmarshal(msg.Value, &inc); err != nil {
-				log.Printf("[INCIDENT CONSUMER] decode error: %v", err)
-				consumer.CommitMessages(workerCtx, msg)
-				continue
-			}
-
-			isSignificant := (inc.Status == "OPEN" && inc.Severity == "critical") || inc.Status == "CLOSE"
-			if !isSignificant {
-				consumer.CommitMessages(workerCtx, msg)
-				continue
-			}
-
-			var wsID string
-			var deviceEntity *devicedomain.Device
-			var lookupErr error
 			for {
-				if cachedWsID, cached := deviceWorkspaces[inc.DeviceID]; cached {
-					wsID = cachedWsID
-					break
-				}
-				deviceEntity, lookupErr = deviceRepo.GetByID(workerCtx, inc.DeviceID)
-				if lookupErr == nil && deviceEntity != nil {
-					if deviceEntity.WorkspaceID != nil {
-						wsID = *deviceEntity.WorkspaceID
+				select {
+				case <-ctx.Done():
+					flush()
+					return
+				case msg := <-kafkaMsgChan:
+					workerCtx := ctx
+					if corrID := extractCorrelationID(msg.Headers); corrID != "" {
+						workerCtx = common.WithCorrelationID(ctx, corrID)
 					}
-					deviceWorkspaces[inc.DeviceID] = wsID
-					break
-				}
-				if lookupErr != nil && isTransientError(lookupErr) {
-					log.Printf("[INCIDENT CONSUMER] transient error fetching device %s: %v. Retrying in 5 seconds...", inc.DeviceID, lookupErr)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(5 * time.Second):
+
+					var inc kafka.IncidentEvent
+					if err := json.Unmarshal(msg.Value, &inc); err != nil {
+						batchMessages = append(batchMessages, msg)
 						continue
 					}
+
+					isSignificant := (inc.Status == "OPEN" && inc.Severity == "critical") || inc.Status == "CLOSE"
+					if !isSignificant {
+						batchMessages = append(batchMessages, msg)
+						continue
+					}
+
+					var wsID string
+					var deviceEntity *devicedomain.Device
+					var lookupErr error
+					for {
+						if cachedWsID, cached := deviceWorkspaces[inc.DeviceID]; cached {
+							wsID = cachedWsID
+							break
+						}
+						deviceEntity, lookupErr = deviceRepo.GetByID(workerCtx, inc.DeviceID)
+						if lookupErr == nil && deviceEntity != nil {
+							if deviceEntity.WorkspaceID != nil {
+								wsID = *deviceEntity.WorkspaceID
+							}
+							deviceWorkspaces[inc.DeviceID] = wsID
+							break
+						}
+						if lookupErr != nil && isTransientError(lookupErr) {
+							time.Sleep(5 * time.Second)
+							continue
+						}
+						batchMessages = append(batchMessages, msg)
+						break
+					}
+					if wsID == "" && lookupErr != nil && !isTransientError(lookupErr) {
+						continue
+					}
+
+					severity := eventdomain.SeverityWarning
+					if inc.Severity == "critical" {
+						severity = eventdomain.SeverityCritical
+					} else if inc.Status == "CLOSE" {
+						severity = eventdomain.SeverityInfo
+					}
+
+					eventType := "incident_critical"
+					title := "Critical Fleet Anomaly"
+					summary := fmt.Sprintf("Critical anomaly detected on device %s for metric %s: type=%s, peak_score=%.2f", inc.DeviceID, inc.Metric, inc.IncidentType, inc.Score)
+					if inc.Status == "CLOSE" {
+						eventType = "incident_resolution"
+						title = "Fleet Incident Resolved"
+						summary = fmt.Sprintf("Incident for device %s metric %s resolved", inc.DeviceID, inc.Metric)
+					}
+
+					metadataBytes, _ := json.Marshal(map[string]any{
+						"incident_type": inc.IncidentType,
+						"metric":        inc.Metric,
+						"score":         inc.Score,
+						"session_id":    inc.SessionID,
+						"status":        inc.Status,
+					})
+
+					newEvent := eventdomain.Event{
+						ID:              uuid.New().String(),
+						DeviceID:        inc.DeviceID,
+						WorkspaceID:     wsID,
+						Type:            eventType,
+						Severity:        severity,
+						Title:           title,
+						Summary:         summary,
+						Source:          "anomaly_worker",
+						ConfidenceScore: 1.0,
+						Metadata:        json.RawMessage(metadataBytes),
+						CreatedAt:       inc.Timestamp,
+					}
+
+					var created *eventdomain.Event
+					var createErr error
+					err := withRetry(3, func() error {
+						created, createErr = eventRepo.Create(workerCtx, newEvent)
+						return createErr
+					})
+
+					if err == nil && embedSvc != nil {
+						embedSvc.EnqueueEvent(*created)
+					}
+
+					batchMessages = append(batchMessages, msg)
+					if len(batchMessages) >= 100 {
+						flush()
+					}
+				case <-ticker.C:
+					flush()
 				}
-				log.Printf("[INCIDENT CONSUMER] Unknown device %s for incident, skipping: %v", inc.DeviceID, lookupErr)
-				consumer.CommitMessages(workerCtx, msg)
-				break
 			}
-			if wsID == "" && lookupErr != nil && !isTransientError(lookupErr) {
-				continue
-			}
-
-			severity := eventdomain.SeverityWarning
-			if inc.Severity == "critical" {
-				severity = eventdomain.SeverityCritical
-			} else if inc.Status == "CLOSE" {
-				severity = eventdomain.SeverityInfo
-			}
-
-			eventType := "incident_critical"
-			title := "Critical Fleet Anomaly"
-			summary := fmt.Sprintf("Critical anomaly detected on device %s for metric %s: type=%s, peak_score=%.2f", inc.DeviceID, inc.Metric, inc.IncidentType, inc.Score)
-			if inc.Status == "CLOSE" {
-				eventType = "incident_resolution"
-				title = "Fleet Incident Resolved"
-				summary = fmt.Sprintf("Incident for device %s metric %s resolved", inc.DeviceID, inc.Metric)
-			}
-
-			metadataBytes, _ := json.Marshal(map[string]any{
-				"incident_type": inc.IncidentType,
-				"metric":        inc.Metric,
-				"score":         inc.Score,
-				"session_id":    inc.SessionID,
-				"status":        inc.Status,
-			})
-
-			newEvent := eventdomain.Event{
-				ID:              uuid.New().String(),
-				DeviceID:        inc.DeviceID,
-				WorkspaceID:     wsID,
-				Type:            eventType,
-				Severity:        severity,
-				Title:           title,
-				Summary:         summary,
-				Source:          "anomaly_worker",
-				ConfidenceScore: 1.0,
-				Metadata:        json.RawMessage(metadataBytes),
-				CreatedAt:       inc.Timestamp,
-			}
-
-			var created *eventdomain.Event
-			var createErr error
-			err = withRetry(3, func() error {
-				created, createErr = eventRepo.Create(workerCtx, newEvent)
-				return createErr
-			})
-
-			if err != nil {
-				log.Printf("[INCIDENT CONSUMER] failed to persist incident event: %v", err)
-				if kafkaProducer != nil {
-					_ = kafkaProducer.PublishDLQ(workerCtx, cfg.KafkaIncidentTopic, msg.Key, msg.Value, err.Error())
-				}
-			} else if embedSvc != nil {
-				embedSvc.EnqueueEvent(*created)
-			}
-
-			consumer.CommitMessages(workerCtx, msg)
-		}
+		}()
 	}
+	workerWg.Wait()
 }
 
 func startCorrelationEngine(ctx context.Context, redisClient *redisinfra.Client, eventRepo eventdomain.Repository, embedSvc *memory.EmbeddingService, deviceRepo devicedomain.Repository) {

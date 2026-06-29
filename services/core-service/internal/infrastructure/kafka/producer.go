@@ -70,7 +70,14 @@ func NewProducer(config Config) (*Producer, error) {
 			Topic:                  config.TelemetryTopic,
 			Balancer:               &segmentio.Hash{},
 			AllowAutoTopicCreation: true,
-			Async:                  false,
+			Async:                  true,
+			BatchSize:              1000,
+			BatchTimeout:           50 * time.Millisecond,
+			WriteTimeout:           10 * time.Second,
+			ReadTimeout:            10 * time.Second,
+			ErrorLogger: segmentio.LoggerFunc(func(msg string, args ...interface{}) {
+				log.Printf("[KAFKA] telemetry write error: "+msg, args...)
+			}),
 		},
 		commandWriter: &segmentio.Writer{
 			Addr:                   segmentio.TCP(config.Brokers...),
@@ -78,6 +85,8 @@ func NewProducer(config Config) (*Producer, error) {
 			Balancer:               &segmentio.Hash{},
 			AllowAutoTopicCreation: true,
 			Async:                  false,
+			BatchSize:              1000,
+			BatchTimeout:           50 * time.Millisecond,
 		},
 		alertWriter: &segmentio.Writer{
 			Addr:                   segmentio.TCP(config.Brokers...),
@@ -85,6 +94,8 @@ func NewProducer(config Config) (*Producer, error) {
 			Balancer:               &segmentio.Hash{},
 			AllowAutoTopicCreation: true,
 			Async:                  false,
+			BatchSize:              1000,
+			BatchTimeout:           50 * time.Millisecond,
 		},
 		dlqWriter: &segmentio.Writer{
 			Addr:                   segmentio.TCP(config.Brokers...),
@@ -92,6 +103,8 @@ func NewProducer(config Config) (*Producer, error) {
 			Balancer:               &segmentio.Hash{},
 			AllowAutoTopicCreation: true,
 			Async:                  false,
+			BatchSize:              1000,
+			BatchTimeout:           50 * time.Millisecond,
 		},
 		incidentWriter: &segmentio.Writer{
 			Addr:                   segmentio.TCP(config.Brokers...),
@@ -99,6 +112,8 @@ func NewProducer(config Config) (*Producer, error) {
 			Balancer:               &segmentio.Hash{},
 			AllowAutoTopicCreation: true,
 			Async:                  false,
+			BatchSize:              1000,
+			BatchTimeout:           50 * time.Millisecond,
 		},
 	}, nil
 }

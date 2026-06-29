@@ -199,7 +199,7 @@ func Bootstrap() (*Server, error) {
 	deviceService := devicedomain.NewService(deviceRepository)
 	deviceService.SetEventPublisher(realtime)
 	presenceService := devicedomain.NewPresenceService(deviceService)
-	deviceHandler := transporthandler.NewDeviceHandler(deviceService, ca, fwGen)
+	deviceHandler := transporthandler.NewDeviceHandler(deviceService, presenceService, ca, fwGen)
 
 	// Ingress Telemetry publishes directly to Kafka telemetry.raw
 	var finalTelemetryRepo telemetrydomain.Repository = &kafka.NoopTelemetryRepository{}

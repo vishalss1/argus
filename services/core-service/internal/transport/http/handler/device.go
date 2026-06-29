@@ -13,20 +13,23 @@ import (
 )
 
 type DeviceHandler struct {
-	service *device.Service
-	ca      *certificate.CertificateAuthority
-	fwGen   *firmware.Generator
+	service         *device.Service
+	presenceService *device.PresenceService
+	ca              *certificate.CertificateAuthority
+	fwGen           *firmware.Generator
 }
 
 func NewDeviceHandler(
 	service *device.Service,
+	presenceService *device.PresenceService,
 	ca *certificate.CertificateAuthority,
 	fwGen *firmware.Generator,
 ) *DeviceHandler {
 	return &DeviceHandler{
-		service: service,
-		ca:      ca,
-		fwGen:   fwGen,
+		service:         service,
+		presenceService: presenceService,
+		ca:              ca,
+		fwGen:           fwGen,
 	}
 }
 
@@ -181,6 +184,26 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
+	existing, err := h.service.GetByID(r.Context(), id)
+	if errors.Is(err, device.ErrDeviceNotFound) {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get device")
+		return
+	}
+
+	var oldHardwareID string
+	if len(existing.Metadata) > 0 {
+		var meta map[string]any
+		if err := json.Unmarshal(existing.Metadata, &meta); err == nil {
+			if hwID, ok := meta["hardware_id"].(string); ok {
+				oldHardwareID = hwID
+			}
+		}
+	}
+
 	entity, err := h.service.Update(r.Context(), id, device.UpdateInput{
 		Name:            req.Name,
 		Type:            req.Type,
@@ -195,6 +218,10 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	if oldHardwareID != "" {
+		h.presenceService.InvalidateResolutionCache(oldHardwareID)
 	}
 
 	writeJSON(w, http.StatusOK, entity)
@@ -282,6 +309,8 @@ func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusInternalServerError, "failed to delete device")
 		return
 	}
+
+	h.presenceService.InvalidateResolutionCache(id)
 
 	w.WriteHeader(http.StatusNoContent)
 }
