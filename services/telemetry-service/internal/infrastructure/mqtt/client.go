@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -117,9 +118,18 @@ func (c *Client) handleMessage(msg paho.Message) {
 	}
 	deviceID := parts[2]
 
-	// ponytail: avoid unnecessary decoding, pass raw JSON payload directly
+	var payload struct {
+		RecordedAt *time.Time      `json:"recorded_at"`
+		Metrics    json.RawMessage `json:"metrics"`
+	}
+	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
+		c.logger.Warn("telemetry decode failed", zap.String("device", deviceID), zap.Error(err))
+		return
+	}
+
 	input := telemetry.CreateInput{
-		Metrics: msg.Payload(),
+		RecordedAt: payload.RecordedAt,
+		Metrics:    payload.Metrics,
 	}
 
 	entity, err := c.telemetryService.Ingest(ctx, deviceID, input)

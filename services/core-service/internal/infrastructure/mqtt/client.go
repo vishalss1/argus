@@ -18,7 +18,6 @@ import (
 type Config struct {
 	BrokerURL      string
 	ClientID       string
-	TelemetryTopic string
 	StateTopic     string
 }
 
@@ -65,9 +64,6 @@ func New(config Config, presenceService *device.PresenceService, commandService 
 	}
 	if config.ClientID == "" {
 		config.ClientID = "argus-api"
-	}
-	if config.TelemetryTopic == "" {
-		config.TelemetryTopic = "argus/devices/+/telemetry"
 	}
 	if config.StateTopic == "" {
 		config.StateTopic = "argus/devices/+/state"
