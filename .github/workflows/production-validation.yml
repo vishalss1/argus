@@ -79,6 +79,16 @@ jobs:
           go test -tags=e2e -v ./tests/production/...
           bash tests/production/scripts/run-validation.sh
         
+      - name: Debug Docker Failures
+        if: failure()
+        run: |
+          echo "=== CORE SERVICE LOGS ==="
+          docker logs argus-core-service || true
+          echo "=== CORE SERVICE HEALTH ==="
+          docker inspect --format "{{json .State.Health }}" argus-core-service || true
+          echo "=== MOSQUITTO LOGS ==="
+          docker logs argus-mosquitto || true
+        
       - name: Upload Resource Metrics
         if: always()
         uses: actions/upload-artifact@v4
