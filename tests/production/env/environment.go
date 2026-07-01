@@ -32,7 +32,16 @@ func (d *DockerComposeEnv) RestartTelemetryService(ctx context.Context) error {
 }
 
 func (d *DockerComposeEnv) RestartComponent(ctx context.Context, component string) error {
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-p", d.ComposeProject, "restart", component)
+	composeFiles := []string{"-f", "../../deployments/compose/docker-compose.yml"}
+	if extraFile := os.Getenv("COMPOSE_FILE_EXTRA"); extraFile != "" {
+		composeFiles = append(composeFiles, "-f", extraFile)
+	}
+
+	args := []string{"compose", "-p", d.ComposeProject}
+	args = append(args, composeFiles...)
+	args = append(args, "restart", component)
+	
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to restart %s: %v, output: %s", component, err, string(output))
