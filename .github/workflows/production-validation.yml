@@ -51,6 +51,7 @@ jobs:
         uses: helm/kind-action@v1.9.0
       - name: Apply Manifests
         run: |
+          kubectl apply --server-side -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.72.0/stripped-down-crds.yaml
           kubectl apply -k deployments/k8s/overlays/dev
           kubectl wait --for=condition=Ready pods --all -n argus --timeout=60s || true
 
