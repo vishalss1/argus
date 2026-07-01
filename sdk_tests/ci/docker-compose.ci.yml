@@ -17,7 +17,7 @@ services:
       - argus_minio_data:/data
     environment:
       - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-argus}
-      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-arguspassword}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-argus123}
 
   minio-tls:
     image: nginx:alpine
