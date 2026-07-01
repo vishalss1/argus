@@ -80,7 +80,7 @@ jobs:
           bash tests/production/scripts/run-validation.sh
         
       - name: Debug Docker Failures
-        if: failure()
+        if: always()
         run: |
           echo "=== CORE SERVICE LOGS ==="
           docker logs argus-core-service || true

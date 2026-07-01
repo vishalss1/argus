@@ -64,8 +64,8 @@ services:
     container_name: argus-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-argus}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-arguspassword}
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-argus}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-argus123}
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -141,9 +141,9 @@ services:
       - KAFKA_TELEMETRY_TOPIC=telemetry.raw
       - KAFKA_INCIDENT_TOPIC=telemetry.incidents
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=argus
-      - MINIO_SECRET_KEY=argus123
-      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-argus}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-argus123}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
       - MQTT_BROKER_URL=tcp://mosquitto:1883
       - PORT=8080
       - WORKER_PROFILES=api,telemetry,alerts
@@ -195,9 +195,9 @@ services:
       - GRPC_PORT=50052
       - PORT=8081
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=argus
-      - MINIO_SECRET_KEY=argus123
-      - MINIO_USE_SSL=false
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-argus}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-argus123}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
       - EMBED_MODEL_PATH=/app/models/all-MiniLM-L6-v2
       - EMBED_DIMENSION=384
       - GROQ_API_KEY=${GROQ_API_KEY}
