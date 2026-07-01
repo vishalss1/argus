@@ -51,6 +51,23 @@ func (c *Compactor) Start(ctx context.Context) {
 }
 
 func (c *Compactor) Compact(ctx context.Context) {
+	lockKey := "lock:telemetry_compactor"
+	lockToken := time.Now().String()
+	acquired, err := c.redisClient.SetNX(ctx, lockKey, lockToken, 5*time.Minute).Result()
+	if err != nil || !acquired {
+		return
+	}
+	defer func() {
+		luaScript := `
+			if redis.call("get", KEYS[1]) == ARGV[1] then
+				return redis.call("del", KEYS[1])
+			else
+				return 0
+			end
+		`
+		_ = c.redisClient.Eval(ctx, luaScript, []string{lockKey}, lockToken).Err()
+	}()
+
 	sessions, err := c.redisClient.SMembers(ctx, "sessions:active").Result()
 	if err != nil || len(sessions) == 0 {
 		return

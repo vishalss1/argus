@@ -1,0 +1,101 @@
+# Main ingress — HTTP routing for frontend + REST API
+# interim static-cert approach, cert-manager migration is a tracked follow-up
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argus-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # WebSocket support for real-time device updates
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    # Increase body size for firmware uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "256m"
+    # HSTS
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - argus.example.com
+        - api.argus.example.com
+        - grpc-core.argus.example.com
+        - grpc-telemetry.argus.example.com
+        - minio.argus.example.com
+      secretName: argus-certs
+  rules:
+    # Frontend SPA
+    - host: argus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+    # REST API
+    - host: api.argus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: core-service
+                port:
+                  number: 8080
+    # MinIO Console
+    - host: minio.argus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9001
+---
+# gRPC ingress — requires GRPC backend protocol annotation
+# interim static-cert approach, cert-manager migration is a tracked follow-up
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argus-grpc-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - grpc-core.argus.example.com
+        - grpc-telemetry.argus.example.com
+      secretName: argus-certs
+  rules:
+    # gRPC — Core Service
+    - host: grpc-core.argus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: core-service
+                port:
+                  number: 50051
+    # gRPC — Telemetry Intelligence Service
+    - host: grpc-telemetry.argus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: telemetry-service
+                port:
+                  number: 50052

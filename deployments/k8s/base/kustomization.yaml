@@ -1,0 +1,92 @@
+namespace: argus
+
+resources:
+  - namespace.yaml
+  - service-accounts.yaml
+  - postgres.yaml
+  - redis.yaml
+  - redpanda.yaml
+  - mosquitto.yaml
+  - minio.yaml
+  - core-service.yaml
+  - telemetry-service.yaml
+  - frontend.yaml
+  - ingress.yaml
+  - network-policy.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - monitoring.yaml
+  - grafana-dashboards.yaml
+
+configMapGenerator:
+  - name: core-service-config
+    literals:
+      - REDIS_ADDR=redis:6379
+      - REDIS_DB=0
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_TELEMETRY_TOPIC=telemetry.raw
+      - KAFKA_INCIDENT_TOPIC=telemetry.incidents
+      - KAFKA_COMMAND_TOPIC=argus.commands
+      - KAFKA_DLQ_TOPIC=argus.dlq
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_BUCKET=argus-firmware
+      - MINIO_USE_SSL=false
+      - MQTT_BROKER_URL=tcp://mosquitto:1883
+      - PROVISIONING_MQTT_BROKER_URL=tcp://mosquitto:1883
+      - MQTT_CLIENT_ID=argus-api
+      - MQTT_STATE_TOPIC=argus/devices/+/state
+      - MQTT_TELEMETRY_TOPIC=argus/devices/+/telemetry
+      - PORT=8080
+      - WORKER_PROFILES=api,telemetry,alerts
+      - JWT_ACCESS_EXPIRY=24h
+      - JWT_REFRESH_EXPIRY=30d
+      - AUTH_AUDIT_LOG_RETENTION_DAYS=90
+      - TELEMETRY_SERVICE_GRPC_ADDR=telemetry-service:50052
+      - GRPC_PORT=50051
+      - HTTPS_TLS_CERT_FILE=/certs/tls.crt
+      - HTTPS_TLS_KEY_FILE=/certs/tls.key
+      - DEVICE_CA_ROOT_CERT_FILE=/certs/root-ca.pem
+      - DEVICE_CA_PRIVATE_KEY_FILE=/certs/root-ca.key
+      - SERVER_CA_CERT_FILE=/certs/ca.pem
+      - OTA_REQUIRE_SIGNATURES=true
+      - OTA_SIGNING_KEY_ID=argus-prod-v1
+      - HEARTBEAT_INTERVAL_SECONDS=30
+      - HEARTBEAT_TIMEOUT_SECONDS=45
+      - ALERT_COOLDOWN_SECONDS=900
+      - SESSION_STALE_TIMEOUT_HOURS=24
+  - name: telemetry-service-config
+    literals:
+      - REDIS_ADDR=redis:6379
+      - REDIS_DB=0
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_TELEMETRY_TOPIC=telemetry.raw
+      - KAFKA_INCIDENT_TOPIC=telemetry.incidents
+      - KAFKA_AI_WORKER_GROUP_ID=argus-ai-worker
+      - CORE_SERVICE_GRPC_ADDR=core-service:50051
+      - GRPC_PORT=50052
+      - PORT=8081
+      - EMBED_MODEL_PATH=/app/models/all-MiniLM-L6-v2
+      - EMBED_DIMENSION=384
+      - GROQ_MODEL=llama-3.3-70b-versatile
+      - GROQ_BASE_URL=https://api.groq.com/openai/v1
+      - ARGUS_TELEMETRY_EXPORT_RETENTION_DAYS=7
+      - RAG_SIMILARITY_THRESHOLD=0.5
+      - EMBEDDING_QUEUE_SIZE=10000
+      - EMBEDDING_WORKERS=8
+      - AI_QUERY_RATE_LIMIT=10
+      - AI_RETENTION_DAYS=30
+      - MQTT_BROKER_URL=tcp://mosquitto:1883
+      - MQTT_CLIENT_ID=argus-telemetry-ingest
+      - MQTT_TELEMETRY_TOPIC=argus/devices/+/telemetry
+      - MQTT_STATE_TOPIC=argus/devices/+/state
+
+secretGenerator:
+  - name: postgres-secret
+    envs:
+      - secrets.env
+  - name: core-secrets
+    envs:
+      - secrets.env
+  - name: telemetry-secrets
+    envs:
+      - secrets.env

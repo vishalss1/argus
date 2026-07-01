@@ -604,7 +604,22 @@ func (m *Manager) StartTelemetryExportCleaner(ctx context.Context, retentionDays
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				lockKey := "lock:telemetry_export_cleaner"
+				lockToken := time.Now().String()
+				acquired, err := m.redisClient.Client().SetNX(ctx, lockKey, lockToken, 10*time.Minute).Result()
+				if err != nil || !acquired {
+					continue
+				}
 				m.cleanExpiredExports(ctx, retentionDays)
+				
+				luaScript := `
+					if redis.call("get", KEYS[1]) == ARGV[1] then
+						return redis.call("del", KEYS[1])
+					else
+						return 0
+					end
+				`
+				_ = m.redisClient.Client().Eval(ctx, luaScript, []string{lockKey}, lockToken).Err()
 			}
 		}
 	}()

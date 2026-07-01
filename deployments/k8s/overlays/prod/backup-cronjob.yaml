@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: argus
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backup-sa
+          containers:
+          - name: pg-backup
+            # Note: This is a placeholder for the custom image containing postgres-client and aws-cli.
+            # You must build and push this image using deployments/docker/postgres-backup/Dockerfile.
+            image: your-registry.com/argus-postgres-backup:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              echo "Starting database backup at $TIMESTAMP..."
+              pg_dump -h postgres -U $POSTGRES_USER -d $POSTGRES_DB | gzip | aws s3 cp - s3://argus-prod-backups/postgres_backup_${TIMESTAMP}.sql.gz
+              echo "Backup completed successfully."
+            env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+          restartPolicy: OnFailure

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-sa
+  namespace: argus
+  annotations:
+    # TODO: Replace with the actual IAM role ARN created in AWS
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/argus-prod-postgres-backup-role

@@ -40,6 +40,6 @@ COPY --from=onnx-downloader /onnx/onnxruntime-linux-x64-1.23.0/lib/libonnxruntim
 
 USER argus
 
-EXPOSE 50052
+EXPOSE 50052 8081
 
 ENTRYPOINT ["/app/telemetry-service"]

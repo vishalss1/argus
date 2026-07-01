@@ -20,6 +20,7 @@ import (
 type TelemetryClient struct {
 	conn   *grpc.ClientConn
 	client pb.TelemetryIntelligenceServiceClient
+	cancel context.CancelFunc
 }
 
 var cb *gobreaker.CircuitBreaker
@@ -73,11 +74,12 @@ func NewTelemetryClient(addr string) (*TelemetryClient, error) {
 		return nil, fmt.Errorf("grpc dial telemetry service at %s: %w", addr, err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// Monitor connection state in the background
 	go func() {
 		state := conn.GetState()
 		log.Printf("[gRPC Client] Telemetry Service connection state: %s", state)
-		ctx := context.Background()
 		for {
 			if !conn.WaitForStateChange(ctx, state) {
 				return
@@ -92,10 +94,14 @@ func NewTelemetryClient(addr string) (*TelemetryClient, error) {
 	return &TelemetryClient{
 		conn:   conn,
 		client: client,
+		cancel: cancel,
 	}, nil
 }
 
 func (c *TelemetryClient) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
 	if c.conn != nil {
 		return c.conn.Close()
 	}

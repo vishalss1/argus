@@ -12,14 +12,14 @@ COPY . .
 RUN npm run build
 
 # ── Serve stage ───────────────────────────────────────────────────────────────
-FROM nginx:alpine
+FROM nginxinc/nginx-unprivileged:alpine
 
 # Nginx site config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Static build output
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --chown=101:101 --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,40 +1,63 @@
-CLAUDE.md
+# Environment & Secrets
 .env
-certs/*
-data/*
-models/*
-cmd/gen-certs/gen-certs
-cmd/ota-keygen/ota-keygen
-.claude
-*.exe
-*.bin
-report.md
-benchmark_*
-argus_esp32.cpp
-firmware_v1.cpp
-firmware_v2.cpp
-register.json
-login.json
-run_benchmark.ps1
-*.py
-node_modules
-dist
-*.tsbuildinfo
-vite.config.js
-vite.config.d.ts
-*test*
-
-*.md
-!benchmark_10_devices_20min.md
-!benchmark_100_devices_60min.md
-!README.md
-!sdk_tests/
-sdk_tests/third_party/
-sdk_tests/build/
-sdk_tests/bootstrap/device.env
-sdk_tests/bootstrap/device_id.txt
-sdk_tests/bootstrap/workspace_id.txt
 ota_keys.env
 deployments/k8s/base/secrets.env
 deployments/k8s/overlays/dev/certs/*
-deployments/k8s/*
+certs/*
+
+# Binaries & Executables
+*.exe
+*.bin
+cmd/gen-certs/gen-certs
+cmd/ota-keygen/ota-keygen
+helm.exe
+
+# Node & Build Outputs
+node_modules/
+dist/
+*.tsbuildinfo
+sdk_tests/build/
+
+# Data & Models
+data/*
+models/*
+sdk_tests/third_party/
+sdk_tests/bootstrap/device.env
+sdk_tests/bootstrap/device_id.txt
+sdk_tests/bootstrap/workspace_id.txt
+
+# Generated Files & Configs
+base.yaml
+dev.yaml
+register.json
+login.json
+helm.zip
+helm-extracted/
+NUL
+
+# IDEs & Tooling
+.claude/
+.opencode/
+.hermes/
+
+# Specific Code Files
+argus_esp32.cpp
+firmware_v1.cpp
+firmware_v2.cpp
+vite.config.js
+vite.config.d.ts
+run_benchmark.ps1
+*.py
+*test*
+
+# Documentation & Logs
+*.md
+!README.md
+!benchmark_10_devices_20min.md
+!benchmark_100_devices_60min.md
+CLAUDE.md
+report.md
+benchmark_*
+
+# Directory Exceptions
+!sdk_tests/

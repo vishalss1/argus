@@ -26,6 +26,7 @@ import (
 
 	"github.com/vishalss1/argus/shared/common"
 
+	apphealth "github.com/vishalss1/argus/core/internal/health"
 	"github.com/vishalss1/argus/core/internal/config"
 	"github.com/vishalss1/argus/core/internal/domain/auth"
 	"github.com/vishalss1/argus/core/internal/domain/certificate"
@@ -319,6 +320,9 @@ func Bootstrap() (*Server, error) {
 
 	websocketHandler := transportws.NewHandler(websocketHub, authService)
 	router := transportrouter.New(
+		database,
+		redisClient,
+		mqttClient,
 		deviceRepository,
 		deviceHandler,
 		telemetryHandler,
@@ -345,6 +349,10 @@ func Bootstrap() (*Server, error) {
 	server.httpServer = &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 		TLSConfig: &tls.Config{
 			MinVersion:       tls.VersionTLS12,
 			CurvePreferences: []tls.CurveID{tls.CurveP256, tls.X25519},
@@ -376,6 +384,32 @@ func Bootstrap() (*Server, error) {
 	server.grpcServer = grpcServer
 
 	server.wg.Add(6)
+
+	// gRPC health check poller
+	go func() {
+		defer server.wg.Done()
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-appCtx.Done():
+				return
+			case <-ticker.C:
+				checkCtx, cancelCheck := context.WithTimeout(appCtx, 2*time.Second)
+				err := apphealth.CheckDependencies(checkCtx, database, redisClient, server.mqttClient)
+				cancelCheck()
+
+				if err != nil {
+					log.Printf("[HEALTH] Dependency check failed, setting NOT_SERVING: %v", err)
+					healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+				} else {
+					// We could log SERVING every 10s, but that might be noisy. Let's log it anyway as requested.
+					log.Printf("[HEALTH] Dependency check passed, setting SERVING")
+					healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+				}
+			}
+		}
+	}()
 
 	// WebSocket Hub
 	go func() {
@@ -432,6 +466,11 @@ func (s *Server) Start() error {
 
 func (s *Server) Close() error {
 	s.cancel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := s.httpServer.Shutdown(ctx)
+
 	if s.grpcServer != nil {
 		s.grpcServer.GracefulStop()
 	}
@@ -449,9 +488,7 @@ func (s *Server) Close() error {
 	if s.db != nil {
 		s.db.Close()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return s.httpServer.Shutdown(ctx)
+	return err
 }
 
 // Stubs & Wrappers for compilation
@@ -534,10 +571,14 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 }
 
 func startTelemetryBroadcastConsumer(ctx context.Context, cfg *config.Config, hub *transportws.Hub) {
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = uuid.New().String()
+	}
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   cfg.KafkaTelemetryTopic,
-		GroupID: "argus-telemetry-broadcast",
+		GroupID: "argus-telemetry-broadcast-" + hostname,
 	})
 	defer consumer.Close()
 

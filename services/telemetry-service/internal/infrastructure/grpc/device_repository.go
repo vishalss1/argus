@@ -62,9 +62,11 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Devi
 	backoff := 500 * time.Millisecond
 
 	for i := 0; i < 3; i++ {
-		resp, err = r.coreClient.Client().GetDeviceContext(ctx, &pb.GetDeviceContextRequest{
+		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		resp, err = r.coreClient.Client().GetDeviceContext(reqCtx, &pb.GetDeviceContextRequest{
 			DeviceId: id,
 		})
+		cancel()
 		if err == nil {
 			break
 		}
@@ -183,9 +185,11 @@ func (r *DeviceRepository) GetWorkspaceDevices(ctx context.Context, workspaceID 
 	backoff := 500 * time.Millisecond
 
 	for i := 0; i < 3; i++ {
-		resp, err = r.coreClient.Client().GetWorkspaceDevices(ctx, &pb.GetWorkspaceDevicesRequest{
+		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		resp, err = r.coreClient.Client().GetWorkspaceDevices(reqCtx, &pb.GetWorkspaceDevicesRequest{
 			WorkspaceId: workspaceID,
 		})
+		cancel()
 		if err == nil {
 			break
 		}

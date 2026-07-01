@@ -1,0 +1,145 @@
+resources:
+  - ../../base
+  - secrets.yaml
+  - backup-sa.yaml
+  - backup-cronjob.yaml
+
+# Production-specific patches
+# Override replicas to 2 minimum (HPA will scale higher)
+patches:
+  - target:
+      kind: Deployment
+      name: core-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: core-service
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+              - name: core-service
+                resources:
+                  requests:
+                    cpu: 200m
+                    memory: 256Mi
+                  limits:
+                    cpu: 1000m
+                    memory: 512Mi
+  - target:
+      kind: Deployment
+      name: telemetry-service
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: telemetry-service
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+              - name: telemetry-service
+                resources:
+                  requests:
+                    cpu: 200m
+                    memory: 256Mi
+                  limits:
+                    cpu: 1000m
+                    memory: 512Mi
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+              - name: frontend
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
+  # Postgres gets more resources in prod
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+      spec:
+        template:
+          spec:
+            containers:
+              - name: postgres
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 512Mi
+                  limits:
+                    cpu: 2000m
+                    memory: 2Gi
+  # Redpanda gets more resources in prod and tiered storage
+  - target:
+      kind: StatefulSet
+      name: redpanda
+    patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: redpanda
+      spec:
+        template:
+          spec:
+            containers:
+              - name: redpanda
+                args:
+                  - redpanda
+                  - start
+                  - --overprovisioned
+                  - --smp
+                  - "1"
+                  - --memory
+                  - 1G
+                  - --reserve-memory
+                  - 0M
+                  - --node-id
+                  - "0"
+                  - --kafka-addr
+                  - INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+                  - --advertise-kafka-addr
+                  - INTERNAL://redpanda:9092,EXTERNAL://127.0.0.1:19092
+                  - --set
+                  - log_retention_ms=3600000
+                  - --set
+                  - cloud_storage_enabled=true
+                  - --set
+                  - cloud_storage_credentials_source=aws_instance_metadata
+                  - --set
+                  - cloud_storage_region=us-east-1
+                  - --set
+                  - cloud_storage_bucket=argus-prod-redpanda-tiered-storage
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: 2000m
+                    memory: 2Gi
+  # Observability Sizing Notes:
+  # The Prometheus, Grafana, Loki, and Promtail components are managed by Helm,
+  # not by this Kustomize overlay. For production, apply production-sized
+  # resources and retention policies via Helm values overrides (e.g. 
+  # prometheus.prometheusSpec.retention: 30d, increased CPU/Mem limits).

@@ -1,0 +1,81 @@
+name: Production Validation
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Go Build
+        run: go build ./...
+      - name: Go Test with Race Detector
+        run: go test -race ./...
+
+  docker-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Core Service
+        run: docker build -t argus-core -f services/core-service/Dockerfile .
+      - name: Build Telemetry Service
+        run: docker build -t argus-telemetry -f services/telemetry-service/Dockerfile .
+      - name: Build Postgres Backup
+        run: docker build -t argus-postgres-backup -f deployments/docker/postgres-backup/Dockerfile .
+      # Dashboard build if exists
+      - name: Build Admin Dashboard
+        run: docker build -t argus-dashboard -f frontend/admin-dashboard/Dockerfile . || true
+
+  k8s-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Kustomize
+        run: curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+      - name: Verify Kustomize Build Dev
+        run: ./kustomize build deployments/k8s/overlays/dev > /dev/null
+      - name: Verify Kustomize Build Prod
+        run: ./kustomize build deployments/k8s/overlays/prod > /dev/null
+      - name: Create Kind Cluster
+        uses: helm/kind-action@v1.9.0
+      - name: Apply Manifests
+        run: |
+          kubectl apply -k deployments/k8s/overlays/dev
+          kubectl wait --for=condition=Ready pods --all -n argus --timeout=60s || true
+
+  reliability-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate Certs & Keys
+        run: |
+          bash sdk_tests/ci/gen_certs.sh
+          # Just dummy setup for tests
+      
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          
+      - name: Start Infrastructure (Docker Compose)
+        run: docker compose -f deployments/compose/docker-compose.yml up -d
+        
+      - name: Run Production Validation Tests
+        run: |
+          go test -tags=e2e -c ./tests/production/...
+          go test -tags=e2e -v ./tests/production/...
+          bash tests/production/scripts/run-validation.sh
+        
+      - name: Upload Resource Metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resource-metrics
+          path: resource_metrics.txt

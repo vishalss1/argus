@@ -1,7 +1,12 @@
 package router
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -9,12 +14,18 @@ import (
 	_ "github.com/vishalss1/argus/core/docs/swagger"
 	"github.com/vishalss1/argus/core/internal/domain/auth"
 	"github.com/vishalss1/argus/core/internal/domain/device"
+	"github.com/vishalss1/argus/core/internal/health"
+	"github.com/vishalss1/argus/core/internal/infrastructure/mqtt"
+	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
 	"github.com/vishalss1/argus/core/internal/transport/http/handler"
 	authmiddleware "github.com/vishalss1/argus/core/internal/transport/http/middleware"
 	transportws "github.com/vishalss1/argus/core/internal/transport/websocket"
 )
 
 func New(
+	db *sql.DB,
+	redisClient *redis.Client,
+	mqttClient *mqtt.Client,
 	deviceRepo device.Repository,
 	deviceHandler *handler.DeviceHandler,
 	telemetryHandler *handler.TelemetryHandler,
@@ -36,7 +47,25 @@ func New(
 	r.Use(authmiddleware.Metrics)
 
 	// Generic/Utility Routes
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/healthz", func(w http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
+		defer cancel()
+
+		var errs []string
+		if err := health.CheckDependencies(ctx, db, redisClient, mqttClient); err != nil {
+			errs = strings.Split(err.Error(), "; ")
+		}
+
+		if len(errs) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "unhealthy",
+				"errors": errs,
+			})
+			return
+		}
+
 		w.WriteHeader(http.StatusNoContent)
 	})
 	r.Handle("/metrics", promhttp.Handler())

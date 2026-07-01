@@ -61,6 +61,7 @@ type Server struct {
 	httpServer  *http.Server
 	coreClient    *grpcinfra.CoreClient
 	embedProvider *embedding.LocalProvider
+	kafkaProducer *kafka.Producer
 	cancel        context.CancelFunc
 	wg          sync.WaitGroup
 	mqttClient  *mqtt.Client
@@ -157,6 +158,7 @@ func Bootstrap() (*Server, error) {
 			cancel()
 			return nil, err
 		}
+		server.kafkaProducer = kafkaProducer
 		ruleService.SetPublisher(kafkaProducer)
 	}
 	ruleService.SetLimiter(redisinfra.NewAlertLimiter(redisClient))
@@ -245,6 +247,10 @@ func Bootstrap() (*Server, error) {
 	httpServer := &http.Server{
 		Addr:    ":" + httpPort,
 		Handler: mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	server.httpServer = httpServer
 
@@ -291,7 +297,6 @@ func Bootstrap() (*Server, error) {
 		startCorrelationEngine(appCtx, redisClient, eventRepo, embedSvc, deviceRepo)
 	}()
 
-	embedSvc.StartWorkers(appCtx, cfg.EmbeddingWorkers, &server.wg)
 
 	server.wg.Add(1)
 	go func() {
@@ -324,14 +329,18 @@ func (s *Server) Start() error {
 
 func (s *Server) Close() error {
 	s.cancel()
-	if s.grpcServer != nil {
-		s.grpcServer.GracefulStop()
-	}
+
+	var httpErr error
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = s.httpServer.Shutdown(ctx)
+		httpErr = s.httpServer.Shutdown(ctx)
 	}
+
+	if s.grpcServer != nil {
+		s.grpcServer.GracefulStop()
+	}
+
 	s.wg.Wait()
 
 	if s.embedProvider != nil {
@@ -339,6 +348,9 @@ func (s *Server) Close() error {
 	}
 	if s.mqttClient != nil {
 		s.mqttClient.Close()
+	}
+	if s.kafkaProducer != nil {
+		s.kafkaProducer.Close()
 	}
 	if s.coreClient != nil {
 		s.coreClient.Close()
@@ -349,7 +361,7 @@ func (s *Server) Close() error {
 	if s.db != nil {
 		s.db.Close()
 	}
-	return nil
+	return httpErr
 }
 
 func extractCorrelationID(headers []segmentio.Header) string {

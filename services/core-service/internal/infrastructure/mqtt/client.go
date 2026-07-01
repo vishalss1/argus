@@ -138,6 +138,13 @@ func (c *Client) Close() {
 	c.wg.Wait()
 }
 
+func (c *Client) IsConnected() bool {
+	if c == nil || c.client == nil {
+		return false
+	}
+	return c.client.IsConnected()
+}
+
 func (c *Client) Publish(topic string, qos byte, retained bool, payload interface{}) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -205,6 +212,8 @@ func (c *Client) subscribe(client paho.Client) {
 }
 
 func (c *Client) handleStateMessage(message paho.Message) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	rawID, err := deviceIDFromTopic(c.stateTopic, message.Topic())
 	if err != nil {
 		log.Printf("[MQTT] presence ignored: %v", err)
@@ -212,7 +221,7 @@ func (c *Client) handleStateMessage(message paho.Message) {
 	}
 
 	// 1. Resolve UUID
-	deviceEntity, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	deviceEntity, err := c.presenceService.GetDeviceByIDOrHardwareID(ctx, rawID)
 	if err != nil {
 		log.Printf("[MQTT] failed to resolve device %s for state: %v", rawID, err)
 		return
@@ -236,7 +245,7 @@ func (c *Client) handleStateMessage(message paho.Message) {
 		timestamp = parsed.UTC()
 	}
 
-	_, err = c.presenceService.RecordState(context.Background(), deviceID, device.PresenceInput{
+	_, err = c.presenceService.RecordState(ctx, deviceID, device.PresenceInput{
 		Status:    device.PresenceStatus(payload.Status),
 		Timestamp: timestamp,
 		Metadata:  payload.Metadata,
@@ -248,12 +257,14 @@ func (c *Client) handleStateMessage(message paho.Message) {
 }
 
 func (c *Client) handleResultMessage(message paho.Message) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	rawID, err := deviceIDFromTopic(c.resultTopic, message.Topic())
 	if err != nil {
 		return
 	}
 
-	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	device, err := c.presenceService.GetDeviceByIDOrHardwareID(ctx, rawID)
 	if err != nil {
 		log.Printf("[MQTT] failed to resolve device for result: %v", err)
 		return
@@ -265,7 +276,6 @@ func (c *Client) handleResultMessage(message paho.Message) {
 		return
 	}
 
-	ctx := context.Background()
 	status := strings.ToLower(payload.Status)
 
 	if payload.CommandID != "" {
@@ -290,12 +300,14 @@ func (c *Client) handleResultMessage(message paho.Message) {
 }
 
 func (c *Client) handleOTAStatusMessage(message paho.Message) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	rawID, err := deviceIDFromTopic(c.otaStatusTopic, message.Topic())
 	if err != nil {
 		return
 	}
 
-	device, err := c.presenceService.GetDeviceByIDOrHardwareID(context.Background(), rawID)
+	device, err := c.presenceService.GetDeviceByIDOrHardwareID(ctx, rawID)
 	if err != nil {
 		log.Printf("[MQTT] failed to resolve device for ota status: %v", err)
 		return
@@ -307,7 +319,7 @@ func (c *Client) handleOTAStatusMessage(message paho.Message) {
 		return
 	}
 
-	deployment, err := c.otaService.RecordProgress(context.Background(), device.ID, ota.ProgressInput{
+	deployment, err := c.otaService.RecordProgress(ctx, device.ID, ota.ProgressInput{
 		DeploymentID: payload.DeploymentID,
 		Status:       payload.Status,
 		Progress:     payload.Progress,

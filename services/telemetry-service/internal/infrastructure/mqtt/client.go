@@ -108,7 +108,8 @@ func (c *Client) worker() {
 }
 
 func (c *Client) handleMessage(msg paho.Message) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	// Extract device ID from topic: "argus/devices/{deviceID}/telemetry"
 	parts := strings.Split(msg.Topic(), "/")

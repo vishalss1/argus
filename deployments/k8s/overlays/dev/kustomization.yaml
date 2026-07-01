@@ -1,0 +1,23 @@
+namespace: argus
+resources:
+  - ../../base
+
+secretGenerator:
+  - name: argus-certs
+    type: kubernetes.io/tls
+    files:
+      - tls.crt=certs/fullchain.pem
+      - tls.key=certs/privkey.pem
+      - root-ca.pem=certs/root-ca.pem
+      - root-ca.key=certs/root-ca.key
+      - ca.pem=certs/ca.pem
+generatorOptions:
+  disableNameSuffixHash: true
+
+patches:
+  - target:
+      kind: Ingress
+      name: argus-ingress
+    patch: |-
+      - op: remove
+        path: "/metadata/annotations/nginx.ingress.kubernetes.io~1configuration-snippet"

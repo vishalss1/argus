@@ -1,0 +1,350 @@
+# Default deny all ingress/egress within the argus namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: argus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow DNS resolution for all pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: argus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Core Service: accept from ingress-nginx namespace, peers, and monitoring.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: core-service-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # From ingress-nginx controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 50051
+    # From frontend within namespace
+    - from:
+        - podSelector:
+            matchLabels:
+                app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+    # From monitoring namespace (Prometheus)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - protocol: TCP
+          port: 9000
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mosquitto
+      ports:
+        - protocol: TCP
+          port: 1883
+    - to:
+        - podSelector:
+            matchLabels:
+              app: telemetry-service
+      ports:
+        - protocol: TCP
+          port: 50052
+---
+# Telemetry Service: accept from core-service, ingress-nginx, and monitoring.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: telemetry-service-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: telemetry-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 50052
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 50052
+        - protocol: TCP
+          port: 8081
+    # From monitoring namespace (Prometheus)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8081
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - protocol: TCP
+          port: 9000
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mosquitto
+      ports:
+        - protocol: TCP
+          port: 1883
+    - to:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 50051
+---
+# Frontend: accept from ingress-nginx only. Egress to core-service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Postgres: accept from core-service and telemetry-service only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+        - podSelector:
+            matchLabels:
+              app: telemetry-service
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Redis: accept from core-service and telemetry-service only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+        - podSelector:
+            matchLabels:
+              app: telemetry-service
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# Redpanda: accept from core-service and telemetry-service only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redpanda-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: redpanda
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+        - podSelector:
+            matchLabels:
+              app: telemetry-service
+      ports:
+        - protocol: TCP
+          port: 9092
+---
+# MinIO: accept from core-service and telemetry-service only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+        - podSelector:
+            matchLabels:
+              app: telemetry-service
+      ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 9001
+---
+# Mosquitto: accept from core-service and telemetry-service only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mosquitto-policy
+  namespace: argus
+spec:
+  podSelector:
+    matchLabels:
+      app: mosquitto
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+        - podSelector:
+            matchLabels:
+              app: telemetry-service
+      ports:
+        - protocol: TCP
+          port: 1883

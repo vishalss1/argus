@@ -20,6 +20,7 @@ import (
 type CoreClient struct {
 	conn   *grpc.ClientConn
 	client pb.CoreServiceClient
+	cancel context.CancelFunc
 }
 
 var cb *gobreaker.CircuitBreaker
@@ -72,11 +73,12 @@ func NewCoreClient(addr string) (*CoreClient, error) {
 		return nil, fmt.Errorf("grpc dial core service at %s: %w", addr, err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// Monitor connection state in the background
 	go func() {
 		state := conn.GetState()
 		log.Printf("[gRPC Client] Core Service connection state: %s", state)
-		ctx := context.Background()
 		for {
 			if !conn.WaitForStateChange(ctx, state) {
 				return
@@ -91,10 +93,14 @@ func NewCoreClient(addr string) (*CoreClient, error) {
 	return &CoreClient{
 		conn:   conn,
 		client: client,
+		cancel: cancel,
 	}, nil
 }
 
 func (c *CoreClient) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+	}
 	if c.conn != nil {
 		return c.conn.Close()
 	}

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argus
+  labels:
+    # Pod Security Standards — "baseline" blocks privileged containers,
+    # host networking, etc. "restricted" would break third-party images
+    # (postgres, redis, minio, mosquitto, redpanda) that run as root.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

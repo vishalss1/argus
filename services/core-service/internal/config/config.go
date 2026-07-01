@@ -313,7 +313,8 @@ func Load() *Config {
 	}
 
 	if cfg.OTASigningPrivateKey != "" {
-		privBytes, err := base64.StdEncoding.DecodeString(cfg.OTASigningPrivateKey)
+		cleanKey := strings.TrimSpace(cfg.OTASigningPrivateKey)
+		privBytes, err := base64.StdEncoding.DecodeString(cleanKey)
 		if err == nil && len(privBytes) == 64 {
 			pubKeyBytes := privBytes[32:]
 			cfg.OTASigningPublicKeyB64 = base64.StdEncoding.EncodeToString(pubKeyBytes)
