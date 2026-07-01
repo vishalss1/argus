@@ -116,8 +116,10 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
-            exec:
-              command: ["nc", "-z", "localhost", "50051"]
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTPS
             initialDelaySeconds: 15
             periodSeconds: 20
           resources:

@@ -169,7 +169,7 @@ services:
     volumes:
       - ../../certs:/certs:ro
     healthcheck:
-      test: ["CMD", "curl", "-k", "-s", "-f", "https://localhost:8080/healthz"]
+      test: ["CMD", "curl", "-k", "-s", "-f", "https://127.0.0.1:8080/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
