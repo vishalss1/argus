@@ -40,7 +40,9 @@ jobs:
       - name: Install Kustomize
         run: curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
       - name: Setup environment files
-        run: cp deployments/k8s/base/secrets.env.example deployments/k8s/base/secrets.env
+        run: |
+          cp deployments/k8s/base/secrets.env.example deployments/k8s/base/secrets.env
+          bash sdk_tests/ci/gen_certs.sh deployments/k8s/overlays/dev/certs
       - name: Verify Kustomize Build Dev
         run: ./kustomize build deployments/k8s/overlays/dev > /dev/null
       - name: Verify Kustomize Build Prod
