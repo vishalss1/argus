@@ -12,7 +12,7 @@ RUN GOWORK=off CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /
 
 FROM alpine:3.22
 
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates curl \
 	&& addgroup -S argus \
 	&& adduser -S -G argus argus
 
