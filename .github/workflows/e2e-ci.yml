@@ -52,6 +52,14 @@ jobs:
       - name: Start services
         run: docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml up -d --build
 
+      - name: Debug Docker Failures
+        if: always()
+        run: |
+          echo "=== CORE SERVICE LOGS ==="
+          docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml logs core-service
+          echo "=== MINIO LOGS ==="
+          docker compose -f deployments/compose/docker-compose.yml -f sdk_tests/ci/docker-compose.ci.yml logs minio
+
       - name: Wait for core-service
         run: |
           for i in {1..60}; do
