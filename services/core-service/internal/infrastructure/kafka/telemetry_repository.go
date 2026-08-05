@@ -8,6 +8,9 @@ import (
 	"github.com/vishalss1/argus/core/internal/domain/telemetry"
 )
 
+// Deprecated: TelemetryRepository supports legacy HTTP REST telemetry ingestion on Core Service.
+// Devices stream telemetry directly via MQTT to Telemetry Service -> Kafka.
+// This implementation is retained solely for backwards compatibility with legacy HTTP endpoints.
 type TelemetryRepository struct {
 	producer *Producer
 }

@@ -264,6 +264,12 @@ func Load() *Config {
 
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
 	if cfg.JWTSecret == "" {
+		appEnv := strings.ToLower(os.Getenv("APP_ENV"))
+		nodeEnv := strings.ToLower(os.Getenv("NODE_ENV"))
+		if appEnv == "production" || appEnv == "prod" || nodeEnv == "production" || nodeEnv == "prod" {
+			log.Fatal("FATAL SECURITY CONFIG: JWT_SECRET environment variable must be set in production environments.")
+		}
+		log.Println("[DEV WARNING] JWT_SECRET is not set; using local development secret ONLY.")
 		cfg.JWTSecret = "default-super-secure-secret-key-change-this-in-prod"
 	}
 

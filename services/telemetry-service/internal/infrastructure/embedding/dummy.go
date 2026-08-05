@@ -4,6 +4,9 @@ import (
 	"context"
 )
 
+// Mock / Testing Only: DummyProvider implements the Provider interface for unit tests
+// running in environments where ONNX Runtime C shared libraries are not loaded.
+// Production telemetry service uses LocalProvider (ONNX Runtime all-MiniLM-L6-v2 model).
 type DummyProvider struct {
 	Dimensions int
 }
