@@ -109,7 +109,7 @@ func Load() *Config {
 		cfg.Port = "8080"
 	}
 	if cfg.MQTTClientID == "" {
-		// ponytail: unique client ID to avoid collision with Core Service
+		// Unique client ID for Telemetry Service to avoid connection collision with Core Service
 		cfg.MQTTClientID = "argus-telemetry-ingest"
 	}
 	if cfg.MQTTStateTopic == "" {

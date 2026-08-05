@@ -6,7 +6,7 @@ import (
 	"github.com/vishalss1/argus/core/internal/domain/device"
 )
 
-// ponytail: minimal model without wifi_ssid/wifi_password storage as per requirements
+// Fleet representation without wifi_ssid/wifi_password storage as per requirements
 type Fleet struct {
 	ID               string
 	WorkspaceID      string

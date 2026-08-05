@@ -69,7 +69,7 @@ A few design choices that shaped how ARGUS works.
                  │     Core Service       │ ◄──gRPC──► ┌──────────────────────────┐
                  │       Go  :8080        │            │    Telemetry Service     │
                  │   gRPC server :50051   │            │      Go  :8081           │
-                 │                        │            │    gRPC server :50052     │
+                 │                        │            │    gRPC server :50052    │
                  │  Device registry       │            │                          │
                  │  Fleet management      │            │  MQTT subscriber         │
                  │  Command dispatch      │            │  (argus/+/telemetry)     │
@@ -78,7 +78,7 @@ A few design choices that shaped how ARGUS works.
                  │  Internal CA           │            │  ONNX embeddings         │
                  │  JWT auth              │            │  pgvector RAG            │
                  │  WebSocket broadcast   │            │  Rules + alerts          │
-                 └──┬───┬───┬────────────┘            └──┬───┬───┬───┬───────────┘
+                 └──┬───┬───┬─────────────┘            └──┬───┬───┬───┬───────────┘
                     │   │   │                             │   │   │   │
                    PG Redis MQTT                      PG Redis Kafka MinIO
                   +vec  (state,     Mosquitto           +vec        /RP
@@ -183,25 +183,26 @@ Arduino-cli compile check against ESP32 core. Native C++ integration test (120s)
 
 Full reports: [`benchmark_10_devices_20min.md`](./benchmark_10_devices_20min.md) · [`benchmark_100_devices_60min.md`](./benchmark_100_devices_60min.md)
 
-> Hardware: ASUS ROG Zephyrus G14 2022 (Ryzen 9 6900HS, 16 GB DDR5) — core-service as a native Go binary, all infra in Docker.
-> Pipeline: Virtual ESP32 → MQTT (Telemetry Service) → Kafka → Core Service WebSocket → Frontend.
-> MQTT topic split: Core Service handles `state`, `results`, `ota/status`. Telemetry Service handles `telemetry` independently.
+> Hardware: ASUS ROG Zephyrus G14 2022 (Ryzen 9 6900HS, 16 GB DDR5) — core-service as a native Go binary, all infra in Docker.  
+> Tested Pipeline: Benchmark Producer → Kafka (`telemetry.raw`) → Core Service WebSocket → Frontend (isolates Kafka ingestion & websocket fanout throughput; full device → MQTT → Kafka path validated in [CI/CD Pipelines](#cicd-pipelines)).
 
 | | 10 devices · 20 min | 100 devices · 60 min |
 |:--|:--|:--|
-| Messages | 11,990 / 12,000 | 359,900 / 360,000 |
-| Loss | **0** | **0** |
-| MQTT reconnects | **0** | **0** |
-| Publish failures | 0 | 0 |
-| Effective rate | 9.99 msg/s | 99.97 msg/s |
-| Avg enqueue latency | 21.6 µs | **532 ns** |
-| Primary Kafka lag | 0 throughout | 0 throughout |
-| App avg CPU | 1.88% | 6.25% |
-| App peak RSS | 228 MB | 402 MB |
-| Artifact generated | 0.06 MB | 0.75 MB |
+| Messages Processed | 11,990 / 12,000 | 359,900 / 360,000 |
+| Kafka Ingestion Loss | **0** | **0** |
+| Kafka Publish Failures | 0 | 0 |
+| Effective Rate | 9.99 msg/s | 99.97 msg/s |
+| Avg Enqueue Latency | 21.6 µs | **532 ns** |
+| Primary Telemetry Consumer Lag | 0 throughout | 0 throughout |
+| App Avg CPU | 1.88% | 6.25% |
+| App Peak RSS | 228 MB | 402 MB |
+| Artifact Generated | 0.06 MB | 0.75 MB |
 | Result | ✅ PASS | ✅ PASS |
 
-At 100 devices the avg enqueue latency dropped to 532 ns from 21.6 µs at 10 devices — Kafka's producer batching becomes more efficient as throughput increases.
+> **Notes on Architecture & Transport:**  
+> - **Benchmark Isolation:** The capacity benchmark writes directly to Kafka to measure backend ingestion and aggregation limits without Mosquitto socket bottlenecking.  
+> - **Telemetry Durability:** Device telemetry (`argus/+/telemetry`) is published via MQTT QoS 0 (best-effort) into an internal in-memory buffer to protect MQTT client event loops under high load. Durability and zero message loss guarantees apply once telemetry reaches Kafka.  
+> - **Kafka Consumer Lag:** Primary live telemetry consumer lag remained 0 throughout. Secondary consumer groups (e.g. background AI incident workers) process asynchronously.
 
 ---
 

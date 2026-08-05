@@ -119,6 +119,7 @@ func main() {
 
 	fmt.Println("==================================================")
 	fmt.Printf("ARGUS Sustained Load System Capacity Benchmark\n")
+	fmt.Printf("Pipeline Tested: Direct Kafka -> Core Service WebSocket (isolates Kafka/App throughput)\n")
 	fmt.Printf("Simulated Devices: %d\n", *devicesFlag)
 	fmt.Printf("Duration:          %s\n", *durationFlag)
 	fmt.Printf("Publish Interval:  %s\n", *freqFlag)

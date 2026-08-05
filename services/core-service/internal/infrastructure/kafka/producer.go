@@ -35,11 +35,10 @@ type Config struct {
 }
 
 type Producer struct {
-	telemetryWriter *segmentio.Writer
-	commandWriter   *segmentio.Writer
-	alertWriter     *segmentio.Writer
-	dlqWriter       *segmentio.Writer
-	incidentWriter  *segmentio.Writer
+	commandWriter  *segmentio.Writer
+	alertWriter    *segmentio.Writer
+	dlqWriter      *segmentio.Writer
+	incidentWriter *segmentio.Writer
 }
 
 func NewProducer(config Config) (*Producer, error) {
@@ -62,23 +61,9 @@ func NewProducer(config Config) (*Producer, error) {
 		config.IncidentTopic = "telemetry.incidents"
 	}
 
-	log.Printf("[KAFKA] initializing producer with brokers: %v, telemetry topic: %s, command topic: %s, alert topic: %s, dlq topic: %s, incident topic: %s", config.Brokers, config.TelemetryTopic, config.CommandTopic, config.AlertTopic, config.DLQTopic, config.IncidentTopic)
+	log.Printf("[KAFKA] initializing producer with brokers: %v, command topic: %s, alert topic: %s, dlq topic: %s, incident topic: %s", config.Brokers, config.CommandTopic, config.AlertTopic, config.DLQTopic, config.IncidentTopic)
 
 	return &Producer{
-		telemetryWriter: &segmentio.Writer{
-			Addr:                   segmentio.TCP(config.Brokers...),
-			Topic:                  config.TelemetryTopic,
-			Balancer:               &segmentio.Hash{},
-			AllowAutoTopicCreation: true,
-			Async:                  true,
-			BatchSize:              1000,
-			BatchTimeout:           50 * time.Millisecond,
-			WriteTimeout:           10 * time.Second,
-			ReadTimeout:            10 * time.Second,
-			ErrorLogger: segmentio.LoggerFunc(func(msg string, args ...interface{}) {
-				log.Printf("[KAFKA] telemetry write error: "+msg, args...)
-			}),
-		},
 		commandWriter: &segmentio.Writer{
 			Addr:                   segmentio.TCP(config.Brokers...),
 			Topic:                  config.CommandTopic,
@@ -118,8 +103,10 @@ func NewProducer(config Config) (*Producer, error) {
 	}, nil
 }
 
+// PublishTelemetry is intentionally a no-op on Core Service.
+// Telemetry Ingestion Service ingests device telemetry via MQTT and produces directly to Kafka.
+// Core Service consumes telemetry from Kafka solely to broadcast updates over WebSockets.
 func (p *Producer) PublishTelemetry(ctx context.Context, event telemetry.Telemetry) error {
-	// ponytail: no-op, Telemetry Service now produces telemetry to Kafka directly
 	return nil
 }
 
@@ -236,9 +223,6 @@ func (p *Producer) Close() error {
 		return nil
 	}
 
-	if p.telemetryWriter != nil {
-		_ = p.telemetryWriter.Close()
-	}
 	if p.commandWriter != nil {
 		_ = p.commandWriter.Close()
 	}

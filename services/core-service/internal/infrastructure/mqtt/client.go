@@ -78,6 +78,9 @@ func New(config Config, presenceService *device.PresenceService, commandService 
 		stateTopic:       config.StateTopic,
 		resultTopic:      resultTopic,
 		otaStatusTopic:   otaStatusTopic,
+		// Non-blocking enqueue pattern: protects Paho's internal network reader loop from blocking
+		// when worker processing slows down. Buffer capacity (16,384) accommodates extreme traffic spikes.
+		// For QoS 1 messages (state/results/OTA), drops indicate extreme worker backlog exceeding channel capacity.
 		msgChan:          make(chan paho.Message, 16384),
 	}
 
@@ -102,7 +105,7 @@ func New(config Config, presenceService *device.PresenceService, commandService 
 			select {
 			case mqttClient.msgChan <- msg:
 			default:
-				log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+				log.Printf("[MQTT] message channel full (cap=%d), non-blocking drop for topic=%s", cap(mqttClient.msgChan), msg.Topic())
 			}
 		})
 
@@ -178,7 +181,7 @@ func (c *Client) subscribe(client paho.Client) {
 		select {
 		case c.msgChan <- msg:
 		default:
-			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+			log.Printf("[MQTT] msgChan full — QoS 1 state message dropped (topic=%s, cap=%d)", msg.Topic(), cap(c.msgChan))
 		}
 	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe state topic failed: %v", token.Error())
@@ -190,7 +193,7 @@ func (c *Client) subscribe(client paho.Client) {
 		select {
 		case c.msgChan <- msg:
 		default:
-			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+			log.Printf("[MQTT] msgChan full — QoS 1 result message dropped (topic=%s, cap=%d)", msg.Topic(), cap(c.msgChan))
 		}
 	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe result topic failed: %v", token.Error())
@@ -202,7 +205,7 @@ func (c *Client) subscribe(client paho.Client) {
 		select {
 		case c.msgChan <- msg:
 		default:
-			log.Printf("mqtt message queue full, dropping topic=%s", msg.Topic())
+			log.Printf("[MQTT] msgChan full — QoS 1 ota status message dropped (topic=%s, cap=%d)", msg.Topic(), cap(c.msgChan))
 		}
 	}); token.Wait() && token.Error() != nil {
 		log.Printf("mqtt subscribe ota status topic failed: %v", token.Error())

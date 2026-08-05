@@ -133,7 +133,7 @@ func Bootstrap() (*Server, error) {
 	websocketHub := transportws.NewHub(redisClient)
 	server.websocketHub = websocketHub
 
-	// ponytail: broadcast raw telemetry from Kafka directly to WebSocket
+	// Broadcast raw telemetry from Kafka directly to WebSocket for frontend dashboard live view
 	if len(cfg.KafkaBrokers) > 0 {
 		server.wg.Add(1)
 		go func() {

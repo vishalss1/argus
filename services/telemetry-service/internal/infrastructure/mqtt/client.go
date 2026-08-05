@@ -68,7 +68,7 @@ func New(cfg Config, telemetryService *telemetry.Service, kafkaProducer *kafka.P
 }
 
 func (c *Client) Start() error {
-	// ponytail: subscribe QoS 0 for telemetry ingestion
+	// Subscribe QoS 0 for high-volume telemetry ingestion (best-effort delivery per MQTT specification)
 	token := c.client.Subscribe(c.cfg.TelemetryTopic, 0, c.messageHandler)
 	token.Wait()
 	if token.Error() != nil {
@@ -77,7 +77,7 @@ func (c *Client) Start() error {
 
 	c.logger.Info("MQTT subscribed", zap.String("topic", c.cfg.TelemetryTopic))
 
-	// ponytail: minimum viable workers, match kafka default
+	// Launch worker pool to process buffered MQTT messages asynchronously
 	for i := 0; i < 64; i++ {
 		c.wg.Add(1)
 		go c.worker()
@@ -87,10 +87,12 @@ func (c *Client) Start() error {
 }
 
 func (c *Client) messageHandler(client paho.Client, msg paho.Message) {
+	// Non-blocking write to internal channel prevents blocking Paho MQTT client read loop.
+	// If channel is full (65,536 capacity), QoS 0 telemetry is dropped under extreme backpressure.
 	select {
 	case c.messageCh <- msg:
 	default:
-		c.logger.Warn("MQTT message channel full, dropping message",
+		c.logger.Warn("MQTT message channel full, dropping QoS 0 telemetry message",
 			zap.String("topic", msg.Topic()))
 	}
 }

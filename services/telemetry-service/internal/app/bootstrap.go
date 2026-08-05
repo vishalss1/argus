@@ -47,7 +47,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ponytail: minimal repository that just returns the entity, as we publish via Kafka
+// Minimal repository wrapper for entity pass-through during direct Kafka production
 type noopTelemetryRepo struct{}
 
 func (n noopTelemetryRepo) Create(ctx context.Context, t telemetrydomain.Telemetry) (*telemetrydomain.Telemetry, error) {

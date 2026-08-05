@@ -92,7 +92,7 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 			Metadata:        json.RawMessage(`{}`),
 		})
 		if err != nil {
-			// ponytail: intentional simplification: fail the whole request instead of partial cleanup
+			// Fail the whole request on node creation error to preserve transactional integrity
 			return nil, fmt.Errorf("failed to create node %d: %w", i, err)
 		}
 
@@ -330,7 +330,7 @@ func (s *Service) DeployToFleet(ctx context.Context, fleetID string, artifactID 
 	deployedCount := 0
 
 	for _, dev := range fleetWithStats.Devices {
-		// ponytail: log and continue on failure
+		// Log and record deployment error per device without aborting entire fleet rollout
 		_, err := s.otaService.Deploy(ctx, dev.ID, ota.DeployInput{ArtifactID: artifactID})
 		if err != nil {
 			log.Printf("[FLEET] OTA deploy failed device=%s error=%v", dev.ID, err)

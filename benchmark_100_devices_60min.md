@@ -52,16 +52,16 @@ Message Processing p99: 5.000 ms
 
 ## Kafka
 
-Average Lag: 0.00
-Peak Lag: 0.00
-Final Lag: 0
+Average Lag (Primary Telemetry Consumer): 0.00
+Peak Lag (Primary Telemetry Consumer): 0.00
+Final Lag (Primary Telemetry Consumer): 0
 Consumer Fetch p50: 5.000 ms
 Consumer Fetch p95: 5.000 ms
 Consumer Fetch p99: 635.056 ms
 Consumer Commit p50: 5.000 ms
 Consumer Commit p95: 58.638 ms
 Consumer Commit p99: 91.728 ms
-Per-Partition Lag:
+Per-Partition Lag (Primary Consumer):
   Partition 0: 0
 
 ## Redis
@@ -121,13 +121,13 @@ PASS
 
 ## Checkpoints
 
-| Time | Published | Consumed | Lag | App CPU | App Mem | Mosq CPU | Mosq Mem |
+> **Note:** The *Combined 4-Group Lag* column below reflects aggregate unconsumed message offset deltas across all four Kafka consumer groups (including background AI/alert/incident workers which process asynchronously on single-node hardware). The primary telemetry consumer (`argus-telemetry-live-consumer-internal`) lag was **0 throughout the entire run**.
+
+| Time | Published | Consumed | Combined 4-Group Lag | App CPU | App Mem | Mosq CPU | Mosq Mem |
 |---|---|---|---|---|---|---|---|
 | 5m0s | 30429 | 29800 | 84807 | 5.98% | 218.91 MB | 0.93% | 3.38 MB |
 | 10m0s | 60508 | 59900 | 144980 | 6.15% | 219.69 MB | 1.01% | 3.35 MB |
 | 15m0s | 90000 | 89400 | 203981 | 5.98% | 220.01 MB | 0.98% | 3.35 MB |
 | 30m0s | 180300 | 179700 | 384580 | 6.15% | 220.88 MB | 0.94% | 3.35 MB |
 | 1h0m0s | 359900 | 359900 | 743868 | 4.90% | 229.03 MB | 0.02% | 3.21 MB |
-
-> **Note:** The Lag column reflects combined lag across all four Kafka consumer groups, including secondary AI/alert/incident consumers which accumulate by design on single-node hardware. Primary telemetry consumer lag was 0 throughout the entire run.
 

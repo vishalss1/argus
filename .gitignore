@@ -51,6 +51,7 @@ run_benchmark.ps1
 *test*
 
 # Documentation & Logs
+*.log
 *.md
 !README.md
 !benchmark_10_devices_20min.md

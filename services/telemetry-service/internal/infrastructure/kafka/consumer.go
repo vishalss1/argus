@@ -48,6 +48,9 @@ func NewConsumer(config ConsumerConfig) *Consumer {
 			MaxBytes:      config.MaxBytes,
 			MaxWait:       config.MaxWait,
 			QueueCapacity: config.QueueCapacity,
+			// StartOffset: LastOffset ensures newly deployed consumer group instances tail live telemetry.
+			// Historical telemetry data and incident records are queried via PostgreSQL/pgvector and MinIO,
+			// avoiding redundant reprocessing of high-volume historical Kafka topics upon service restarts.
 			StartOffset:   segmentio.LastOffset,
 		}),
 	}

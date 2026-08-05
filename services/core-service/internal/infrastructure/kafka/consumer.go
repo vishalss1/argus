@@ -48,6 +48,10 @@ func NewConsumer(config ConsumerConfig) *Consumer {
 			MaxBytes:      config.MaxBytes,
 			MaxWait:       config.MaxWait,
 			QueueCapacity: config.QueueCapacity,
+			// StartOffset: LastOffset ensures new consumer groups attach to the tip of the stream.
+			// Rationale: For command dispatching, historical commands are already persisted in PostgreSQL;
+			// replaying old Kafka command messages on consumer group creation could cause unintended duplicate execution.
+			// For WebSocket telemetry broadcast, clients require real-time updates rather than historical replays.
 			StartOffset:   segmentio.LastOffset,
 		}),
 	}
