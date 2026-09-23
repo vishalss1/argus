@@ -56,6 +56,11 @@ func (r *DeviceRepository) GetByID(ctx context.Context, id string) (*device.Devi
 		return entry.dev, nil
 	}
 
+	if r.coreClient == nil || r.coreClient.Client() == nil {
+		// ponytail: return error if coreClient unavailable in disconnected mode
+		return nil, fmt.Errorf("core gRPC client unavailable")
+	}
+
 	// 2. Cache miss: fallback to gRPC with bounded retries (3 attempts)
 	var resp *pb.DeviceContextResponse
 	var err error
