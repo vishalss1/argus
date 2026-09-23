@@ -1,4 +1,4 @@
-FROM postgres:16-bullseye
+FROM postgres:16-bookworm
 
 # Install AWS CLI
 RUN apt-get update && \
