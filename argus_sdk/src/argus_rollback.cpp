@@ -43,6 +43,8 @@ void handleRollbackVerification() {
   if (pending.deploymentId.length() > 0) {
     publishOTANack(pending.deploymentId, "Boot verification failed; rollback requested");
   }
+  // ponytail: clear pending ACK on rollback so old firmware does not publish fake success
+  clearPendingOTAACK();
   Serial.println("[ROLLBACK] Boot health failed; marking app invalid and rebooting for rollback");
   esp_ota_mark_app_invalid_rollback_and_reboot();
 #else
