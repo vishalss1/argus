@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strconv"
@@ -231,12 +232,16 @@ func (c *Compactor) Compact(ctx context.Context) {
 					}
 				}
 
-				// Delete the raw hourly key
-				c.redisClient.Del(ctx, key).Err()
+				// ponytail: do not delete raw key here; delete after MinIO upload succeeds below
 			}
 
 			// Archive accumulated hour samples to MinIO before removing from hours set
-			if len(hourSamples) > 0 && c.minioClient != nil {
+			if len(hourSamples) > 0 {
+				if c.minioClient == nil {
+					log.Printf("[COMPACTOR] Warning: MinIO client unavailable, skipping deletion of raw telemetry for session %s hour %s", sessionID, hour)
+					continue
+				}
+
 				sort.Slice(hourSamples, func(i, j int) bool {
 					return hourSamples[i].Timestamp < hourSamples[j].Timestamp
 				})
@@ -268,21 +273,22 @@ func (c *Compactor) Compact(ctx context.Context) {
 				csvWriter.Flush()
 
 				// Upload JSON.gz
-				{
-					var gzBuf bytes.Buffer
-					gzWriter := gzip.NewWriter(&gzBuf)
-					_, _ = gzWriter.Write(jsonData)
-					_ = gzWriter.Close()
-					_ = c.minioClient.PutObject(ctx, jsonKey, &gzBuf, int64(gzBuf.Len()), "application/gzip")
-				}
+				var gzBuf bytes.Buffer
+				gzWriter := gzip.NewWriter(&gzBuf)
+				_, _ = gzWriter.Write(jsonData)
+				_ = gzWriter.Close()
+				err1 := c.minioClient.PutObject(ctx, jsonKey, &gzBuf, int64(gzBuf.Len()), "application/gzip")
 
 				// Upload CSV.gz
-				{
-					var gzBuf bytes.Buffer
-					gzWriter := gzip.NewWriter(&gzBuf)
-					_, _ = gzWriter.Write(csvBuf.Bytes())
-					_ = gzWriter.Close()
-					_ = c.minioClient.PutObject(ctx, csvKey, &gzBuf, int64(gzBuf.Len()), "application/gzip")
+				var csvGzBuf bytes.Buffer
+				csvGzWriter := gzip.NewWriter(&csvGzBuf)
+				_, _ = csvGzWriter.Write(csvBuf.Bytes())
+				_ = csvGzWriter.Close()
+				err2 := c.minioClient.PutObject(ctx, csvKey, &csvGzBuf, int64(csvGzBuf.Len()), "application/gzip")
+
+				if err1 != nil || err2 != nil {
+					log.Printf("[COMPACTOR] Error uploading archives to MinIO: %v / %v, keeping raw keys", err1, err2)
+					continue
 				}
 
 				// Append to export manifest
@@ -292,6 +298,11 @@ func (c *Compactor) Compact(ctx context.Context) {
 					"csv_key":  csvKey,
 				})
 				c.redisClient.LPush(ctx, fmt.Sprintf("session:%s:export_paths", sessionID), string(manifestEntry))
+			}
+
+			// Delete raw hourly keys now that compaction and archiving have succeeded
+			for _, key := range keys {
+				c.redisClient.Del(ctx, key).Err()
 			}
 
 			// Remove the hour from the hours set
