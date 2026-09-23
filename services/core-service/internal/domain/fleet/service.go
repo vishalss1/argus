@@ -57,8 +57,11 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 	}
 
 	var wID *string
-	if val, ok := common.GetWorkspaceID(ctx); ok {
+	if val, ok := common.GetWorkspaceID(ctx); ok && strings.TrimSpace(val) != "" {
 		wID = &val
+	} else {
+		// ponytail: guard against nil workspace ID panic
+		return nil, ErrWorkspaceRequired
 	}
 
 	f := Fleet{
