@@ -1,14 +1,10 @@
 package handler
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
 
-	"github.com/vishalss1/argus/core/internal/domain/device"
 	"github.com/vishalss1/argus/core/internal/domain/telemetry"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
-	"github.com/vishalss1/argus/core/internal/transport/http/dto"
 )
 
 type TelemetryHandler struct {
@@ -51,26 +47,9 @@ func (h *TelemetryHandler) GetLatestTelemetry(w http.ResponseWriter, r *http.Req
 // @Failure 400 {object} dto.ErrorResponse
 // @Failure 404 {object} dto.ErrorResponse
 // @Router /devices/{deviceID}/telemetry [post]
+// IngestTelemetry handles legacy HTTP telemetry ingestion.
+// ponytail: HTTP telemetry is deprecated in favor of MQTT; return 410 Gone immediately.
 func (h *TelemetryHandler) IngestTelemetry(w http.ResponseWriter, r *http.Request, deviceID string) {
-	var req dto.CreateTelemetryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-
-	entity, err := h.service.Ingest(r.Context(), deviceID, telemetry.CreateInput{
-		RecordedAt: req.RecordedAt,
-		Metrics:    req.Metrics,
-	})
-	if errors.Is(err, device.ErrDeviceNotFound) {
-		writeError(w, http.StatusNotFound, "device not found")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, entity)
+	writeError(w, http.StatusGone, "HTTP telemetry ingestion is deprecated. Use MQTT.")
 }
 
