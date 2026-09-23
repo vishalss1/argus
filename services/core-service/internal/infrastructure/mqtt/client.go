@@ -31,6 +31,8 @@ type Client struct {
 	otaStatusTopic   string
 	msgChan          chan paho.Message
 	wg               sync.WaitGroup
+	done             chan struct{}
+	closeOnce        sync.Once
 }
 
 type telemetryMessage struct {
@@ -82,6 +84,7 @@ func New(config Config, presenceService *device.PresenceService, commandService 
 		// when worker processing slows down. Buffer capacity (16,384) accommodates extreme traffic spikes.
 		// For QoS 1 messages (state/results/OTA), drops indicate extreme worker backlog exceeding channel capacity.
 		msgChan:          make(chan paho.Message, 16384),
+		done:             make(chan struct{}),
 	}
 
 	options := paho.NewClientOptions().
@@ -103,6 +106,13 @@ func New(config Config, presenceService *device.PresenceService, commandService 
 		}).
 		SetDefaultPublishHandler(func(_ paho.Client, msg paho.Message) {
 			select {
+			case <-mqttClient.done:
+				return
+			default:
+			}
+			select {
+			case <-mqttClient.done:
+				return
 			case mqttClient.msgChan <- msg:
 			default:
 				log.Printf("[MQTT] message channel full (cap=%d), non-blocking drop for topic=%s", cap(mqttClient.msgChan), msg.Topic())
@@ -125,6 +135,7 @@ func (c *Client) Start() error {
 	}
 
 	if token := c.client.Connect(); token.Wait() && token.Error() != nil {
+		c.Close()
 		return fmt.Errorf("connect mqtt broker: %w", token.Error())
 	}
 
@@ -132,13 +143,18 @@ func (c *Client) Start() error {
 }
 
 func (c *Client) Close() {
-	if c.client == nil || !c.client.IsConnected() {
+	if c == nil {
 		return
 	}
-
-	c.client.Disconnect(250)
-	close(c.msgChan)
-	c.wg.Wait()
+	// ponytail: safe shutdown without race on closed msgChan, no worker leak
+	c.closeOnce.Do(func() {
+		close(c.done)
+		if c.client != nil && c.client.IsConnected() {
+			c.client.Disconnect(250)
+		}
+		close(c.msgChan)
+		c.wg.Wait()
+	})
 }
 
 func (c *Client) IsConnected() bool {
@@ -179,6 +195,13 @@ func (c *Client) dispatch(message paho.Message) {
 func (c *Client) subscribe(client paho.Client) {
 	if token := client.Subscribe(c.stateTopic, 1, func(_ paho.Client, msg paho.Message) {
 		select {
+		case <-c.done:
+			return
+		default:
+		}
+		select {
+		case <-c.done:
+			return
 		case c.msgChan <- msg:
 		default:
 			log.Printf("[MQTT] msgChan full — QoS 1 state message dropped (topic=%s, cap=%d)", msg.Topic(), cap(c.msgChan))
@@ -191,6 +214,13 @@ func (c *Client) subscribe(client paho.Client) {
 
 	if token := client.Subscribe(c.resultTopic, 1, func(_ paho.Client, msg paho.Message) {
 		select {
+		case <-c.done:
+			return
+		default:
+		}
+		select {
+		case <-c.done:
+			return
 		case c.msgChan <- msg:
 		default:
 			log.Printf("[MQTT] msgChan full — QoS 1 result message dropped (topic=%s, cap=%d)", msg.Topic(), cap(c.msgChan))
@@ -203,6 +233,13 @@ func (c *Client) subscribe(client paho.Client) {
 
 	if token := client.Subscribe(c.otaStatusTopic, 1, func(_ paho.Client, msg paho.Message) {
 		select {
+		case <-c.done:
+			return
+		default:
+		}
+		select {
+		case <-c.done:
+			return
 		case c.msgChan <- msg:
 		default:
 			log.Printf("[MQTT] msgChan full — QoS 1 ota status message dropped (topic=%s, cap=%d)", msg.Topic(), cap(c.msgChan))
