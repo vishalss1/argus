@@ -12,6 +12,7 @@ import (
 	"log"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vishalss1/argus/core/internal/domain/workspace"
@@ -292,13 +293,32 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 	alertCount := len(alerts)
 	commandCount := len(commands)
 
+	// ponytail: calculate critical events from alerts and uptime percentage from active devices
+	criticalCount := 0
+	for _, a := range alerts {
+		if strings.EqualFold(a.Severity, "critical") {
+			criticalCount++
+		}
+	}
+
+	uptimePct := 100.0
+	if len(deviceSummaries) > 0 {
+		activeCount := 0
+		for _, dev := range deviceSummaries {
+			if dev.ActiveAtEnd {
+				activeCount++
+			}
+		}
+		uptimePct = (float64(activeCount) / float64(len(deviceSummaries))) * 100.0
+	}
+
 	stats := Statistics{
 		SessionID:                id,
 		DurationSeconds:          durationSec,
 		MessagesProcessed:        sampleCountTotal,
 		AlertsCount:              alertCount,
-		CriticalEvents:           0,
-		UptimePercentage:         100.0,
+		CriticalEvents:           criticalCount,
+		UptimePercentage:         uptimePct,
 		AvgLatencyMS:             0.0,
 		DeviceParticipationCount: len(deviceSummaries),
 		CommandCount:             commandCount,
@@ -320,7 +340,7 @@ func (m *Manager) StopSession(ctx context.Context, id string, success bool) (*Se
 			}
 			summaries = append(summaries, fmt.Sprintf("- %s on %s (%s)", inc.Summary, inc.DeviceID, statusStr))
 		}
-		sessionSummary = fmt.Sprintf("AI Session Summary\n\nDetected %d incidents:\n\n%s", len(incidentsArchive), summaries)
+		sessionSummary = fmt.Sprintf("AI Session Summary\n\nDetected %d incidents:\n\n%s", len(incidentsArchive), strings.Join(summaries, "\n"))
 	}
 
 	// Save final compiled report in postgres

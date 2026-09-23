@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vishalss1/argus/shared/common"
 	"github.com/vishalss1/argus/core/internal/domain/session"
 )
@@ -191,24 +193,139 @@ func (r *SessionRepository) TransitionStatus(ctx context.Context, id string, fro
 	return &s, nil
 }
 
+// ponytail: queries canonical events table within session's workspace and active time window
 func (r *SessionRepository) CreateEvent(ctx context.Context, e session.Event) (*session.Event, error) {
+	if e.ID == "" {
+		e.ID = uuid.New().String()
+	}
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now().UTC()
+	}
+	payloadBytes := []byte("{}")
+	if len(e.Payload) > 0 {
+		payloadBytes = []byte(e.Payload)
+	}
+	query := `
+		INSERT INTO events (id, device_id, type, severity, title, summary, source, confidence_score, metadata, created_at, workspace_id)
+		VALUES (
+			$1::uuid,
+			NULLIF($2, '')::uuid,
+			$3,
+			$4,
+			$3,
+			$3,
+			'session',
+			1.0,
+			$5::jsonb,
+			$6,
+			(SELECT workspace_id FROM workspace_sessions WHERE id = $7::uuid)
+		)
+		ON CONFLICT (id) DO NOTHING
+	`
+	_, err := r.db.ExecContext(ctx, query, e.ID, e.DeviceID, e.Type, e.Severity, payloadBytes, e.CreatedAt, e.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("create session event: %w", err)
+	}
 	return &e, nil
 }
 
 func (r *SessionRepository) ListEventsBySession(ctx context.Context, sessionID string) ([]session.Event, error) {
-	return []session.Event{}, nil
+	query := `
+		SELECT e.id, $1, COALESCE(e.device_id::text, ''), e.type, e.severity, e.metadata, e.created_at
+		FROM events e
+		JOIN workspace_sessions s ON e.workspace_id = s.workspace_id
+		WHERE s.id = $1::uuid
+		  AND (s.started_at IS NULL OR e.created_at >= s.started_at)
+		  AND (s.ended_at IS NULL OR e.created_at <= s.ended_at)
+		ORDER BY e.created_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list session events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []session.Event
+	for rows.Next() {
+		var e session.Event
+		var payload []byte
+		if err := rows.Scan(&e.ID, &e.SessionID, &e.DeviceID, &e.Type, &e.Severity, &payload, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan session event: %w", err)
+		}
+		e.Payload = json.RawMessage(payload)
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("session events rows: %w", err)
+	}
+	if events == nil {
+		events = []session.Event{}
+	}
+	return events, nil
 }
 
+// ponytail: queries canonical alerts table within session's workspace and active time window
 func (r *SessionRepository) CreateAlert(ctx context.Context, a session.Alert) (*session.Alert, error) {
+	if a.ID == "" {
+		a.ID = uuid.New().String()
+	}
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now().UTC()
+	}
+	query := `
+		INSERT INTO alerts (id, rule_id, device_id, workspace_id, metric, operator, threshold, observed_value, severity, message, created_at)
+		VALUES (
+			$1::uuid,
+			COALESCE((SELECT id FROM rules WHERE workspace_id = (SELECT workspace_id FROM workspace_sessions WHERE id = $2::uuid) LIMIT 1), '00000000-0000-0000-0000-000000000000'::uuid),
+			$3::uuid,
+			(SELECT workspace_id FROM workspace_sessions WHERE id = $2::uuid),
+			'session', '>', 0, 0, $4, $5, $6
+		)
+		ON CONFLICT (id) DO NOTHING
+	`
+	_, err := r.db.ExecContext(ctx, query, a.ID, a.SessionID, a.DeviceID, a.Severity, a.Message, a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create session alert: %w", err)
+	}
 	return &a, nil
 }
 
 func (r *SessionRepository) ResolveAlert(ctx context.Context, id string) error {
+	// ponytail: alerts table has no resolved column post migration 29
 	return nil
 }
 
 func (r *SessionRepository) ListAlertsBySession(ctx context.Context, sessionID string) ([]session.Alert, error) {
-	return []session.Alert{}, nil
+	query := `
+		SELECT a.id, $1, COALESCE(a.device_id::text, ''), COALESCE(a.severity, 'warning'), a.message, a.created_at
+		FROM alerts a
+		JOIN workspace_sessions s ON a.workspace_id = s.workspace_id
+		WHERE s.id = $1::uuid
+		  AND (s.started_at IS NULL OR a.created_at >= s.started_at)
+		  AND (s.ended_at IS NULL OR a.created_at <= s.ended_at)
+		ORDER BY a.created_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list session alerts: %w", err)
+	}
+	defer rows.Close()
+
+	var alerts []session.Alert
+	for rows.Next() {
+		var a session.Alert
+		if err := rows.Scan(&a.ID, &a.SessionID, &a.DeviceID, &a.Severity, &a.Message, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan session alert: %w", err)
+		}
+		alerts = append(alerts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("session alerts rows: %w", err)
+	}
+	if alerts == nil {
+		alerts = []session.Alert{}
+	}
+	return alerts, nil
 }
 
 func (r *SessionRepository) CreateCommand(ctx context.Context, c session.Command) (*session.Command, error) {

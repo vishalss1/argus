@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -214,7 +215,7 @@ func (h *SessionHandler) compilePayload(sess *session.Session, telemetryResponse
 			}
 			summaries = append(summaries, fmt.Sprintf("- %s on %s (%s)", inc.Summary, inc.DeviceID, statusStr))
 		}
-		sessionSummary = fmt.Sprintf("AI Session Summary\n\nDetected %d incidents:\n\n%s", len(incidentsArchive), summaries)
+		sessionSummary = fmt.Sprintf("AI Session Summary\n\nDetected %d incidents:\n\n%s", len(incidentsArchive), strings.Join(summaries, "\n"))
 	}
 
 	return session.SessionArtifactPayload{

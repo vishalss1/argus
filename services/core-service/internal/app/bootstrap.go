@@ -208,6 +208,9 @@ func Bootstrap() (*Server, error) {
 
 	deviceService := devicedomain.NewService(deviceRepository)
 	deviceService.SetEventPublisher(realtime)
+	deviceService.SetProvisioningConfig(devicedomain.ProvisioningConfig{
+		MQTTBrokerURL: cfg.MQTTBrokerURL,
+	})
 	presenceService := devicedomain.NewPresenceService(deviceService)
 	deviceHandler := transporthandler.NewDeviceHandler(deviceService, presenceService, ca, fwGen)
 
