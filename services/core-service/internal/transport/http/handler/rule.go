@@ -17,6 +17,13 @@ func NewRuleHandler(telemetryClient *telemetrygrpc.TelemetryClient) *RuleHandler
 	return &RuleHandler{telemetryClient: telemetryClient}
 }
 
+func (h *RuleHandler) client() pb.TelemetryIntelligenceServiceClient {
+	if h.telemetryClient == nil {
+		return nil
+	}
+	return h.telemetryClient.Client()
+}
+
 // CreateRule godoc
 // @Summary Create telemetry rule
 // @Tags rules
@@ -38,7 +45,13 @@ func (h *RuleHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		enabled = *req.Enabled
 	}
 
-	resp, err := h.telemetryClient.Client().ConfigureRule(r.Context(), &pb.ConfigureRuleRequest{
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
+	resp, err := client.ConfigureRule(r.Context(), &pb.ConfigureRuleRequest{
 		RuleId:    "", // Create new
 		Name:      req.Name,
 		Metric:    req.Metric,
@@ -66,7 +79,13 @@ func (h *RuleHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /rules [get]
 func (h *RuleHandler) ListRules(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.telemetryClient.Client().ListRules(r.Context(), &pb.ListRulesRequest{
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
+	resp, err := client.ListRules(r.Context(), &pb.ListRulesRequest{
 		EnabledOnly: false,
 	})
 	if err != nil {
@@ -91,8 +110,14 @@ func (h *RuleHandler) ListRules(w http.ResponseWriter, r *http.Request) {
 // @Failure 404 {object} dto.ErrorResponse
 // @Router /rules/{ruleID} [get]
 func (h *RuleHandler) GetRule(w http.ResponseWriter, r *http.Request, id string) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	// Filter ListRules to find the specific ID
-	resp, err := h.telemetryClient.Client().ListRules(r.Context(), &pb.ListRulesRequest{
+	resp, err := client.ListRules(r.Context(), &pb.ListRulesRequest{
 		EnabledOnly: false,
 	})
 	if err != nil {
@@ -132,8 +157,14 @@ func (h *RuleHandler) UpdateRule(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	// Fetch existing first to fill in blanks
-	resp, err := h.telemetryClient.Client().ListRules(r.Context(), &pb.ListRulesRequest{
+	resp, err := client.ListRules(r.Context(), &pb.ListRulesRequest{
 		EnabledOnly: false,
 	})
 	if err != nil {
@@ -179,7 +210,7 @@ func (h *RuleHandler) UpdateRule(w http.ResponseWriter, r *http.Request, id stri
 		enabled = *req.Enabled
 	}
 
-	updated, err := h.telemetryClient.Client().ConfigureRule(r.Context(), &pb.ConfigureRuleRequest{
+	updated, err := client.ConfigureRule(r.Context(), &pb.ConfigureRuleRequest{
 		RuleId:    id,
 		Name:      name,
 		Metric:    metric,
@@ -208,7 +239,13 @@ func (h *RuleHandler) UpdateRule(w http.ResponseWriter, r *http.Request, id stri
 // @Failure 404 {object} dto.ErrorResponse
 // @Router /rules/{ruleID} [delete]
 func (h *RuleHandler) DeleteRule(w http.ResponseWriter, r *http.Request, id string) {
-	_, err := h.telemetryClient.Client().DeleteRule(r.Context(), &pb.DeleteRuleRequest{
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
+	_, err := client.DeleteRule(r.Context(), &pb.DeleteRuleRequest{
 		RuleId: id,
 	})
 	if err != nil {
@@ -232,8 +269,14 @@ func (h *RuleHandler) DeleteRule(w http.ResponseWriter, r *http.Request, id stri
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /alerts [get]
 func (h *RuleHandler) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	// Call GetRulesWithAlerts with limit and offset (defaults)
-	resp, err := h.telemetryClient.Client().GetRulesWithAlerts(r.Context(), &pb.GetRulesWithAlertsRequest{
+	resp, err := client.GetRulesWithAlerts(r.Context(), &pb.GetRulesWithAlertsRequest{
 		WorkspaceId: "", // Retrieve all
 		Limit:       100,
 		Offset:      0,

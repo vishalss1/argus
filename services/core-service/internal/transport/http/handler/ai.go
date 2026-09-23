@@ -37,6 +37,13 @@ func NewAIHandler(
 	}
 }
 
+func (h *AIHandler) client() pb.TelemetryIntelligenceServiceClient {
+	if h.telemetryClient == nil {
+		return nil
+	}
+	return h.telemetryClient.Client()
+}
+
 func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 	// 1. API Key Authentication Check
 	if h.apiKey != "" {
@@ -100,7 +107,13 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 		workspaceID = wsID
 	}
 
-	resp, err := h.telemetryClient.Client().QueryAI(r.Context(), &pb.QueryAIRequest{
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
+	resp, err := client.QueryAI(r.Context(), &pb.QueryAIRequest{
 		Query:       body.Query,
 		WorkspaceId: workspaceID,
 		DeviceId:    body.DeviceID,
@@ -141,8 +154,14 @@ func parsePagination(r *http.Request) (int, int) {
 }
 
 func (h *AIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	limit, offset := parsePagination(r)
-	resp, err := h.telemetryClient.Client().ListEvents(r.Context(), &pb.ListEventsRequest{
+	resp, err := client.ListEvents(r.Context(), &pb.ListEventsRequest{
 		Limit:  int32(limit),
 		Offset: int32(offset),
 	})
@@ -158,9 +177,15 @@ func (h *AIHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AIHandler) ListDeviceEvents(w http.ResponseWriter, r *http.Request) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	deviceID := chi.URLParam(r, "deviceID")
 	limit, offset := parsePagination(r)
-	resp, err := h.telemetryClient.Client().ListEvents(r.Context(), &pb.ListEventsRequest{
+	resp, err := client.ListEvents(r.Context(), &pb.ListEventsRequest{
 		DeviceId: deviceID,
 		Limit:    int32(limit),
 		Offset:   int32(offset),
@@ -177,9 +202,15 @@ func (h *AIHandler) ListDeviceEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AIHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Request) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	deviceID := chi.URLParam(r, "deviceID")
 	
-	resp, err := h.telemetryClient.Client().GetSnapshot(r.Context(), &pb.GetSnapshotRequest{
+	resp, err := client.GetSnapshot(r.Context(), &pb.GetSnapshotRequest{
 		DeviceId: deviceID,
 	})
 	if err != nil {
@@ -187,13 +218,8 @@ func (h *AIHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"device_id":        deviceID,
-			"status":           "offline",
-			"severity":         "healthy",
-			"active_incidents": 0,
-			"open_incidents":   []interface{}{},
-		})
+		// ponytail: do not fabricate 200 on backend failure; return 503
+		writeError(w, http.StatusServiceUnavailable, "failed to get device status: "+err.Error())
 		return
 	}
 
@@ -218,9 +244,15 @@ func (h *AIHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AIHandler) ListSessionActiveIncidents(w http.ResponseWriter, r *http.Request) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	sessionID := chi.URLParam(r, "sessionID")
 	
-	resp, err := h.telemetryClient.Client().ListIncidents(r.Context(), &pb.ListIncidentsRequest{
+	resp, err := client.ListIncidents(r.Context(), &pb.ListIncidentsRequest{
 		SessionId:  sessionID,
 		ActiveOnly: true,
 	})
@@ -229,7 +261,8 @@ func (h *AIHandler) ListSessionActiveIncidents(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, []interface{}{})
+		// ponytail: do not fabricate empty 200 on backend failure; return 503
+		writeError(w, http.StatusServiceUnavailable, "failed to list session active incidents: "+err.Error())
 		return
 	}
 
@@ -237,7 +270,13 @@ func (h *AIHandler) ListSessionActiveIncidents(w http.ResponseWriter, r *http.Re
 }
 
 func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
-	resp, err := h.telemetryClient.Client().ListIncidents(r.Context(), &pb.ListIncidentsRequest{
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
+	resp, err := client.ListIncidents(r.Context(), &pb.ListIncidentsRequest{
 		ActiveOnly: true,
 	})
 	if err != nil {
@@ -245,7 +284,8 @@ func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, []interface{}{})
+		// ponytail: do not fabricate empty 200 on backend failure; return 503
+		writeError(w, http.StatusServiceUnavailable, "failed to list fleet incidents: "+err.Error())
 		return
 	}
 
@@ -253,10 +293,16 @@ func (h *AIHandler) ListFleetIncidents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AIHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request) {
+	client := h.client()
+	if client == nil {
+		writeError(w, http.StatusServiceUnavailable, "Telemetry service is unavailable: running in disconnected mode")
+		return
+	}
+
 	deviceID := chi.URLParam(r, "deviceID")
 	limit, offset := parsePagination(r)
 	
-	resp, err := h.telemetryClient.Client().GetDeviceHistory(r.Context(), &pb.GetDeviceHistoryRequest{
+	resp, err := client.GetDeviceHistory(r.Context(), &pb.GetDeviceHistoryRequest{
 		DeviceId: deviceID,
 		Limit:    int32(limit),
 		Offset:   int32(offset),
@@ -273,23 +319,11 @@ func (h *AIHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AIHandler) ListActions(w http.ResponseWriter, r *http.Request) {
-	// AIHandler in Core Service still serves static/mocked actions list from policy service
-	// since policy is owned by Core Service. Let's keep this local call!
-	// (Note: we need to make sure we don't import events/query/actions packages in Core).
-	// We will implement a light action log list.
-	// In the original, ListActions queried policyService.ListRecords. We can keep this local.
-	// Wait, let's write a mock or list policy records.
-	// Actually, wait, policyService.ListRecords returns action execution records, which we kept in Core!
-	// So this compiles cleanly and runs locally!
-	writeJSON(w, http.StatusOK, []interface{}{})
+	// ponytail: return 501 Not Implemented instead of fake empty list
+	writeError(w, http.StatusNotImplemented, "AI action remediation is not implemented")
 }
 
 func (h *AIHandler) ApproveAction(w http.ResponseWriter, r *http.Request) {
-	// ApproveAction in original code triggered policyService.ApproveAction and h.actionEngine.Execute(id).
-	// Since action engine uses commandService (Core), deviceRepo (Core), and policyService (Core) to execute,
-	// wait, does Core own actions? In the refined architecture, Telemetry's AI recommends actions,
-	// but Core executes them (since Core owns command dispatching and policies).
-	// So Core can handle ApproveAction locally, or query Telemetry to get suggestion, then execute it.
-	// Let's implement a clean local stub for ApproveAction since Core has commandService.
-	w.WriteHeader(http.StatusNoContent)
+	// ponytail: return 501 Not Implemented instead of fake 204 success
+	writeError(w, http.StatusNotImplemented, "AI action remediation is not implemented")
 }
