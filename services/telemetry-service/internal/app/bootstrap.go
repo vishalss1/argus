@@ -419,7 +419,10 @@ func startAIWorker(ctx context.Context, cfg *config.Config, analyticsEngine *ana
 		}(w)
 	}
 
+	var fetchWg sync.WaitGroup
+	fetchWg.Add(1)
 	go func() {
+		defer fetchWg.Done()
 		for {
 			msg, err := consumer.FetchMessage(ctx)
 			if err != nil {
@@ -463,6 +466,8 @@ func startAIWorker(ctx context.Context, cfg *config.Config, analyticsEngine *ana
 		select {
 		case <-ctx.Done():
 			log.Println("[AI WORKER] context cancelled, flushing pending offsets...")
+			// ponytail: wait for fetcher to stop before closing msgChan
+			fetchWg.Wait()
 			close(msgChan)
 			workerWg.Wait()
 			flushBatch(context.Background())
@@ -600,7 +605,10 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 		}
 	}()
 
+	var fetchWg sync.WaitGroup
+	fetchWg.Add(1)
 	go func() {
+		defer fetchWg.Done()
 		for {
 			fetchStart := time.Now()
 			msg, err := consumer.FetchMessage(ctx)
@@ -754,6 +762,8 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 	}
 
 	<-ctx.Done()
+	// ponytail: wait for fetcher to stop before closing msgChan
+	fetchWg.Wait()
 	close(msgChan)
 	workerWg.Wait()
 	close(pipelineChan)
