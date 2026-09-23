@@ -192,14 +192,18 @@ func (s *Server) RecordExecution(ctx context.Context, req *pb.RecordExecutionReq
 
 	if req.Id != "" {
 		// Update existing execution record status/approved_by
-		if req.Status == "approved" {
+		switch req.Status {
+		case "approved":
 			err = s.policyService.ApproveAction(ctx, req.Id, req.ApprovedBy)
-		} else if req.Status == "executed" {
+		case "executed":
 			err = s.policyService.MarkExecuted(ctx, req.Id)
-		} else if req.Status == "failed" {
+		case "failed":
 			err = s.policyService.MarkFailed(ctx, req.Id)
-		} else {
-			err = s.policyService.ApproveAction(ctx, req.Id, req.ApprovedBy)
+		case "rejected":
+			err = s.policyService.RejectAction(ctx, req.Id)
+		default:
+			// ponytail: do not approve unrecognized status; reject invalid input
+			return nil, status.Errorf(codes.InvalidArgument, "unrecognized execution status: %s", req.Status)
 		}
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to update execution status: %v", err)

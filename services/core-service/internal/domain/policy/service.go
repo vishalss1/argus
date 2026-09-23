@@ -64,6 +64,10 @@ func (s *Service) MarkFailed(ctx context.Context, id string) error {
 	return s.repo.UpdateExecutionStatus(ctx, id, "failed", nil)
 }
 
+func (s *Service) RejectAction(ctx context.Context, id string) error {
+	return s.repo.UpdateExecutionStatus(ctx, id, "rejected", nil)
+}
+
 func (s *Service) GetRecord(ctx context.Context, id string) (*ExecutionRecord, error) {
 	return s.repo.GetExecutionRecord(ctx, id)
 }
