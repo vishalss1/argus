@@ -62,6 +62,7 @@ services:
   minio:
     image: alpine/minio:RELEASE.2025-10-15T17-29-55Z
     container_name: argus-minio
+    user: "0"  # ponytail: alpine/minio runs non-root by default; root needed for /data volume and /root/.minio/certs TLS path
     command: server /data --console-address ":9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-argus}

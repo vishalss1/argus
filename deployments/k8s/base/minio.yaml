@@ -32,16 +32,16 @@ spec:
         app: minio
     spec:
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: false  # ponytail: alpine/minio non-root can't write volume or read /root/.minio/certs
         seccompProfile:
           type: RuntimeDefault
-        fsGroup: 1000
+        fsGroup: 0
       containers:
         - name: minio
           image: alpine/minio:RELEASE.2025-10-15T17-29-55Z
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
+            runAsNonRoot: false  # ponytail: same as above
+            runAsUser: 0
             allowPrivilegeEscalation: false
             capabilities:
               drop:
