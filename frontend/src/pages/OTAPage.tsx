@@ -192,7 +192,7 @@ export function OTAPage() {
   const selectedDeviceDeployments = deviceID ? deployments.data ?? [] : [];
   const latestDeviceDeployment = selectedDeviceDeployments[0];
 
-  async function upload(event: FormEvent<HTMLFormElement>) {
+  async function upload(event: FormEvent<HTMLFormElement>): Promise<boolean> {
     event.preventDefault();
     setUploadError("");
     setUploadSuccess("");
@@ -209,8 +209,10 @@ export function OTAPage() {
       uploadTimeoutRef.current = window.setTimeout(() => {
         setUploadSuccess("");
       }, 4500);
+      return true;
     } catch (err) {
       setUploadError((err as Error).message);
+      return false;
     }
   }
 
@@ -229,7 +231,7 @@ export function OTAPage() {
     }
   }
 
-  async function deploy(event: FormEvent<HTMLFormElement>) {
+  async function deploy(event: FormEvent<HTMLFormElement>): Promise<boolean> {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setDeployError("");
@@ -240,7 +242,7 @@ export function OTAPage() {
     try {
       if (!deviceID) {
         setDeployError("Select a device before creating a deployment.");
-        return;
+        return false;
       }
       const created = await api.deployments.create(deviceID, String(form.get("artifact_id")));
       setManifest(created);
@@ -249,8 +251,10 @@ export function OTAPage() {
       deployTimeoutRef.current = window.setTimeout(() => {
         setDeploySuccess("");
       }, 4500);
+      return true;
     } catch (err) {
       setDeployError((err as Error).message);
+      return false;
     }
   }
 
@@ -475,7 +479,7 @@ export function OTAPage() {
 
       <Modal isOpen={isReleaseModalOpen} onClose={() => setIsReleaseModalOpen(false)} title={releaseAction === "deploy" ? "Deploy Release" : "Upload Firmware Artifact"}>
         {releaseAction === "deploy" ? (
-          <form className="form-grid" onSubmit={(e) => { deploy(e).then(() => { if (!deployError) setIsReleaseModalOpen(false); }) }}>
+          <form className="form-grid" onSubmit={async (e) => { const ok = await deploy(e); if (ok) setIsReleaseModalOpen(false); }}>
             <div className="field full"><SelectField label="Device" value={deviceID} onChange={setDeviceID}><option value="">Select device</option>{workspaceDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</SelectField></div>
             <label className="field full"><span>Firmware Artifact</span><select name="artifact_id">{firmware.data?.map((artifact) => <option key={artifact.id} value={artifact.id}>{artifact.version} ({formatBytes(artifact.size_bytes)})</option>)}</select></label>
             {deployError && <div className="form-message error field full">{deployError}</div>}
@@ -485,7 +489,7 @@ export function OTAPage() {
             </div>
           </form>
         ) : (
-          <form className="form-grid" onSubmit={(e) => { upload(e).then(() => { if (!uploadError) setIsReleaseModalOpen(false); }) }}>
+          <form className="form-grid" onSubmit={async (e) => { const ok = await upload(e); if (ok) setIsReleaseModalOpen(false); }}>
             <label className="field full"><span>Version</span><input name="version" placeholder="v1.4.0" required /></label>
             <label className="field full"><span>Binary File</span><input name="firmware" type="file" required /></label>
             {uploadError && <div className="form-message error field full">{uploadError}</div>}

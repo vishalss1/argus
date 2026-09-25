@@ -45,7 +45,8 @@ export function FleetOverviewPage() {
     return Array.from(map.entries());
   }, [activeDeployments]);
 
-  const criticalIncidents = incidents.filter(i => i.severity === "HIGH");
+  // ponytail: backend emits lowercase "critical"
+  const criticalIncidents = incidents.filter(i => i.severity === "critical");
 
   const events = useMemo(() => {
     return (aiEvents.data ?? [])
