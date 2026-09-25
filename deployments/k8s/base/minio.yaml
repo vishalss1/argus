@@ -38,7 +38,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z.hotfix.38050ad67
+          image: alpine/minio:RELEASE.2025-10-15T17-29-55Z
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
