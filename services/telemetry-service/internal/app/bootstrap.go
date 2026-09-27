@@ -1048,11 +1048,12 @@ func startIncidentConsumer(ctx context.Context, cfg *config.Config, eventRepo ev
 						continue
 					}
 
-					severity := eventdomain.SeverityWarning
-					if inc.Severity == "critical" {
-						severity = eventdomain.SeverityCritical
-					} else if inc.Status == "CLOSE" {
-						severity = eventdomain.SeverityInfo
+					severity := eventdomain.SeverityInfo
+					if inc.Status != "CLOSE" {
+						severity = eventdomain.SeverityWarning
+						if inc.Severity == "critical" {
+							severity = eventdomain.SeverityCritical
+						}
 					}
 
 					eventType := "incident_critical"
