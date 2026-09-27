@@ -9,6 +9,13 @@ namespace argus_sdk {
 
 extern bool timeSynced;
 
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+// Grace window for the PENDING_VERIFY health check: a transient broker outage
+// or a slow NTP sync must not invalidate an otherwise healthy image.
+constexpr int ROLLBACK_VERIFY_ATTEMPTS = 3;
+constexpr unsigned long ROLLBACK_VERIFY_RETRY_MS = 5000UL;
+#endif
+
 void handleRollbackVerification() {
 #ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
   const esp_partition_t* running = esp_ota_get_running_partition();
@@ -31,7 +38,28 @@ void handleRollbackVerification() {
   }
 
   Serial.println("[ROLLBACK] Running image pending verification");
-  bool basicHealthOk = WiFi.status() == WL_CONNECTED && mqtt.connected() && timeSynced;
+
+  // Grace window: a single failed probe at first boot can be a transient
+  // broker outage or a slow NTP sync, neither of which means the image is
+  // broken.  Re-check before giving up on a healthy firmware.
+  bool basicHealthOk = false;
+  for (int attempt = 1; attempt <= ROLLBACK_VERIFY_ATTEMPTS; attempt++) {
+    if (WiFi.status() == WL_CONNECTED && mqtt.connected() && timeSynced) {
+      basicHealthOk = true;
+      break;
+    }
+    if (attempt < ROLLBACK_VERIFY_ATTEMPTS) {
+      Serial.printf("[ROLLBACK] Health check %d/%d failed; retrying in %d ms\n",
+                    attempt, ROLLBACK_VERIFY_ATTEMPTS, ROLLBACK_VERIFY_RETRY_MS);
+      // Pump the MQTT client so a handshake already in flight can complete
+      // before the next probe instead of stalling the whole grace window.
+      for (unsigned long waited = 0; waited < ROLLBACK_VERIFY_RETRY_MS; waited += 100) {
+        mqtt.loop();
+        delay(100);
+      }
+    }
+  }
+
   if (basicHealthOk) {
     esp_err_t markErr = esp_ota_mark_app_valid_cancel_rollback();
     Serial.printf("[ROLLBACK] Mark app valid result=%d\n", markErr);
