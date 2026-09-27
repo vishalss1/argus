@@ -144,9 +144,7 @@ func (s *Server) ListIncidents(ctx context.Context, req *pb.ListIncidentsRequest
 	var incidents []fleet.IncidentBrief
 	var err error
 	if req.SessionId != "" {
-		// For a specific session/device - this is typically rare in ListIncidents overall view, 
-		// but if needed, we'd use deviceService. Let's just use fleetService for all recent incidents for now.
-		incidents, err = s.fleetService.GetRecentIncidents(ctx, req.WorkspaceId, 100)
+		incidents, err = s.fleetService.GetSessionIncidents(ctx, req.SessionId, 100)
 	} else {
 		incidents, err = s.fleetService.GetRecentIncidents(ctx, req.WorkspaceId, 100)
 	}

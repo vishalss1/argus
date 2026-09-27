@@ -39,5 +39,6 @@ type Service interface {
 	GetHealthSummary(ctx context.Context, workspaceID string) (*HealthSummary, error)
 	GetWorstDevices(ctx context.Context, workspaceID string, limit int) ([]DeviceBrief, error)
 	GetRecentIncidents(ctx context.Context, workspaceID string, limit int) ([]IncidentBrief, error)
+	GetSessionIncidents(ctx context.Context, sessionID string, limit int) ([]IncidentBrief, error)
 }
 

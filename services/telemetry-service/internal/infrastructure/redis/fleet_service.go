@@ -152,6 +152,29 @@ func (s *FleetService) GetRecentIncidents(ctx context.Context, workspaceID strin
 		return nil, fmt.Errorf("failed to get workspace devices: %w", err)
 	}
 
+	return s.collectIncidents(ctx, sessionID, deviceIDs, limit)
+}
+
+// GetSessionIncidents returns incidents recorded for an explicit session,
+// scoped to the devices that participated in that session.
+func (s *FleetService) GetSessionIncidents(ctx context.Context, sessionID string, limit int) ([]fleet.IncidentBrief, error) {
+	if sessionID == "" {
+		return nil, nil
+	}
+
+	rdb := s.client.Client()
+
+	deviceIDs, err := rdb.SMembers(ctx, fmt.Sprintf("session:%s:devices", sessionID)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session devices: %w", err)
+	}
+
+	return s.collectIncidents(ctx, sessionID, deviceIDs, limit)
+}
+
+func (s *FleetService) collectIncidents(ctx context.Context, sessionID string, deviceIDs []string, limit int) ([]fleet.IncidentBrief, error) {
+	rdb := s.client.Client()
+
 	var incidentKeys []string
 	for _, devID := range deviceIDs {
 		deviceIncidentsSetKey := fmt.Sprintf("session:%s:device:%s:incidents", sessionID, devID)
