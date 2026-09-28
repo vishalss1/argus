@@ -46,13 +46,6 @@ var (
 		Buckets: []float64{0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0},
 	})
 
-	// RuleEvaluationDuration tracks telemetry rule-engine evaluation latency (Telemetry Service)
-	RuleEvaluationDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "argus_rule_evaluation_duration_seconds",
-		Help:    "Latency of rule engine evaluation runs in seconds",
-		Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0},
-	})
-
 	// RedisLockContention tracks lock acquisition contention events (both services)
 	RedisLockContention = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_redis_lock_contention_total",

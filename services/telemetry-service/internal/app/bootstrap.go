@@ -144,7 +144,7 @@ func Bootstrap() (*Server, error) {
 	aiProvider := ai.NewGroqProvider(cfg.GroqAPIKey, cfg.GroqModel, cfg.GroqBaseURL)
 
 	ruleRepo := postgres.NewRuleRepository(database)
-	ruleService := ruledomain.NewService(ruleRepo, deviceRepo)
+	ruleService := ruledomain.NewService(ruleRepo)
 
 	var kafkaProducer *kafka.Producer
 	if len(cfg.KafkaBrokers) > 0 {
@@ -160,9 +160,7 @@ func Bootstrap() (*Server, error) {
 			return nil, err
 		}
 		server.kafkaProducer = kafkaProducer
-		ruleService.SetPublisher(kafkaProducer)
 	}
-	ruleService.SetLimiter(redisinfra.NewAlertLimiter(redisClient))
 
 	telemetryService := telemetrydomain.NewService(noopTelemetryRepo{})
 

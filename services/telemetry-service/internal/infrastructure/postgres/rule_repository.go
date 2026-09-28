@@ -42,17 +42,6 @@ func (r *RuleRepository) ListRules(ctx context.Context) ([]rule.Rule, error) {
 	return r.listRules(ctx, query)
 }
 
-func (r *RuleRepository) ListEnabledRules(ctx context.Context) ([]rule.Rule, error) {
-	const query = `
-		SELECT id, name, metric, operator, threshold, enabled, created_at, updated_at
-		FROM rules
-		WHERE enabled = TRUE
-		ORDER BY created_at DESC
-		LIMIT 200`
-
-	return r.listRules(ctx, query)
-}
-
 func (r *RuleRepository) GetRule(ctx context.Context, id string) (*rule.Rule, error) {
 	const query = `
 		SELECT id, name, metric, operator, threshold, enabled, created_at, updated_at
@@ -129,39 +118,6 @@ func (r *RuleRepository) DeleteRule(ctx context.Context, id string) error {
 	}
 
 	return nil
-}
-
-func (r *RuleRepository) CreateAlert(ctx context.Context, entity rule.Alert) (*rule.Alert, error) {
-	wID, _ := common.GetWorkspaceID(ctx)
-	if wID == "" && entity.WorkspaceID != "" {
-		wID = entity.WorkspaceID
-	}
-
-	const query = `
-		INSERT INTO alerts (id, rule_id, device_id, workspace_id, telemetry_id, metric, operator, threshold, observed_value, severity, message)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, $5::uuid, $6, $7, $8, $9, $10, $11)
-		RETURNING id, rule_id, device_id, COALESCE(workspace_id::text, ''), telemetry_id, metric, operator, threshold, observed_value, severity, message, created_at`
-
-	alert, err := scanAlert(r.db.QueryRowContext(
-		ctx,
-		query,
-		entity.ID,
-		entity.RuleID,
-		entity.DeviceID,
-		wID,
-		entity.TelemetryID,
-		entity.Metric,
-		entity.Operator,
-		entity.Threshold,
-		entity.ObservedValue,
-		entity.Severity,
-		entity.Message,
-	))
-	if err != nil {
-		return nil, fmt.Errorf("create alert: %w", err)
-	}
-
-	return alert, nil
 }
 
 func (r *RuleRepository) ListAlerts(ctx context.Context) ([]rule.Alert, error) {
