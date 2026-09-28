@@ -306,8 +306,8 @@ bool parseOTAManifest(const String& response, OTAManifest& manifest) {
     Serial.println("[OTA] Manifest missing or invalid checksum_sha256");
     return false;
   }
-  if (manifest.downloadUrl.length() == 0 || (!isHttpUrl(manifest.downloadUrl) && !isHttpsUrl(manifest.downloadUrl))) {
-    Serial.println("[OTA] Manifest missing or invalid download_url");
+  if (manifest.downloadUrl.length() == 0 || !isHttpsUrl(manifest.downloadUrl)) {
+    Serial.println("[OTA] Manifest missing or invalid download_url (HTTPS required)");
     return false;
   }
   if (manifest.downloadUrl.indexOf("localhost") >= 0 || manifest.downloadUrl.indexOf("127.0.0.1") >= 0) {
@@ -357,86 +357,31 @@ bool versionAllowed(const OTAManifest& manifest) {
   return true;
 }
 
-bool parseFirmwareURL(const String& url, String& scheme, String& host, String& path, uint16_t& port) {
-  scheme = "";
-  host = "";
-  path = "/";
-  port = 0;
-
-  int schemeEnd = url.indexOf("://");
-  if (schemeEnd <= 0) return false;
-
-  scheme = url.substring(0, schemeEnd);
-  int authorityStart = schemeEnd + 3;
-  int pathStart = url.indexOf('/', authorityStart);
-  String authority = pathStart >= 0 ? url.substring(authorityStart, pathStart) : url.substring(authorityStart);
-  path = pathStart >= 0 ? url.substring(pathStart) : "/";
-
-  int at = authority.lastIndexOf('@');
-  if (at >= 0) authority = authority.substring(at + 1);
-
-  int colon = authority.lastIndexOf(':');
-  if (colon > 0) {
-    host = authority.substring(0, colon);
-    int parsedPort = authority.substring(colon + 1).toInt();
-    if (parsedPort <= 0 || parsedPort > 65535) return false;
-    port = (uint16_t)parsedPort;
-  } else {
-    host = authority;
-    port = scheme == "https" ? 443 : 80;
-  }
-
-  return host.length() > 0 && (scheme == "http" || scheme == "https");
-}
-
 bool beginFirmwareHTTP(HTTPClient& http, WiFiClient& plainClient, WiFiClientSecure& secureClient, const String& url) {
   http.setTimeout(OTA_HTTP_TIMEOUT);
   http.setReuse(false);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setRedirectLimit(OTA_MAX_REDIRECTS);
 
-  if (isHttpsUrl(url)) {
-    Serial.println("[OTA] HTTPS firmware URL detected");
-    if (!timeSynced) {
-      Serial.println("[OTA] HTTPS rejected: time not synced via NTP");
-      return false;
-    }
-    if (!hasConfiguredRootCA()) {
-      Serial.println("[OTA] HTTPS rejected: no root CA configured for certificate validation");
-      return false;
-    }
-
-    logTLSDiagnostics(secureClient, url.c_str());
-    configureTLS(secureClient);
-    bool ok = http.begin(secureClient, url);
-    if (ok) http.addHeader("Connection", "close");
-    return ok;
+  if (!isHttpsUrl(url)) {
+    Serial.println("[OTA] Rejected non-HTTPS firmware URL");
+    return false;
   }
 
-  Serial.println("[OTA] HTTP firmware URL detected");
-  bool ok = http.begin(plainClient, url);
+  Serial.println("[OTA] HTTPS firmware URL detected");
+  if (!timeSynced) {
+    Serial.println("[OTA] HTTPS rejected: time not synced via NTP");
+    return false;
+  }
+  if (!hasConfiguredRootCA()) {
+    Serial.println("[OTA] HTTPS rejected: no root CA configured for certificate validation");
+    return false;
+  }
+
+  logTLSDiagnostics(secureClient, url.c_str());
+  configureTLS(secureClient);
+  bool ok = http.begin(secureClient, url);
   if (ok) http.addHeader("Connection", "close");
-  return ok;
-}
-
-bool connectTCPWithDiagnostics(WiFiClient& client, const String& host, uint16_t port, const char* label) {
-  IPAddress ip;
-  bool isIP = ip.fromString(host);
-
-  Serial.printf("[OTA] %s host=%s\n", label, host.c_str());
-  Serial.printf("[OTA] %s port=%d\n", label, port);
-  logOTANetworkState("before TCP connect");
-
-  bool ok = false;
-  if (isIP) {
-    ok = client.connect(ip, port);
-  } else {
-    ok = client.connect(host.c_str(), port);
-  }
-
-  Serial.printf("[OTA] %s result=%s available=%d connected=%d\n",
-                label, ok ? "ok" : "failed", client.available(), client.connected());
-  logOTANetworkState("after TCP connect");
   return ok;
 }
 
@@ -454,217 +399,6 @@ bool failFirmwareDownload(HTTPClient& http, bool httpStarted, WiFiClient& plainC
   return false;
 }
 
-bool failRawFirmwareDownload(WiFiClient& client, bool clientStarted, bool updateStarted, const String& deploymentId, const String& message) {
-  if (updateStarted) {
-    Update.abort();
-  }
-  if (clientStarted) {
-    client.stop();
-  }
-  publishOTANack(deploymentId, message);
-  logNetState("after OTA download failure");
-  return false;
-}
-
-int parseHTTPStatusCode(const String& statusLine) {
-  int firstSpace = statusLine.indexOf(' ');
-  if (firstSpace < 0 || firstSpace + 4 > statusLine.length()) return -1;
-  return statusLine.substring(firstSpace + 1, firstSpace + 4).toInt();
-}
-
-bool downloadVerifyAndFlashPlainHTTP(const OTAManifest& manifest) {
-  logNetState("before OTA download");
-  String scheme;
-  String host;
-  String path;
-  uint16_t port;
-  if (!parseFirmwareURL(manifest.downloadUrl, scheme, host, path, port) || scheme != "http") {
-    publishOTANack(manifest.deploymentId, "Invalid HTTP firmware URL");
-    logNetState("after OTA download failure");
-    return false;
-  }
-  if (ARGUS_REQUIRE_FIRMWARE_SIGNATURES) {
-    publishOTANack(manifest.deploymentId, "HTTPS firmware URL required");
-    logNetState("after OTA download failure");
-    return false;
-  }
-
-  WiFiClient client;
-  bool clientStarted = false;
-  bool updateStarted = false;
-  client.setTimeout(OTA_HTTP_TIMEOUT);
-  clientStarted = true;
-
-  Serial.printf("[OTA] raw HTTP connect host=%s port=%u\n", host.c_str(), port);
-  if (!connectTCPWithDiagnostics(client, host, port, "raw firmware TCP connect")) {
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Firmware TCP connect failed");
-  }
-
-  Serial.printf("[OTA] raw HTTP GET path length=%u\n", (unsigned int)path.length());
-  client.print("GET ");
-  client.print(path);
-  client.print(" HTTP/1.1\r\nHost: ");
-  client.print(host);
-  client.print(":");
-  client.print(port);
-  client.print("\r\nUser-Agent: argus-esp32\r\nAccept: application/octet-stream\r\nConnection: close\r\n\r\n");
-
-  String statusLine = client.readStringUntil('\n');
-  statusLine.trim();
-  int statusCode = parseHTTPStatusCode(statusLine);
-  Serial.printf("[OTA] GET code=%d\n", statusCode);
-  Serial.printf("[OTA] HTTP status line=%s\n", statusLine.c_str());
-
-  int contentLength = -1;
-  String redirectLocation;
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    line.trim();
-    if (line.length() == 0) break;
-
-    String lower = line;
-    lower.toLowerCase();
-    if (lower.startsWith("content-length:")) {
-      contentLength = line.substring(line.indexOf(':') + 1).toInt();
-    } else if (lower.startsWith("location:")) {
-      redirectLocation = line.substring(line.indexOf(':') + 1);
-      redirectLocation.trim();
-    }
-  }
-
-  if (statusCode >= 300 && statusCode < 400) {
-    Serial.printf("[OTA] Firmware URL returned redirect to %s\n", redirectLocation.c_str());
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Unexpected firmware redirect");
-  }
-  if (statusCode != 200) {
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Download failed with HTTP code " + String(statusCode));
-  }
-
-  Serial.printf("[OTA] content length=%d\n", contentLength);
-  if (contentLength <= 0) {
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Missing Content-Length");
-  }
-  if ((uint32_t)contentLength != manifest.sizeBytes) {
-    Serial.printf("[OTA] Content-Length mismatch: manifest=%u http=%d\n",
-                  (unsigned int)manifest.sizeBytes, contentLength);
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Content-Length mismatch");
-  }
-
-  Serial.println("[OTA] Beginning OTA partition write");
-  if (!Update.begin(contentLength, U_FLASH)) {
-    String error = "Update.begin failed: " + String(Update.getError());
-    Serial.printf("[OTA] %s\n", error.c_str());
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, error);
-  }
-  updateStarted = true;
-  publishOTAStatus(manifest.deploymentId, "downloading", 0, "Firmware download started");
-
-  mbedtls_md_context_t mdCtx;
-  mbedtls_md_init(&mdCtx);
-  const mbedtls_md_info_t* mdInfo = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  mbedtls_md_setup(&mdCtx, mdInfo, 0);
-  mbedtls_md_starts(&mdCtx);
-
-  uint8_t buffer[OTA_CHUNK_BYTES];
-  size_t bytesReadTotal = 0;
-  size_t bytesWrittenTotal = 0;
-  int lastLoggedPercent = -1;
-  unsigned long lastActivity = millis();
-  Serial.printf("[OTA] initial stream available=%d\n", client.available());
-
-  while (bytesReadTotal < (size_t)contentLength) {
-    if (WiFi.status() != WL_CONNECTED) {
-      mbedtls_md_free(&mdCtx);
-      return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "WiFi disconnected during OTA");
-    }
-
-    if (mqtt.connected()) {
-      mqtt.loop();
-    }
-
-    int available = client.available();
-    if (available <= 0) {
-      if (!client.connected()) {
-        mbedtls_md_free(&mdCtx);
-        return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "HTTP connection reset during OTA");
-      }
-      if (millis() - lastActivity > OTA_HTTP_TIMEOUT) {
-        mbedtls_md_free(&mdCtx);
-        return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Download timeout during OTA");
-      }
-      delay(1);
-      yield();
-      continue;
-    }
-
-    size_t remaining = (size_t)contentLength - bytesReadTotal;
-    size_t toRead = min((size_t)available, min((size_t)OTA_CHUNK_BYTES, remaining));
-    int got = client.readBytes(buffer, toRead);
-    if (got <= 0) {
-      delay(1);
-      yield();
-      continue;
-    }
-
-    lastActivity = millis();
-    updateHash(mdCtx, buffer, got);
-    bytesReadTotal += got;
-
-    size_t wrote = Update.write(buffer, got);
-    if (wrote != (size_t)got) {
-      mbedtls_md_free(&mdCtx);
-      return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Flash write failed");
-    }
-    bytesWrittenTotal += wrote;
-
-    int percent = (int)((bytesWrittenTotal * 100UL) / (uint32_t)contentLength);
-    if (percent >= lastLoggedPercent + 10 || percent == 100) {
-      lastLoggedPercent = percent;
-      Serial.printf("[OTA] Download/write progress: %d%% (%u/%d bytes)\n",
-                    percent, (unsigned int)bytesWrittenTotal, contentLength);
-      publishOTAStatus(manifest.deploymentId, percent < 75 ? "downloading" : "flashing", percent);
-    }
-    yield();
-  }
-
-  String calculated = finishHashHex(mdCtx);
-  mbedtls_md_free(&mdCtx);
-  Serial.printf("[OTA] Bytes read=%u bytes written=%u expected=%d\n",
-                (unsigned int)bytesReadTotal, (unsigned int)bytesWrittenTotal, contentLength);
-  Serial.printf("[OTA] Calculated SHA256: %s\n", calculated.c_str());
-  Serial.printf("[OTA] Expected SHA256:   %s\n", manifest.checksumSha256.c_str());
-
-  if (bytesReadTotal != (size_t)contentLength || bytesWrittenTotal != (size_t)contentLength) {
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Downloaded byte count mismatch");
-  }
-  if (!verifyFirmwareAuthenticity(manifest, calculated)) {
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Checksum verification failed");
-  }
-
-  publishOTAStatus(manifest.deploymentId, "flashing", 95, "Firmware verified");
-  Serial.println("[OTA] Completing update with Update.end(true)");
-  if (!Update.end(true)) {
-    String error = "Update.end failed: " + String(Update.getError());
-    Serial.printf("[OTA] %s\n", error.c_str());
-    return failRawFirmwareDownload(client, clientStarted, false, manifest.deploymentId, error);
-  }
-  updateStarted = false;
-
-  if (!Update.isFinished()) {
-    return failRawFirmwareDownload(client, clientStarted, updateStarted, manifest.deploymentId, "Update not finished properly");
-  }
-
-  client.stop();
-  clientStarted = false;
-  logNetState("after OTA download");
-  persistPendingOTAACK(manifest.deploymentId, manifest.version);
-  publishOTAStatus(manifest.deploymentId, "rebooting", 100, "Firmware flashed; rebooting");
-  Serial.println("[OTA] Flash complete. Pending ACK stored. Rebooting now.");
-  delay(250);
-  ESP.restart();
-  return true;
-}
-
 bool downloadVerifyAndFlash(const OTAManifest& manifest) {
   if (!otaPartitionCapable || !validateOTAPartitions()) {
     publishOTANack(manifest.deploymentId, "OTA partition unavailable");
@@ -678,10 +412,6 @@ bool downloadVerifyAndFlash(const OTAManifest& manifest) {
                   next == nullptr ? 0 : (unsigned int)next->size);
     publishOTANack(manifest.deploymentId, "Firmware does not fit OTA partition");
     return false;
-  }
-
-  if (isHttpUrl(manifest.downloadUrl)) {
-    return downloadVerifyAndFlashPlainHTTP(manifest);
   }
 
   HTTPClient http;

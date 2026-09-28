@@ -98,6 +98,27 @@ target_link_libraries(argus_sdk_test
     Threads::Threads
 )
 
+# Compile-only coverage for the relaxed-signature build. With
+# ARGUS_REQUIRE_FIRMWARE_SIGNATURES=false the signature checks in
+# verifyFirmwareAuthenticity() and parseOTAManifest() take their non-required
+# branches, which is otherwise never compiled. Not built by default: it is a
+# syntax/compile guard, not a runnable test target.
+option(ARGUS_SDK_RELAXED_SIGNATURE_BUILD "Also build the relaxed-signature compile check" OFF)
+if(ARGUS_SDK_RELAXED_SIGNATURE_BUILD)
+    add_library(argus_sdk_nosig_compile OBJECT ${SOURCES})
+    target_compile_definitions(argus_sdk_nosig_compile
+        PRIVATE
+        ARGUS_NATIVE_BUILD
+        ARGUS_REQUIRE_FIRMWARE_SIGNATURES=false
+    )
+    target_include_directories(argus_sdk_nosig_compile PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/hal
+        ${pubsubclient_SOURCE_DIR}/src
+        ${arduinojson_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../argus_sdk/src
+    )
+endif()
+
 if(WIN32)
     target_link_libraries(argus_sdk_test PRIVATE ws2_32)
 endif()
