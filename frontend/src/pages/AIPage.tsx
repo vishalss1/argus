@@ -351,24 +351,6 @@ const AIPage: React.FC = () => {
               )}
             </div>
           </Panel>
-
-          {/* Quick Stats */}
-          <Panel title="AI Engine Status">
-            <div className="ai-stats-list">
-              <div className="ai-stat-row">
-                <span className="ai-stat-label">Embedding Model</span>
-                <span className="ai-stat-val mono">nomic-embed</span>
-              </div>
-              <div className="ai-stat-row">
-                <span className="ai-stat-label">Reasoning Provider</span>
-                <span className="ai-stat-val mono">Groq (Llama-3.3)</span>
-              </div>
-              <div className="ai-stat-row">
-                <span className="ai-stat-label">Vector Index</span>
-                <span className="ai-stat-val mono text-success">Optimized (HNSW)</span>
-              </div>
-            </div>
-          </Panel>
         </aside>
       </div>
     </>

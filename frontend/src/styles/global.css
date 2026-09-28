@@ -2337,10 +2337,6 @@ input[type="file"]::file-selector-button:hover {
 .ai-related-device { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .ai-related-device > div { display: grid; gap: 2px; min-width: 0; }
 .ai-related-device > strong { color: var(--text-primary); font-size: 12px; font-family: var(--font-mono); }
-.ai-stats-list { display: flex; flex-direction: column; gap: 10px; }
-.ai-stat-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-.ai-stat-label { color: var(--text-muted); }
-.ai-stat-val { color: var(--text-primary); }
 .ai-related-device small, .ai-health-score .ai-related-device small { color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
 
 /* ── Detail card ── */
