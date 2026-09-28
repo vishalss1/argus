@@ -3,7 +3,17 @@ import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Wifi, Database, Check, Activity, AlertTriangle, RefreshCw, Send, Settings as SettingsIcon } from "lucide-react";
 import { PageHeader, StatusChip, CopyableID, ProgressBar } from "../components/ui";
 import { useDevices, useAlerts, useDeployments, useLatestTelemetry } from "../hooks/useArgusData";
-import { formatDate } from "../lib/format";
+import { formatDate, formatBytes } from "../lib/format";
+import type { JsonValue } from "../types/api";
+
+function numericMetrics(metrics: JsonValue | undefined): Record<string, number> {
+  if (!metrics || typeof metrics !== "object" || Array.isArray(metrics)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(metrics as Record<string, JsonValue>)) {
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  }
+  return out;
+}
 
 export function DeviceDetailsPage() {
   const { deviceID } = useParams();
@@ -15,6 +25,7 @@ export function DeviceDetailsPage() {
   const device = devices.data?.find(d => d.id === deviceID);
   const deviceAlerts = (alerts.data ?? []).filter(a => a.device_id === deviceID);
   const deviceDeployments = deployments.data ?? [];
+  const latestMetrics = numericMetrics(telemetry.data?.metrics);
 
   const [activeTab, setActiveTab] = useState<"deployments" | "incidents" | "telemetry" | "commands" | "config">("deployments");
 
@@ -50,11 +61,17 @@ export function DeviceDetailsPage() {
         </div>
         <div style={{ flex: 1 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontFamily: "var(--font-mono)" }}>Network (RSSI)</div>
-          <div style={{ fontSize: 16, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}><Wifi size={14} /> -65 dBm</div>
+          <div style={{ fontSize: 16, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+            <Wifi size={14} />
+            {latestMetrics.rssi_dbm !== undefined ? `${latestMetrics.rssi_dbm} dBm` : "—"}
+          </div>
         </div>
         <div style={{ flex: 1 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontFamily: "var(--font-mono)" }}>Memory Heap</div>
-          <div style={{ fontSize: 16, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}><Database size={14} /> 120 KB</div>
+          <div style={{ fontSize: 16, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+            <Database size={14} />
+            {latestMetrics.free_heap !== undefined ? formatBytes(latestMetrics.free_heap) : "—"}
+          </div>
         </div>
         <div style={{ flex: 1 }}>
           <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontFamily: "var(--font-mono)" }}>Health</div>

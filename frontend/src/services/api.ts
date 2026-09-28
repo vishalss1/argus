@@ -14,6 +14,7 @@ import type {
   Rule,
   Shadow,
   SemanticEvent,
+  Telemetry,
   Incident,
   OperationalMemory,
   OTAFleetStats,
@@ -101,7 +102,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload)
       }),
-    latest: (deviceID: string) => request<any>(`/devices/${deviceID}/telemetry/latest`)
+    latest: (deviceID: string) => request<Telemetry>(`/devices/${deviceID}/telemetry/latest`)
   },
 
 
