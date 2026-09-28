@@ -238,7 +238,9 @@ void sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) return;
   logNetState("before heartbeat");
 
-  DynamicJsonDocument h(192);
+  // ArduinoJson silently drops assignments that exceed the pool; 192 was too
+  // small for a long device_id + firmware_version pair.
+  DynamicJsonDocument h(512);
   h["device_id"] = ARGUS_DEVICE_ID;
   h["status"] = "online";
   h["firmware_version"] = ARGUS_FW_VERSION;

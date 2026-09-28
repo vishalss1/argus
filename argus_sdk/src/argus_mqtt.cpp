@@ -100,8 +100,15 @@ void connectMQTT() {
   mqtt.setCallback(onMqttMessage);
   mqtt.setKeepAlive(15);
   mqtt.setSocketTimeout(10);
+  // PubSubClient v2.8 defaults MQTT_MAX_PACKET_SIZE to 256 bytes, which is the
+  // total publish packet (topic + header + payload). Telemetry payloads exceed
+  // that on real devices, so publish() would fail with no runtime remedy.
+  mqtt.setBufferSize(512);
 
-  StaticJsonDocument<192> lwt;
+  // ArduinoJson silently drops assignments that exceed the pool. Measured
+  // against ArduinoJson 6.21.6: 192 starts dropping firmware_version at ~60
+  // chars (with a 36-char device_id). 512 covers realistic values with room.
+  StaticJsonDocument<512> lwt;
   lwt["device_id"] = ARGUS_DEVICE_ID;
   lwt["status"] = "offline";
   lwt["firmware_version"] = ARGUS_FW_VERSION;
@@ -138,7 +145,7 @@ void connectMQTT() {
     Serial.printf("[MQTT] Failed to subscribe to %s\n", commandTopic.c_str());
   }
 
-  DynamicJsonDocument conn(256);
+  DynamicJsonDocument conn(512);
   conn["device_id"] = ARGUS_DEVICE_ID;
   conn["status"] = "online";
   conn["firmware_version"] = ARGUS_FW_VERSION;
