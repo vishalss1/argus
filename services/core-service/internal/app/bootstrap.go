@@ -234,7 +234,8 @@ func Bootstrap() (*Server, error) {
 	authService := auth.NewService(userRepo, tokenRepo, auditRepo, cfg.JWTSecret, cfg.JWTAccessExpiration, cfg.JWTRefreshExpiration)
 	authHandler := transporthandler.NewAuthHandler(authService, redisClient)
 
-	// Periodic Auth Token Cleanup Job (every 24 hours)
+	// Periodic Auth Token + Audit Log Cleanup Job (every 24 hours)
+	auditRetention := time.Duration(cfg.AuthAuditLogRetentionDays) * 24 * time.Hour
 	server.wg.Add(1)
 	go func() {
 		defer server.wg.Done()
@@ -246,7 +247,17 @@ func Bootstrap() (*Server, error) {
 				return
 			case <-ticker.C:
 				bgCtx, cancel := context.WithTimeout(appCtx, 10*time.Minute)
-				_, _ = tokenRepo.DeleteExpiredOrRevoked(bgCtx)
+				if _, err := tokenRepo.DeleteExpiredOrRevoked(bgCtx); err != nil {
+					log.Printf("[CLEANUP] failed to prune expired refresh tokens: %v", err)
+				}
+				if auditRetention > 0 {
+					cutoff := time.Now().UTC().Add(-auditRetention)
+					if deleted, err := auditRepo.DeleteBefore(bgCtx, cutoff); err != nil {
+						log.Printf("[CLEANUP] failed to prune auth audit logs older than %s: %v", auditRetention, err)
+					} else if deleted > 0 {
+						log.Printf("[CLEANUP] pruned %d auth audit log(s) older than %s", deleted, auditRetention)
+					}
+				}
 				cancel()
 			}
 		}
