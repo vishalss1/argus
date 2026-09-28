@@ -2,23 +2,22 @@ import { FormEvent, useMemo, useState, Fragment } from "react";
 import { Plus, RefreshCw, Trash2, ChevronDown, ChevronRight, Server, Download } from "lucide-react";
 import { api } from "../services/api";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip, Modal } from "../components/ui";
-import { useFleets, useCreateFleet, useLatestTelemetry } from "../hooks/useArgusData";
+import { useFleets, useCreateFleet, useWorkspaceLatestTelemetry } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate, safeJsonParse } from "../lib/format";
 
-// Rendered per device row, so the per-device telemetry query lives in its own
-// component rather than firing one request for the whole fleet at once.
-function DeviceRssiCell({ deviceID }: { deviceID: string }) {
-  const telemetry = useLatestTelemetry(deviceID);
-  const raw = (telemetry.data?.metrics as Record<string, unknown> | undefined)?.rssi_dbm;
-  if (typeof raw !== "number" || !Number.isFinite(raw)) return <span className="muted">--</span>;
-  return <>{`${raw} dBm`}</>;
+function rssiForDevice(latest: Record<string, { metrics?: unknown }> | undefined, deviceID: string) {
+  const metrics = latest?.[deviceID]?.metrics as Record<string, unknown> | undefined;
+  const raw = metrics?.rssi_dbm;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  return raw;
 }
 
 export function DevicesPage() {
-  const { workspaceDevices } = useWorkspaceContext();
+  const { workspaceDevices, selectedWorkspaceId } = useWorkspaceContext();
   const fleets = useFleets();
   const create = useCreateFleet();
+  const latestTelemetry = useWorkspaceLatestTelemetry(selectedWorkspaceId);
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -239,7 +238,10 @@ export function DevicesPage() {
                                         <td><strong>{device.name}</strong><div className="muted mono">{compactID(device.id)}</div></td>
                                         <td>{fleet.firmware_version || "Unset"}</td>
                                         <td>{formatDate(device.last_seen)}</td>
-                                        <td><DeviceRssiCell deviceID={device.id} /></td>
+                                        <td>{(() => {
+                                          const rssi = rssiForDevice(latestTelemetry.data, device.id);
+                                          return rssi === null ? <span className="muted">--</span> : <>{`${rssi} dBm`}</>;
+                                        })()}</td>
                                         <td style={{ textAlign: "right" }}>
                                           <button className="button compact danger icon-only" onClick={(e) => { e.stopPropagation(); removeDevice(device.id); }} aria-label={`Delete ${device.name}`}>
                                             <Trash2 size={14} />

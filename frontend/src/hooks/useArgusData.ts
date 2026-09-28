@@ -17,6 +17,7 @@ export const queryKeys = {
   deploymentEvents: (deploymentID: string) => ["deployment-events", deploymentID] as const,
   shadow: (deviceID: string) => ["shadow", deviceID] as const,
   latestTelemetry: (deviceID: string) => ["telemetry", "latest", deviceID] as const,
+  workspaceLatestTelemetry: (workspaceID: string) => ["telemetry", "latest", "workspace", workspaceID] as const,
   deviceStatus: (deviceID: string) => ["ai", "device-status", deviceID] as const,
   sessionActiveIncidents: (sessionID: string) => ["ai", "session-active-incidents", sessionID] as const,
   fleetIncidents: ["ai", "fleet-incidents"] as const,
@@ -171,6 +172,18 @@ export function useLatestTelemetry(deviceID?: string) {
     queryKey: queryKeys.latestTelemetry(deviceID ?? ""),
     queryFn: () => api.telemetry.latest(deviceID!),
     enabled: Boolean(deviceID),
+    refetchInterval: 5_000
+  });
+}
+
+// Bulk variant of useLatestTelemetry: one request for a whole workspace
+// instead of one per device. Prefer this for any list/table that renders
+// link metrics for many devices.
+export function useWorkspaceLatestTelemetry(workspaceID?: string) {
+  return useQuery({
+    queryKey: queryKeys.workspaceLatestTelemetry(workspaceID ?? ""),
+    queryFn: () => api.telemetry.latestForWorkspace(workspaceID!),
+    enabled: Boolean(workspaceID),
     refetchInterval: 5_000
   });
 }

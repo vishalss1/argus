@@ -102,7 +102,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload)
       }),
-    latest: (deviceID: string) => request<Telemetry>(`/devices/${deviceID}/telemetry/latest`)
+    latest: (deviceID: string) => request<Telemetry>(`/devices/${deviceID}/telemetry/latest`),
+    // One request for every device in a workspace. Devices with no live
+    // reading are absent from the map rather than mapped to null.
+    latestForWorkspace: (workspaceID: string) =>
+      request<Record<string, Telemetry>>(`/workspaces/${workspaceID}/telemetry/latest`)
   },
 
 

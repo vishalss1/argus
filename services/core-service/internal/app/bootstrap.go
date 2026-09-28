@@ -223,7 +223,6 @@ func Bootstrap() (*Server, error) {
 	telemetryService.SetEventPublisher(realtime)
 
 	redisTelemetryRepo := redis.NewTelemetryRepository(redisClient, 300*time.Second)
-	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService, redisTelemetryRepo)
 
 	shadowRepository := redis.NewShadowRepository(redisClient)
 	shadowService := shadowdomain.NewService(shadowRepository)
@@ -283,6 +282,8 @@ func Bootstrap() (*Server, error) {
 	workspaceRepository := postgres.NewWorkspaceRepository(database)
 	workspaceService := workspacedomain.NewService(workspaceRepository, redisClient)
 	workspaceHandler := transporthandler.NewWorkspaceHandler(workspaceService, userRepo)
+
+	telemetryHandler := transporthandler.NewTelemetryHandler(telemetryService, redisTelemetryRepo, workspaceService)
 
 	sessionRepository := postgres.NewSessionRepository(database)
 	sessionService := sessiondomain.NewService(sessionRepository)

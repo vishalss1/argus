@@ -3,19 +3,23 @@ package handler
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/vishalss1/argus/core/internal/domain/telemetry"
+	"github.com/vishalss1/argus/core/internal/domain/workspace"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
 )
 
 type TelemetryHandler struct {
 	service   *telemetry.Service
 	redisRepo *redis.TelemetryRepository
+	workspace *workspace.Service
 }
 
-func NewTelemetryHandler(service *telemetry.Service, redisRepo *redis.TelemetryRepository) *TelemetryHandler {
+func NewTelemetryHandler(service *telemetry.Service, redisRepo *redis.TelemetryRepository, workspaceService *workspace.Service) *TelemetryHandler {
 	return &TelemetryHandler{
 		service:   service,
 		redisRepo: redisRepo,
+		workspace: workspaceService,
 	}
 }
 
@@ -35,6 +39,45 @@ func (h *TelemetryHandler) GetLatestTelemetry(w http.ResponseWriter, r *http.Req
 }
 
 
+
+// ListLatestTelemetry returns the latest reading for every device in a
+// workspace, keyed by device ID. Devices with no live reading are omitted.
+// This exists so a fleet view can render link metrics in one request instead
+// of one request per device.
+func (h *TelemetryHandler) ListLatestTelemetry(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if workspaceID == "" {
+		writeError(w, http.StatusBadRequest, "workspace id is required")
+		return
+	}
+	if h.redisRepo == nil {
+		writeError(w, http.StatusServiceUnavailable, "live telemetry not available")
+		return
+	}
+	if h.workspace == nil {
+		writeError(w, http.StatusServiceUnavailable, "workspace lookup not available")
+		return
+	}
+
+	devices, err := h.workspace.ListDevices(r.Context(), workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list workspace devices")
+		return
+	}
+
+	deviceIDs := make([]string, 0, len(devices))
+	for _, d := range devices {
+		deviceIDs = append(deviceIDs, d.ID)
+	}
+
+	latest, err := h.redisRepo.GetLatestForDevices(r.Context(), deviceIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read live telemetry")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, latest)
+}
 
 // IngestTelemetry godoc
 // @Summary Ingest telemetry

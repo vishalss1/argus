@@ -142,6 +142,7 @@ func New(
 				r.Delete("/devices/{deviceID}", workspaceHandler.UnassignDevice)
 				r.Post("/sessions", sessionHandler.Create)
 				r.Get("/sessions", sessionHandler.List)
+				r.Get("/telemetry/latest", telemetryHandler.ListLatestTelemetry)
 			})
 
 			r.Route("/fleets", func(r chi.Router) {

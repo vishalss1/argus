@@ -76,6 +76,47 @@ func (r *TelemetryRepository) GetLatest(ctx context.Context, deviceID string) (*
 	return &t, nil
 }
 
+// GetLatestForDevices returns the latest telemetry for each of the given
+// devices using a single MGET round-trip. Devices with no live telemetry
+// (key missing or expired) are simply absent from the result map, so callers
+// can treat "not present" as "no reading" without an extra request.
+func (r *TelemetryRepository) GetLatestForDevices(ctx context.Context, deviceIDs []string) (map[string]telemetry.Telemetry, error) {
+	out := make(map[string]telemetry.Telemetry, len(deviceIDs))
+	if len(deviceIDs) == 0 {
+		return out, nil
+	}
+
+	keys := make([]string, 0, len(deviceIDs))
+	keyToDevice := make(map[string]string, len(deviceIDs))
+	for _, id := range deviceIDs {
+		if id == "" {
+			continue
+		}
+		key := fmt.Sprintf("device:%s:latest", id)
+		keys = append(keys, key)
+		keyToDevice[key] = id
+	}
+
+	vals, err := r.client.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis mget: %w", err)
+	}
+
+	for i, val := range vals {
+		raw, ok := val.(string)
+		if !ok || raw == "" {
+			continue
+		}
+		var t telemetry.Telemetry
+		if err := json.Unmarshal([]byte(raw), &t); err != nil {
+			continue // skip unreadable payloads rather than failing the whole batch
+		}
+		out[keyToDevice[keys[i]]] = t
+	}
+
+	return out, nil
+}
+
 func (r *TelemetryRepository) GetAllLatest(ctx context.Context) ([]telemetry.Telemetry, error) {
 	var cursor uint64
 	var allTelemetry []telemetry.Telemetry
