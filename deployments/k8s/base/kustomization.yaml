@@ -61,6 +61,7 @@ configMapGenerator:
       - KAFKA_BROKERS=redpanda:9092
       - KAFKA_TELEMETRY_TOPIC=telemetry.raw
       - KAFKA_INCIDENT_TOPIC=telemetry.incidents
+      - KAFKA_DLQ_TOPIC=argus.dlq
       - KAFKA_AI_WORKER_GROUP_ID=argus-ai-worker
       - CORE_SERVICE_GRPC_ADDR=core-service:50051
       - GRPC_PORT=50052

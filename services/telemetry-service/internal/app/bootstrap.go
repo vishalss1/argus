@@ -152,6 +152,7 @@ func Bootstrap() (*Server, error) {
 			Brokers:        cfg.KafkaBrokers,
 			TelemetryTopic: cfg.KafkaTelemetryTopic,
 			CommandTopic:   cfg.KafkaCommandTopic,
+			DLQTopic:       cfg.KafkaDLQTopic,
 			IncidentTopic:  cfg.KafkaIncidentTopic,
 		})
 		if err != nil {
