@@ -70,6 +70,9 @@ func (r *WorkspaceRepository) List(ctx context.Context) ([]workspace.Workspace, 
 		}
 		workspaces = append(workspaces, w)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workspace rows: %w", err)
+	}
 	return workspaces, nil
 }
 
@@ -129,6 +132,9 @@ func (r *WorkspaceRepository) ListDevices(ctx context.Context, workspaceID strin
 			return nil, fmt.Errorf("scan workspace device: %w", err)
 		}
 		devices = append(devices, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workspace device rows: %w", err)
 	}
 	return devices, nil
 }

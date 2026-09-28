@@ -93,6 +93,9 @@ func (s *VectorStore) Search(ctx context.Context, table string, queryVector []fl
 		res.Score = 1.0 - distance
 		results = append(results, res)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate search result rows: %w", err)
+	}
 
 	return results, nil
 }
@@ -142,6 +145,9 @@ func (s *VectorStore) ListIDsWithoutEmbedding(ctx context.Context, table string)
 			return nil, fmt.Errorf("scan ID: %w", err)
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate id rows: %w", err)
 	}
 
 	return ids, nil

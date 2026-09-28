@@ -137,6 +137,9 @@ func (r *UserRepository) ListWorkspacesForUser(ctx context.Context, userID strin
 		}
 		list = append(list, info)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workspace info rows: %w", err)
+	}
 	return list, nil
 }
 

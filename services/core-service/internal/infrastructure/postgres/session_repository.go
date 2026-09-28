@@ -97,6 +97,9 @@ func (r *SessionRepository) ListByWorkspace(ctx context.Context, workspaceID str
 		}
 		sessions = append(sessions, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate session rows: %w", err)
+	}
 	return sessions, nil
 }
 
@@ -122,6 +125,9 @@ func (r *SessionRepository) ListAllRunning(ctx context.Context) ([]session.Sessi
 			return nil, fmt.Errorf("scan running session: %w", err)
 		}
 		sessions = append(sessions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate running session rows: %w", err)
 	}
 	return sessions, nil
 }
@@ -370,6 +376,9 @@ func (r *SessionRepository) ListCommandsBySession(ctx context.Context, sessionID
 			return nil, fmt.Errorf("scan session command: %w", err)
 		}
 		commands = append(commands, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate session command rows: %w", err)
 	}
 	return commands, nil
 }

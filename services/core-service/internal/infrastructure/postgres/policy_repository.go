@@ -75,6 +75,9 @@ func (r *PolicyRepository) ListPolicies(ctx context.Context) ([]policy.Policy, e
 		}
 		policies = append(policies, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return policies, nil
 }
 
@@ -144,6 +147,9 @@ func (r *PolicyRepository) ListExecutionRecords(ctx context.Context) ([]policy.E
 			return nil, err
 		}
 		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return records, nil
 }

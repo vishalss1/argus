@@ -127,6 +127,9 @@ func (r *EventRepository) List(ctx context.Context, limit, offset int) ([]event.
 		ev.WorkspaceID = wIDStr
 		events = append(events, ev)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event rows: %w", err)
+	}
 
 	return events, nil
 }
@@ -173,6 +176,9 @@ func (r *EventRepository) ListByDevice(ctx context.Context, deviceID string, lim
 		ev.WorkspaceID = wIDStr
 		events = append(events, ev)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event rows: %w", err)
+	}
 
 	return events, nil
 }
@@ -218,6 +224,9 @@ func (r *EventRepository) ListByType(ctx context.Context, eventType string, limi
 		}
 		ev.WorkspaceID = wIDStr
 		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event rows: %w", err)
 	}
 
 	return events, nil

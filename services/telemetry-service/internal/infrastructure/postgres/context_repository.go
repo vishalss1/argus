@@ -127,6 +127,9 @@ func (r *ContextRepository) ListByDevice(ctx context.Context, deviceID string, l
 		mem.WorkspaceID = wIDStr
 		memories = append(memories, mem)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate operational memory rows: %w", err)
+	}
 
 	return memories, nil
 }
@@ -172,6 +175,9 @@ func (r *ContextRepository) ListByType(ctx context.Context, memoryType ctxdomain
 		}
 		mem.WorkspaceID = wIDStr
 		memories = append(memories, mem)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate operational memory rows: %w", err)
 	}
 
 	return memories, nil
