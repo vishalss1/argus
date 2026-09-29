@@ -1,6 +1,7 @@
 package certificate
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -54,10 +55,31 @@ func NewCertificateAuthority(certPath, keyPath string) (*CertificateAuthority, e
 		}
 	}
 
+	// Confirm the private key actually belongs to the certificate. Without this
+	// a mismatched pair is accepted here and only fails later, at every signing
+	// attempt, with a low-level crypto error.
+	signer, ok := caKey.(crypto.Signer)
+	if !ok {
+		return nil, fmt.Errorf("CA private key of type %T is not a crypto.Signer", caKey)
+	}
+	signerPub, ok := signer.Public().(publicKeyComparer)
+	if !ok {
+		return nil, fmt.Errorf("CA public key of type %T is not comparable", signer.Public())
+	}
+	if !signerPub.Equal(caCert.PublicKey) {
+		return nil, fmt.Errorf("CA private key does not match CA certificate")
+	}
+
 	return &CertificateAuthority{
 		caCert: caCert,
 		caKey:  caKey,
 	}, nil
+}
+
+// publicKeyComparer is satisfied by *ecdsa.PublicKey, *rsa.PublicKey and
+// *ed25519.PublicKey.
+type publicKeyComparer interface {
+	Equal(crypto.PublicKey) bool
 }
 
 func (ca *CertificateAuthority) IssueDeviceCertificate(deviceID string, workspaceID string) (*IssuedCertificate, error) {

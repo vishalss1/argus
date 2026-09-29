@@ -76,16 +76,22 @@ func TestGeneratedFirmwareCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sketch, err := gen.Generate("test-device", "test-workspace", "test-api-key", "1.0.0", certPEM, keyPEM)
+
+	// The provisioning and fleet sketches are the two artifacts the backend
+	// actually serves to users.  Both must compile.
+	provision, err := gen.GenerateProvision(GenerateOptions{
+		DeviceID:        "test-device",
+		WorkspaceID:     "test-workspace",
+		APIKey:          "test-api-key",
+		FirmwareVersion: "1.0.0",
+		CertPEM:         certPEM,
+		PrivKeyPEM:      keyPEM,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	sketchDir := filepath.Join(t.TempDir(), "argus_generated")
-	if err := os.MkdirAll(sketchDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sketchDir, "argus_generated.ino"), sketch, 0o600); err != nil {
+	fleet, err := gen.GenerateFleetFirmware("")
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,16 +132,36 @@ func TestGeneratedFirmwareCompiles(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command(
-		arduinoCLI,
-		"compile",
-		"--fqbn", "esp32:esp32:esp32",
-		"--libraries", librariesDir,
-		"--build-property", "compiler.cpp.extra_flags=-Wall -Wextra -Werror",
-		sketchDir,
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated firmware did not compile: %v\n%s", err, output)
+	sketches := []struct {
+		name   string
+		source []byte
+	}{
+		{"argus_provision", provision},
+		{"argus_fleet_firmware", fleet},
+	}
+
+	for _, sketch := range sketches {
+		t.Run(sketch.name, func(t *testing.T) {
+			sketchDir := filepath.Join(t.TempDir(), sketch.name)
+			if err := os.MkdirAll(sketchDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sketchDir, sketch.name+".ino"), sketch.source, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := exec.Command(
+				arduinoCLI,
+				"compile",
+				"--fqbn", "esp32:esp32:esp32",
+				"--libraries", librariesDir,
+				"--build-property", "compiler.cpp.extra_flags=-Wall -Wextra -Werror",
+				sketchDir,
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("generated firmware did not compile: %v\n%s", err, output)
+			}
+		})
 	}
 }
