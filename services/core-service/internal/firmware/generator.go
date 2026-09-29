@@ -10,7 +10,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/firmware.ino.tmpl templates/provision.ino.tmpl templates/fleet_firmware.ino.tmpl
+//go:embed templates/provision.ino.tmpl templates/fleet_firmware.ino.tmpl
 var templatesFS embed.FS
 
 type GeneratorConfig struct {
@@ -69,7 +69,7 @@ func validatePEM(name, pemStr, expectedType string) error {
 	if block == nil {
 		return fmt.Errorf("%s: failed to decode PEM block", name)
 	}
-	
+
 	if expectedType == "PRIVATE KEY" {
 		if block.Type != "PRIVATE KEY" && block.Type != "EC PRIVATE KEY" {
 			return fmt.Errorf("%s: expected PEM type \"PRIVATE KEY\" or \"EC PRIVATE KEY\", got %q", name, block.Type)
@@ -129,35 +129,12 @@ func cppString(value string) string {
 //
 // NVS string entries are null-terminated C strings; raw '\n' bytes can cause
 // truncation on some ESP-IDF versions.  We replace each newline with the
-// two-character literal sequence '\''n' so the value survives the round-trip.
+// two-character literal sequence '\”n' so the value survives the round-trip.
 // The argus_nvs.cpp loader reverses this substitution when reading at runtime.
 func nvsPEM(pem string) string {
 	return strings.ReplaceAll(pem, "\n", `\n`)
 }
 
-func validateRenderedPEM(sketch, symbol, expected string) error {
-	sketch = strings.ReplaceAll(sketch, "\r\n", "\n")
-	expected = strings.ReplaceAll(expected, "\r\n", "\n")
-	prefix := `char ` + symbol + `[] PROGMEM = R"EOF(` + "\n"
-	start := strings.Index(sketch, prefix)
-	if start < 0 {
-		return fmt.Errorf("%s: generated declaration not found", symbol)
-	}
-	start += len(prefix)
-	end := strings.Index(sketch[start:], `)EOF";`)
-	if end < 0 {
-		return fmt.Errorf("%s: generated raw string is unterminated", symbol)
-	}
-	actual := sketch[start : start+end]
-	if actual != expected {
-		return fmt.Errorf("%s: generated PEM differs from validated input", symbol)
-	}
-	return nil
-}
-
-// ValidateCAIssuesServerCert checks that the server CA PEM can verify the
-// server certificate PEM. This catches CA/serving-cert mismatches at firmware
-// generation time rather than at runtime on the device.
 func ValidateCAIssuesServerCert(caPEM, serverCertPEM string) error {
 	caBlock, _ := pem.Decode([]byte(caPEM))
 	if caBlock == nil {
@@ -199,20 +176,14 @@ func NewGenerator(config GeneratorConfig) (*Generator, error) {
 	}
 
 	// Parse all three templates from the embedded FS.
-	tmplBytes, err := templatesFS.ReadFile("templates/firmware.ino.tmpl")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read firmware template: %w", err)
-	}
-	tmpl, err := template.New("firmware.ino").Funcs(funcMap).Parse(string(tmplBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse firmware template: %w", err)
-	}
-
+	// Parse both templates from the embedded FS. They are independent
+	// roots: neither includes the other.
 	provBytes, err := templatesFS.ReadFile("templates/provision.ino.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read provision template: %w", err)
 	}
-	if _, err = tmpl.New("provision.ino").Funcs(funcMap).Parse(string(provBytes)); err != nil {
+	tmpl, err := template.New("provision.ino").Funcs(funcMap).Parse(string(provBytes))
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse provision template: %w", err)
 	}
 
@@ -228,85 +199,6 @@ func NewGenerator(config GeneratorConfig) (*Generator, error) {
 		config: config,
 		tmpl:   tmpl,
 	}, nil
-}
-
-func (g *Generator) Generate(deviceID, workspaceID, apiKey, firmwareVersion, certPEM, privKeyPEM string) ([]byte, error) {
-	return g.GenerateWithOptions(GenerateOptions{
-		DeviceID:        deviceID,
-		WorkspaceID:     workspaceID,
-		APIKey:          apiKey,
-		FirmwareVersion: firmwareVersion,
-		CertPEM:         certPEM,
-		PrivKeyPEM:      privKeyPEM,
-	})
-}
-
-func (g *Generator) GenerateWithOptions(opts GenerateOptions) ([]byte, error) {
-	certPEM, err := preparePEM("device certificate", opts.CertPEM, "CERTIFICATE")
-	if err != nil {
-		return nil, fmt.Errorf("invalid device certificate: %w", err)
-	}
-	privKeyPEM, err := preparePEM("device private key", opts.PrivKeyPEM, "PRIVATE KEY")
-	if err != nil {
-		return nil, fmt.Errorf("invalid device private key: %w", err)
-	}
-
-	firmwareVersion := opts.FirmwareVersion
-	if firmwareVersion == "" {
-		firmwareVersion = g.config.DefaultFirmwareVersion
-	}
-	if firmwareVersion == "" {
-		firmwareVersion = "0.0.0"
-	}
-	
-	wifiSSID := opts.WiFiSSID
-	if wifiSSID == "" {
-		wifiSSID = g.config.WiFiSSID
-	}
-	
-	wifiPassword := opts.WiFiPassword
-	if wifiPassword == "" {
-		wifiPassword = g.config.WiFiPassword
-	}
-
-	data := TemplateData{
-		DeviceID:               opts.DeviceID,
-		WorkspaceID:            opts.WorkspaceID,
-		APIKey:                 opts.APIKey,
-		ServerHost:             g.config.ServerHost,
-		HTTPPort:               g.config.HTTPPort,
-		MQTTPort:               g.config.MQTTPort,
-		WiFiSSID:               wifiSSID,
-		WiFiPassword:           wifiPassword,
-		OTASigningKeyID:        g.config.OTASigningKeyID,
-		OTASigningPublicKeyB64: g.config.OTASigningPublicKeyB64,
-		FirmwareVersion:        firmwareVersion,
-		RootCAPEM:              g.config.RootCAPEM,
-		DeviceCertPEM:          certPEM,
-		DevicePrivateKeyPEM:    privKeyPEM,
-		UserCode:               opts.UserCode,
-	}
-
-	var buf bytes.Buffer
-	if err := g.tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	sketch := buf.String()
-	for _, item := range []struct {
-		symbol string
-		value  string
-	}{
-		{"ARGUS_ROOT_CA", g.config.RootCAPEM},
-		{"ARGUS_DEVICE_CERT", certPEM},
-		{"ARGUS_DEVICE_PRIVATE_KEY", privKeyPEM},
-	} {
-		if err := validateRenderedPEM(sketch, item.symbol, item.value); err != nil {
-			return nil, fmt.Errorf("generated firmware validation failed: %w", err)
-		}
-	}
-
-	return buf.Bytes(), nil
 }
 
 // GenerateProvision renders the per-device provisioning sketch.
@@ -360,6 +252,25 @@ func (g *Generator) GenerateProvision(opts GenerateOptions) ([]byte, error) {
 	if err := g.tmpl.ExecuteTemplate(&buf, "provision.ino", data); err != nil {
 		return nil, fmt.Errorf("failed to execute provision template: %w", err)
 	}
+
+	// Confirm the validated PEM reached the sketch intact. The provisioning
+	// template embeds it as a newline-escaped C string, so anything dropped
+	// or truncated by escaping would silently produce a device that cannot
+	// present a usable certificate at provisioning time.
+	sketch := buf.String()
+	for _, item := range []struct {
+		key   string
+		value string
+	}{
+		{"root_ca", g.config.RootCAPEM},
+		{"dev_cert", certPEM},
+		{"dev_key", privKeyPEM},
+	} {
+		if !strings.Contains(sketch, nvsPEM(item.value)) {
+			return nil, fmt.Errorf("generated provisioning sketch is missing intact %s", item.key)
+		}
+	}
+
 	return buf.Bytes(), nil
 }
 

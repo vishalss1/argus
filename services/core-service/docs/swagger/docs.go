@@ -75,7 +75,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "produces": [
-                    "application/json"
+                    "text/plain"
                 ],
                 "tags": [
                     "devices"
@@ -94,9 +94,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created",
+                        "description": "Provisioning sketch",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vishalss1_argus_core_internal_domain_device.Device"
+                            "type": "string"
                         }
                     },
                     "400": {

@@ -5,27 +5,20 @@
 // At boot, argusNVSLoad() opens the "argus_cfg" NVS namespace (written once
 // by the per-device provisioning sketch), copies every value into the static
 // char arrays and scalar variables defined here, then closes the namespace.
-// The rest of the SDK reads the populated buffers through the extern const
-// declarations in argus_config.h — transparently, as if the values had been
-// baked into a device-specific firmware.ino at compile time.
+// The rest of the SDK reads the populated buffers through the extern
+// declarations in argus_config.h.
 //
 // Design note on const and writability
 // --------------------------------------
-// argus_config.h declares all 14 symbols as non-const externs.  This is a
-// deliberate choice that supports two definition paths:
+// argus_config.h declares all 14 symbols as non-const externs.  This file is
+// the sole definition site: argusNVSLoad() writes into the buffers at boot
+// after reading from the "argus_cfg" NVS namespace, so the storage must be
+// non-const.
 //
-//   1. NVS loader path (this file, fleet OTA binary): argusNVSLoad() writes
-//      into the buffers at boot after reading from the "argus_cfg" NVS
-//      namespace.  Non-const storage is required for those direct assignments.
-//
-//   2. Monolithic baked-in path (firmware.ino.tmpl): the sketch defines the
-//      same symbols with compile-time string/integer initialisers.  The
-//      linker resolves extern references to whichever TU provides the storage.
-//
-// In C++ a const-qualified definition is NOT compatible with a non-const
-// extern declaration (they are different types), so removing const from the
-// header declarations is the only correct fix.  Code that must treat these
-// values as read-only should use const pointers/references at call sites.
+// Because this is the only definition site, a sketch that also defined these
+// symbols would collide at link time.  The per-device provisioning sketch
+// therefore writes NVS rather than defining the symbols, and the firmware
+// binary flashed afterwards is identical across the fleet.
 //
 // Native-host guard
 // -----------------

@@ -4,10 +4,12 @@
 
 // ---------------------------------------------------------------------------
 // Device-specific configuration.
-// Defined either in argus_nvs.cpp (NVS loader path, fleet OTA binary) or in
-// the generated per-device firmware sketch (monolithic baked-in path).
-// Declared non-const so both definition sites can write/initialize the storage
-// and argusNVSLoad() can populate the buffers at runtime without a cast.
+// Defined in argus_nvs.cpp and populated at boot by argusNVSLoad() from the
+// "argus_cfg" NVS namespace. The per-device provisioning sketch
+// (config_<deviceID>.ino) writes that namespace; the fleet firmware binary that
+// runs afterwards is identical for every device and contains no baked-in
+// identity.
+// Declared non-const so argusNVSLoad() can populate the buffers at runtime.
 // ---------------------------------------------------------------------------
 
 extern char ARGUS_FW_VERSION[];
@@ -26,7 +28,8 @@ extern char ARGUS_DEVICE_CERT[];
 extern char ARGUS_DEVICE_PRIVATE_KEY[];
 
 // ---------------------------------------------------------------------------
-// MQTT transport type — matches monolithic firmware conditional compilation
+// MQTT transport type. ARGUS_MQTT_SECURE is set by the provisioning sketch
+// when the broker port is 8883.
 // ---------------------------------------------------------------------------
 
 #if defined(ARGUS_MQTT_SECURE)

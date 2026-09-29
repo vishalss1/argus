@@ -54,15 +54,20 @@ func generateTestCertAndKey() (string, string, error) {
 	return string(certPEM), string(keyPEM), nil
 }
 
-func TestFirmwareGenerator(t *testing.T) {
+func TestGenerateProvision(t *testing.T) {
 	rootCA, _, err := generateTestCertAndKey()
 	if err != nil {
 		t.Fatalf("Failed to generate test root CA: %v", err)
+	}
+	certPEM, privKeyPEM, err := generateTestCertAndKey()
+	if err != nil {
+		t.Fatalf("Failed to generate test device cert/key: %v", err)
 	}
 
 	config := GeneratorConfig{
 		ServerHost:             "192.168.10.100",
 		HTTPPort:               8443,
+		MQTTPort:               8883,
 		RootCAPEM:              rootCA,
 		WiFiSSID:               "TestSSID",
 		WiFiPassword:           "TestPassword",
@@ -76,71 +81,77 @@ func TestFirmwareGenerator(t *testing.T) {
 	}
 
 	deviceID := "75596200-a44a-43bc-8ff0-56d9e843cbfc"
-	workspaceID := "5ab8eeaa-a44a-43bc-8ff0-56d9e843cbfc"
 	apiKey := "argus_mockapikey123"
 
-	certPEM, privKeyPEM, err := generateTestCertAndKey()
+	sketchBytes, err := gen.GenerateProvision(GenerateOptions{
+		DeviceID:        deviceID,
+		WorkspaceID:     "5ab8eeaa-a44a-43bc-8ff0-56d9e843cbfc",
+		APIKey:          apiKey,
+		FirmwareVersion: "1.0.0",
+		CertPEM:         certPEM,
+		PrivKeyPEM:      privKeyPEM,
+	})
 	if err != nil {
-		t.Fatalf("Failed to generate test device cert/key: %v", err)
-	}
-
-	sketchBytes, err := gen.Generate(deviceID, workspaceID, apiKey, "1.0.0", certPEM, privKeyPEM)
-	if err != nil {
-		t.Fatalf("Failed to generate sketch: %v", err)
+		t.Fatalf("Failed to generate provisioning sketch: %v", err)
 	}
 
 	sketch := string(sketchBytes)
 
-	// Verify that placeholders were replaced correctly
 	assertions := []struct {
 		substring string
 		desc      string
 	}{
-		{`char ARGUS_DEVICE_ID[] = "` + deviceID + `"`, "Device ID"},
-		{`char ARGUS_API_KEY[] = "` + apiKey + `"`, "API Key"},
-		{`char ARGUS_SERVER_HOST[] = "` + config.ServerHost + `"`, "Server Host"},
-		{`uint16_t ARGUS_HTTP_PORT = 8443;`, "HTTP Port"},
-		{`char ARGUS_FW_VERSION[] = "1.0.0"`, "Firmware Version"},
-		{`char ARGUS_OTA_KEY_ID[] = "` + config.OTASigningKeyID + `"`, "OTA Key ID"},
-		{`char ARGUS_OTA_PUBLIC_KEY_B64[] = "` + config.OTASigningPublicKeyB64 + `"`, "OTA Public Key"},
-		{`char WIFI_SSID[] = "` + config.WiFiSSID + `"`, "WiFi SSID"},
-		{`char WIFI_PASSWORD[] = "` + config.WiFiPassword + `"`, "WiFi Password"},
-		{config.RootCAPEM, "Root CA PEM"},
-		{certPEM, "Device Cert PEM"},
-		{privKeyPEM, "Device Private Key PEM"},
+		{`prefs.putString("device_id",   "` + deviceID + `");`, "Device ID"},
+		{`prefs.putString("api_key",     "` + apiKey + `");`, "API Key"},
+		{`prefs.putString("server_host", "` + config.ServerHost + `");`, "Server Host"},
+		{`prefs.putString("mqtt_host",   "` + config.ServerHost + `");`, "MQTT Host"},
+		{`prefs.putString("wifi_ssid",   "` + config.WiFiSSID + `");`, "WiFi SSID"},
+		{`prefs.putString("wifi_pass",   "` + config.WiFiPassword + `");`, "WiFi Password"},
+		{`prefs.putString("ota_key_id",  "` + config.OTASigningKeyID + `");`, "OTA Key ID"},
+		{`prefs.putString("ota_pub_key", "` + config.OTASigningPublicKeyB64 + `");`, "OTA Public Key"},
+		{`prefs.putString("fw_version",  "1.0.0");`, "Firmware Version"},
+		{`prefs.putUInt("http_port", 8443);`, "HTTP Port"},
+		{`prefs.putUInt("mqtt_port", 8883);`, "MQTT Port"},
 	}
-
 	for _, a := range assertions {
 		if !strings.Contains(sketch, a.substring) {
-			t.Errorf("Sketch is missing expected %s: %q", a.desc, a.substring)
+			t.Errorf("Provisioning sketch is missing expected %s: %q", a.desc, a.substring)
 		}
 	}
 
+	// PEM is embedded newline-escaped so it survives the NVS round-trip; the
+	// sketch must carry it intact, not truncated.
 	for _, item := range []struct {
-		symbol string
-		pem    string
+		key string
+		pem string
 	}{
-		{"ARGUS_ROOT_CA", rootCA},
-		{"ARGUS_DEVICE_CERT", certPEM},
-		{"ARGUS_DEVICE_PRIVATE_KEY", privKeyPEM},
+		{"root_ca", rootCA},
+		{"dev_cert", certPEM},
+		{"dev_key", privKeyPEM},
 	} {
-		expected := item.pem
-		if !strings.HasSuffix(expected, "\n") {
-			expected += "\n"
+		if !strings.Contains(sketch, nvsPEM(item.pem)) {
+			t.Errorf("Provisioning sketch does not contain intact %s", item.key)
 		}
-		if err := validateRenderedPEM(sketch, item.symbol, expected); err != nil {
-			t.Errorf("%s was not embedded byte-for-byte: %v", item.symbol, err)
-		}
+	}
+
+	// The sketch must not bake device identity into a config symbol: that is
+	// what the fleet firmware binary reads from NVS at boot.
+	if strings.Contains(sketch, "char ARGUS_DEVICE_ID[]") {
+		t.Error("Provisioning sketch must not define config symbols owned by the SDK")
 	}
 }
 
-func TestFirmwareGeneratorRejectsInvalidPEM(t *testing.T) {
+func TestGenerateProvisionRejectsInvalidPEM(t *testing.T) {
+	rootCA, _, err := generateTestCertAndKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	certPEM, keyPEM, err := generateTestCertAndKey()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	gen, err := NewGenerator(GeneratorConfig{RootCAPEM: certPEM})
+	gen, err := NewGenerator(GeneratorConfig{RootCAPEM: rootCA})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,10 +169,49 @@ func TestFirmwareGeneratorRejectsInvalidPEM(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := gen.Generate("device", "workspace", "key", "1.0.0", tt.cert, tt.key); err == nil {
+			_, err := gen.GenerateProvision(GenerateOptions{
+				DeviceID:   "device",
+				APIKey:     "key",
+				CertPEM:    tt.cert,
+				PrivKeyPEM: tt.key,
+			})
+			if err == nil {
 				t.Fatal("expected generation to fail")
 			}
 		})
+	}
+}
+
+func TestGenerateFleetFirmwareHasNoDeviceIdentity(t *testing.T) {
+	rootCA, _, err := generateTestCertAndKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen, err := NewGenerator(GeneratorConfig{RootCAPEM: rootCA})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sketch, err := gen.GenerateFleetFirmware("")
+	if err != nil {
+		t.Fatalf("Failed to generate fleet firmware: %v", err)
+	}
+
+	// One identical binary is flashed to every device in the fleet; identity
+	// comes from NVS. Any baked-in value would break that invariant.
+	for _, forbidden := range []string{
+		"putString(\"device_id\"",
+		"putString(\"api_key\"",
+		"putString(\"dev_key\"",
+		"putString(\"root_ca\"",
+		"char ARGUS_DEVICE_ID[]",
+	} {
+		if strings.Contains(string(sketch), forbidden) {
+			t.Errorf("Fleet firmware must not contain device identity: found %q", forbidden)
+		}
+	}
+	if !strings.Contains(string(sketch), "argusBegin()") {
+		t.Error("Fleet firmware should call argusBegin()")
 	}
 }
 

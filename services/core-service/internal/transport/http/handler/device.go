@@ -35,11 +35,14 @@ func NewDeviceHandler(
 
 // CreateDevice godoc
 // @Summary Create device
+// @Description Creates the device and returns a per-device provisioning sketch
+// @Description (config_{id}.ino) that writes the device's identity to NVS. The
+// @Description device then runs the shared fleet firmware binary.
 // @Tags devices
 // @Accept json
-// @Produce json
+// @Produce text/plain
 // @Param request body dto.CreateDeviceRequest true "Device payload"
-// @Success 201 {object} device.Device
+// @Success 201 {string} string "Provisioning sketch"
 // @Failure 400 {object} dto.ErrorResponse
 // @Router /devices [post]
 func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
@@ -82,15 +85,25 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		apiKey = *entity.RawAPIKey
 	}
 
-	fwVersion := entity.FirmwareVersion
-	fwBytes, err := h.fwGen.Generate(entity.ID, workspaceID, apiKey, fwVersion, cert.CertPEM, cert.PrivateKeyPEM)
+	// Provisioning sketch, not a monolithic per-device binary: the SDK loads
+	// identity from NVS at boot, so the per-device artifact writes NVS and the
+	// fleet binary is shared. A baked-in sketch would not even link against
+	// argus_nvs.cpp, which defines the same config symbols.
+	fwBytes, err := h.fwGen.GenerateProvision(firmware.GenerateOptions{
+		DeviceID:        entity.ID,
+		WorkspaceID:     workspaceID,
+		APIKey:          apiKey,
+		FirmwareVersion: entity.FirmwareVersion,
+		CertPEM:         cert.CertPEM,
+		PrivKeyPEM:      cert.PrivateKeyPEM,
+	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate firmware: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to generate provisioning sketch: "+err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	w.Header().Set("Content-Disposition", "attachment; filename=\"firmware_"+entity.ID+".ino\"")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"config_"+entity.ID+".ino\"")
 	w.WriteHeader(http.StatusCreated)
 	_, _ = w.Write(fwBytes)
 }
@@ -337,4 +350,3 @@ func (h *DeviceHandler) RegenerateAPIKey(w http.ResponseWriter, r *http.Request,
 
 	writeJSON(w, http.StatusOK, entity)
 }
-
