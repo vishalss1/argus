@@ -9,12 +9,19 @@ func cachedEntryFor(d *Device) resolvedDevice {
 	return resolvedDevice{device: d, expires: time.Now().Add(24 * time.Hour)}
 }
 
+// newCacheOnlyService returns a PresenceService with no device service wired in.
+// These tests exercise cache eviction only, which never touches the service, and
+// keeping them self-contained avoids depending on test helpers in other files.
+func newCacheOnlyService() *PresenceService {
+	return NewPresenceService(nil)
+}
+
 func TestInvalidateResolutionCacheRemovesCanonicalKey(t *testing.T) {
 	// A device resolved by hardware ID is cached under both keys, mirroring
 	// GetDeviceByIDOrHardwareID. Invalidating by hardware ID must drop the
 	// canonical UUID key too, or a later lookup by UUID keeps resolving to the
 	// stale device for the full 24h TTL.
-	svc := NewPresenceService(NewService(newFakeRepository()))
+	svc := newCacheOnlyService()
 	dev := &Device{ID: "11111111-2222-3333-4444-555555555555"}
 	entry := cachedEntryFor(dev)
 
@@ -35,7 +42,7 @@ func TestInvalidateResolutionCacheRemovesHardwareKeyWhenGivenUUID(t *testing.T) 
 	// Invalidation can also arrive with the canonical UUID (DeleteDevice does
 	// exactly this). The hardware ID key must go too, otherwise a lookup by
 	// hardware ID resurrects a deleted device.
-	svc := NewPresenceService(NewService(newFakeRepository()))
+	svc := newCacheOnlyService()
 	dev := &Device{ID: "11111111-2222-3333-4444-555555555555"}
 	entry := cachedEntryFor(dev)
 
@@ -55,7 +62,7 @@ func TestInvalidateResolutionCacheRemovesHardwareKeyWhenGivenUUID(t *testing.T) 
 func TestInvalidateResolutionCacheLeavesOtherDevicesAlone(t *testing.T) {
 	// Eviction must be scoped to the one device: dropping the whole map would
 	// silently turn this into a cache flush and cost a DB read per device.
-	svc := NewPresenceService(NewService(newFakeRepository()))
+	svc := newCacheOnlyService()
 	target := &Device{ID: "aaaaaaaa-0000-0000-0000-000000000001"}
 	other := &Device{ID: "bbbbbbbb-0000-0000-0000-000000000002"}
 
@@ -81,7 +88,7 @@ func TestInvalidateResolutionCacheLeavesOtherDevicesAlone(t *testing.T) {
 func TestInvalidateResolutionCacheUnknownKeyIsNoop(t *testing.T) {
 	// DeleteDevice invalidates a UUID that may never have been cached. That
 	// must not panic, and must not clear entries for real devices.
-	svc := NewPresenceService(NewService(newFakeRepository()))
+	svc := newCacheOnlyService()
 	other := &Device{ID: "bbbbbbbb-0000-0000-0000-000000000002"}
 	svc.resolutionCache.Store(other.ID, cachedEntryFor(other))
 
