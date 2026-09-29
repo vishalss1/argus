@@ -112,6 +112,24 @@ func (s *PresenceService) GetDeviceByIDOrHardwareID(ctx context.Context, raw str
 }
 
 func (s *PresenceService) InvalidateResolutionCache(rawID string) {
+	// The cache is populated under both the raw identifier it was looked up by
+	// and the canonical device UUID, so deleting a single key can leave the
+	// other one still resolving to the old device until the 24h TTL expires.
+	// Resolve which device this key refers to before dropping it, then remove
+	// every entry that points at the same device.
+	targetID := rawID
+	if v, ok := s.resolutionCache.Load(rawID); ok {
+		if e, ok := v.(resolvedDevice); ok && e.device != nil {
+			targetID = e.device.ID
+		}
+	}
+
+	s.resolutionCache.Range(func(k, v any) bool {
+		if e, ok := v.(resolvedDevice); ok && e.device != nil && e.device.ID == targetID {
+			s.resolutionCache.Delete(k)
+		}
+		return true
+	})
 	s.resolutionCache.Delete(rawID)
 }
 
