@@ -1,0 +1,51 @@
+{
+  "session_id": "86dd16fb-c4c0-4ffb-8138-a4c7db5fdfaa",
+  "generated_at": "2026-06-04T16:52:35Z",
+  "report_version": "3.0",
+  "workspace_id": "workspace-123",
+  "session_summary": "AI Session Summary\n\nAnalyzed 5 metrics across 3 devices. Observed stable behavior with 1 incident.",
+  "device_summaries": {
+    "device-1": {
+      "device_id": "device-1",
+      "first_seen": "2026-06-04T16:52:35Z",
+      "last_seen": "2026-06-04T16:53:35Z",
+      "sample_count": 60,
+      "warning_incidents_count": 0,
+      "critical_incidents_count": 0,
+      "active_at_end": false
+    },
+    "device-2": {
+      "device_id": "device-2",
+      "first_seen": "2026-06-04T16:52:35Z",
+      "last_seen": "2026-06-04T16:53:35Z",
+      "sample_count": 60,
+      "warning_incidents_count": 1,
+      "critical_incidents_count": 0,
+      "active_at_end": true
+    }
+  },
+  "incidents_archive": [
+    {
+      "device_id": "device-2",
+      "metric": "temperature",
+      "incident_type": "high_temperature",
+      "severity": "warning",
+      "start_time": "2026-06-04T16:52:45Z",
+      "resolved_at": null,
+      "occurrences": 1,
+      "peak_score": 0.85,
+      "summary": "High temperature alert"
+    }
+  ],
+  "metrics_aggregates": {
+    "device-1": {
+      "battery": {
+        "count": 60,
+        "min": 85,
+        "max": 90,
+        "average": 87.5,
+        "variance": 1.2
+      }
+    }
+  }
+}
