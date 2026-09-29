@@ -23,10 +23,6 @@ bool isHttpsUrl(const String& url) {
   return url.startsWith("https://");
 }
 
-bool isHttpUrl(const String& url) {
-  return url.startsWith("http://");
-}
-
 static String argusApiBase() {
   return String("https://") + ARGUS_SERVER_HOST + ":" + String(ARGUS_HTTP_PORT);
 }

@@ -41,6 +41,30 @@ jobs:
             --libraries argus_sdk \
             /tmp/argus_compile_test
 
+  sdk-relaxed-signature-compile:
+    name: Relaxed Signature Compile Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsodium-dev libssl-dev libmbedtls-dev cmake
+
+      # Compile-only: exercises the ARGUS_REQUIRE_FIRMWARE_SIGNATURES=false
+      # branches in verifyFirmwareAuthenticity() and parseOTAManifest(), which
+      # no other build compiles. Catches rot in the relaxed build; not runnable.
+      - name: Build SDK with signature requirement disabled
+        run: |
+          cmake sdk_tests/ -B sdk_tests/build-relaxed -DARGUS_SDK_RELAXED_SIGNATURE_BUILD=ON
+          cmake --build sdk_tests/build-relaxed --target argus_sdk_nosig_compile
+
   sdk-integration-test:
     name: SDK Integration Test
     runs-on: ubuntu-latest

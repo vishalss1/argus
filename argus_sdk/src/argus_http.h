@@ -7,7 +7,6 @@ namespace argus_sdk {
 extern unsigned long lastHeartbeatMs;
 
 bool isHttpsUrl(const String& url);
-bool isHttpUrl(const String& url);
 void addArgusHeaders(HTTPClient& http);
 void loadDeviceAPIKey();
 void provisionDeviceAPIKey(const String& key);
