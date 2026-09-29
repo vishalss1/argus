@@ -3,6 +3,7 @@ package certificate
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -11,6 +12,15 @@ func TestCertificateAuthority(t *testing.T) {
 	// Paths to the real CA files in the workspace (we are running tests from internal/domain/certificate)
 	certPath := filepath.Join("..", "..", "..", "..", "..", "certs", "root-ca.pem")
 	keyPath := filepath.Join("..", "..", "..", "..", "..", "certs", "root-ca.key")
+
+	// certs/ is gitignored, so these are absent in CI and on fresh clones. Skip
+	// rather than fail: the assertions below only make sense against a real CA.
+	if _, err := os.Stat(certPath); err != nil {
+		t.Skipf("CA cert not available at %s (run sdk_tests/ci/gen_certs.sh to generate): %v", certPath, err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Skipf("CA key not available at %s (run sdk_tests/ci/gen_certs.sh to generate): %v", keyPath, err)
+	}
 
 	ca, err := NewCertificateAuthority(certPath, keyPath)
 	if err != nil {
