@@ -80,6 +80,7 @@ set(SOURCES
     ../argus_sdk/src/argus_security.cpp
     ../argus_sdk/src/argus_state_machine.cpp
     ../argus_sdk/src/argus_time.cpp
+    ../argus_sdk/src/argus_version.cpp
 )
 
 add_executable(argus_sdk_test ${SOURCES})

@@ -8,7 +8,23 @@
  * Flash an identical binary of this sketch to every device in the fleet.
  * Each device must have been provisioned first with its config_<deviceID>.ino
  * provisioning sketch so that the argus_cfg NVS namespace is populated.
+ *
+ * FIRMWARE VERSION
+ * ----------------
+ * ARGUS_FIRMWARE_VERSION below is the authoritative version of this binary.
+ * The device reports it on every heartbeat, and the OTA anti-downgrade check
+ * compares against it, so it reflects the code actually running — including
+ * after an OTA flash.
+ *
+ * To change the version, edit this one line. That is the only way to change it:
+ * there is no UI field and no database override. The value is also emitted into
+ * the compiled image as an ARGUSVER: marker, which the backend reads when this
+ * firmware is uploaded for OTA.
  */
+
+// ================= FIRMWARE VERSION =================
+
+#define ARGUS_FIRMWARE_VERSION "{{.FirmwareVersion}}"
 
 #include <argus.h>
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vishalss1/argus/core/internal/version"
 )
 
 func generateTestCertAndKey() (string, string, error) {
@@ -212,6 +214,87 @@ func TestGenerateFleetFirmwareHasNoDeviceIdentity(t *testing.T) {
 	}
 	if !strings.Contains(string(sketch), "argusBegin()") {
 		t.Error("Fleet firmware should call argusBegin()")
+	}
+}
+
+// The OTA upload path derives an artifact's version by scanning the compiled
+// binary for the ARGUSVER: marker. That only works if the version define is
+// emitted into the sketch ahead of the SDK include, so pin both facts.
+func TestGenerateFleetFirmwareEmbedsCompiledInVersion(t *testing.T) {
+	rootCA, _, err := generateTestCertAndKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen, err := NewGenerator(GeneratorConfig{RootCAPEM: rootCA})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sketch, err := gen.GenerateFleetFirmware("")
+	if err != nil {
+		t.Fatalf("Failed to generate fleet firmware: %v", err)
+	}
+	got := string(sketch)
+
+	define := `#define ARGUS_FIRMWARE_VERSION "` + FleetFirmwareVersion + `"`
+	if !strings.Contains(got, define) {
+		t.Errorf("fleet sketch is missing %q", define)
+	}
+
+	// The define must precede #include <argus.h>: argus_version.h keys its
+	// default off ARGUS_FIRMWARE_VERSION, so defining it afterwards would let
+	// the header's fallback win.
+	defineIdx := strings.Index(got, define)
+	includeIdx := strings.Index(got, "#include <argus.h>")
+	if defineIdx < 0 || includeIdx < 0 {
+		t.Fatalf("expected both the version define and the argus.h include, got define=%d include=%d", defineIdx, includeIdx)
+	}
+	if defineIdx > includeIdx {
+		t.Error("ARGUS_FIRMWARE_VERSION must be defined before #include <argus.h>")
+	}
+
+	if !version.Semver(FleetFirmwareVersion) {
+		t.Errorf("FleetFirmwareVersion %q is not valid semver", FleetFirmwareVersion)
+	}
+}
+
+// The version is a property of the binary, so the fleet path must not accept a
+// caller-supplied one. Rendering twice must produce the same version, and the
+// generator must reject a bad constant rather than emit an unflashable image.
+func TestGenerateFleetFirmwareVersionHasNoOverride(t *testing.T) {
+	rootCA, _, err := generateTestCertAndKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen, err := NewGenerator(GeneratorConfig{RootCAPEM: rootCA})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := gen.GenerateFleetFirmware("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := gen.GenerateFleetFirmware("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Error("fleet firmware must render identically regardless of caller input")
+	}
+
+	// DefaultFirmwareVersion is provisioning metadata and must not leak into the
+	// fleet binary's running version.
+	other, err := NewGenerator(GeneratorConfig{RootCAPEM: rootCA, DefaultFirmwareVersion: "9.9.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := other.GenerateFleetFirmware("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, third) {
+		t.Error("DefaultFirmwareVersion must not affect fleet firmware")
 	}
 }
 

@@ -23,11 +23,11 @@ const defaultPendingTimeout = 30 * time.Minute
 const defaultActiveTimeout = 30 * time.Minute
 
 type Service struct {
-	repo      Repository
-	store     ObjectStore
-	signer    *FirmwareSigner
-	publisher EventPublisher
-	OnResult  func(ctx context.Context, deployment Deployment)
+	repo           Repository
+	store          ObjectStore
+	signer         *FirmwareSigner
+	publisher      EventPublisher
+	OnResult       func(ctx context.Context, deployment Deployment)
 	MinioPublicURL string
 }
 
@@ -50,11 +50,15 @@ func (s *Service) SetEventPublisher(publisher EventPublisher) {
 	s.publisher = publisher
 }
 
+// UploadFirmware stores a compiled firmware binary and derives its version from
+// the binary itself.
+//
+// The version is not supplied by the caller: it is read out of the uploaded
+// bytes via the ARGUSVER: marker the firmware build embeds. That makes the
+// version a property of the artifact rather than a label typed alongside it, so
+// the two cannot drift. An image with no marker, a malformed marker, or a
+// payload that is not semver is rejected and nothing is stored.
 func (s *Service) UploadFirmware(ctx context.Context, input UploadInput, reader io.Reader) (*FirmwareArtifact, error) {
-	version := strings.TrimSpace(input.Version)
-	if version == "" {
-		return nil, errors.New("firmware version is required")
-	}
 	filename := cleanFilename(input.Filename)
 	if filename == "" {
 		return nil, errors.New("filename is required")
@@ -78,9 +82,26 @@ func (s *Service) UploadFirmware(ctx context.Context, input UploadInput, reader 
 
 	objectKey := fmt.Sprintf("firmware/%s/%s", id, filename)
 	hasher := sha256.New()
-	if err := s.store.PutFirmware(ctx, objectKey, io.TeeReader(reader, hasher), input.SizeBytes, contentType); err != nil {
+
+	// The image is streamed once: the store, the checksum and the version
+	// scanner all observe the same bytes. Buffering a full firmware image to
+	// recover a few dozen bytes of version is not worth the memory.
+	scanner := NewVersionScanner()
+	if err := s.store.PutFirmware(ctx, objectKey, io.TeeReader(reader, io.MultiWriter(hasher, scanner)), input.SizeBytes, contentType); err != nil {
 		return nil, err
 	}
+
+	// Now that the whole image has passed, the marker can be resolved. A bad or
+	// absent marker must not leave a stored object behind, so clean up before
+	// returning the error.
+	fwVersion, err := scanner.Version()
+	if err != nil {
+		if rmErr := s.store.RemoveFirmware(ctx, objectKey); rmErr != nil {
+			log.Printf("[OTA] failed to remove rejected firmware object %s: %v", objectKey, rmErr)
+		}
+		return nil, err
+	}
+
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 	signatureAlg, signature, signingKeyID, err := s.signFirmwareChecksum(checksum)
 	if err != nil {
@@ -89,7 +110,7 @@ func (s *Service) UploadFirmware(ctx context.Context, input UploadInput, reader 
 
 	return s.repo.CreateArtifact(ctx, FirmwareArtifact{
 		ID:             id,
-		Version:        version,
+		Version:        fwVersion,
 		Filename:       filename,
 		ObjectKey:      objectKey,
 		ContentType:    contentType,
@@ -509,4 +530,3 @@ func newID() (string, error) {
 	encoded := hex.EncodeToString(b[:])
 	return fmt.Sprintf("%s-%s-%s-%s-%s", encoded[0:8], encoded[8:12], encoded[12:16], encoded[16:20], encoded[20:32]), nil
 }
-

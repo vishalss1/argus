@@ -99,13 +99,10 @@ bool validateOTAPartitions() {
 // ---------------------------------------------------------------------------
 // Version parsing
 // ---------------------------------------------------------------------------
-
-struct Version {
-  int major;
-  int minor;
-  int patch;
-  bool valid;
-};
+//
+// Version, parseVersion, compareVersions and versionAllowed are declared in
+// argus_ota.h so host tests can exercise the anti-downgrade decision directly
+// against the compiled-in ARGUS_FW_VERSION.
 
 Version parseVersion(const String& input) {
   String s = input;

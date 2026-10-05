@@ -4,7 +4,14 @@
 #include <iostream>
 #include <cstdint>
 
-char ARGUS_FW_VERSION[256] = {0};
+#include "argus_version.h"
+
+// ARGUS_FW_VERSION is the compiled-in firmware version, mirroring how the ESP32
+// build seeds it in argus_nvs.cpp. It is deliberately NOT settable from the
+// environment: the whole point of the change is that the reported version comes
+// from the binary rather than from provisioning metadata, so a host test that
+// could override it would not be testing the real thing.
+char ARGUS_FW_VERSION[256] = ARGUS_FIRMWARE_VERSION;
 char ARGUS_DEVICE_ID[256] = {0};
 char ARGUS_API_KEY[256] = {0};
 char ARGUS_SERVER_HOST[256] = {0};
@@ -43,7 +50,7 @@ void initEnvVars() {
         }
     };
 
-    loadEnv("ARGUS_FW_VERSION", ARGUS_FW_VERSION, sizeof(ARGUS_FW_VERSION));
+    // ARGUS_FW_VERSION is intentionally absent here: it is compiled in.
     loadEnv("ARGUS_DEVICE_ID", ARGUS_DEVICE_ID, sizeof(ARGUS_DEVICE_ID));
     loadEnv("ARGUS_API_KEY", ARGUS_API_KEY, sizeof(ARGUS_API_KEY));
     loadEnv("ARGUS_SERVER_HOST", ARGUS_SERVER_HOST, sizeof(ARGUS_SERVER_HOST));

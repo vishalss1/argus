@@ -8,10 +8,28 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+
+	"github.com/vishalss1/argus/core/internal/version"
 )
 
 //go:embed templates/provision.ino.tmpl templates/fleet_firmware.ino.tmpl
 var templatesFS embed.FS
+
+// FleetFirmwareVersion is the authoritative version of the fleet firmware.
+//
+// It is compiled into every fleet binary and is reported by the device on each
+// heartbeat. The same value is emitted as an ARGUSVER: marker inside the
+// binary, which is how the OTA upload path derives an artifact's version.
+//
+// This constant is the only place the fleet firmware version is written. There
+// is deliberately no per-fleet or per-device override: changing the version
+// means editing this line.
+//
+// fleets.firmware_version still exists as hand-entered "intended version"
+// metadata recorded on the device row at provisioning time. It does not affect
+// the running binary's version or the OTA anti-downgrade check, both of which
+// read the compiled-in value.
+const FleetFirmwareVersion = "1.0.0"
 
 type GeneratorConfig struct {
 	ServerHost             string
@@ -277,13 +295,31 @@ func (g *Generator) GenerateProvision(opts GenerateOptions) ([]byte, error) {
 // GenerateFleetFirmware renders the fleet firmware sketch.
 // The binary compiled from this sketch is identical for all fleet devices;
 // device identity is loaded from NVS at boot via argusNVSLoad().
+//
+// The rendered sketch carries FleetFirmwareVersion as its ARGUS_FIRMWARE_VERSION
+// define. That constant is the version of the resulting binary, so there is no
+// version argument and no way for a caller to override it.
 func (g *Generator) GenerateFleetFirmware(userCode string) ([]byte, error) {
+	if !version.Semver(FleetFirmwareVersion) {
+		return nil, fmt.Errorf("FleetFirmwareVersion %q is not a valid semver", FleetFirmwareVersion)
+	}
+
 	data := TemplateData{
-		UserCode: userCode,
+		FirmwareVersion: FleetFirmwareVersion,
+		UserCode:        userCode,
 	}
 	var buf bytes.Buffer
 	if err := g.tmpl.ExecuteTemplate(&buf, "fleet_firmware.ino", data); err != nil {
 		return nil, fmt.Errorf("failed to execute fleet_firmware template: %w", err)
 	}
+
+	// The OTA upload path derives an artifact's version by scanning the compiled
+	// binary for the marker argus_version.h embeds. That scan only works if this
+	// define actually reached the sketch, so confirm it rather than trusting the
+	// template executed.
+	if want := `#define ARGUS_FIRMWARE_VERSION "` + FleetFirmwareVersion + `"`; !strings.Contains(buf.String(), want) {
+		return nil, fmt.Errorf("generated fleet firmware is missing %s", want)
+	}
+
 	return buf.Bytes(), nil
 }

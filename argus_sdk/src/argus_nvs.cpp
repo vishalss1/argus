@@ -30,6 +30,7 @@
 #ifndef ARGUS_NATIVE_BUILD
 
 #include "argus_config.h"
+#include "argus_version.h"
 #include <Preferences.h>
 #include <Arduino.h>
 
@@ -56,7 +57,13 @@ static constexpr size_t STR_BUF = 256;    // every other string field
 // ---------------------------------------------------------------------------
 
 // ---- String fields (256 bytes each) ----
-char ARGUS_FW_VERSION        [STR_BUF] = {};
+//
+// ARGUS_FW_VERSION is the exception to the pattern above: it is seeded from the
+// compiled-in ARGUS_FIRMWARE_VERSION rather than starting empty, and argusNVSLoad()
+// deliberately does not overwrite it. The version of the running binary is a
+// property of the binary; loading it from NVS would report whatever version was
+// current at provisioning time, which is stale after any OTA flash.
+char ARGUS_FW_VERSION        [STR_BUF] = ARGUS_FIRMWARE_VERSION;
 char ARGUS_DEVICE_ID         [STR_BUF] = {};
 char ARGUS_API_KEY           [STR_BUF] = {};
 char ARGUS_SERVER_HOST       [STR_BUF] = {};
@@ -136,8 +143,11 @@ static bool nvs_read_pem(Preferences& prefs, const char* key,
 //   device_id, api_key, root_ca
 //
 // Optional keys  → missing/empty leaves the buffer at its zero default:
-//   fw_version, server_host, mqtt_host, wifi_ssid, wifi_pass,
+//   server_host, mqtt_host, wifi_ssid, wifi_pass,
 //   ota_key_id, ota_pub_key, dev_cert, dev_key, http_port, mqtt_port
+//
+// fw_version is stored by the provisioning sketch but is not loaded: the running
+// version is compiled in (see ARGUS_FW_VERSION above).
 // ---------------------------------------------------------------------------
 
 bool argusNVSLoad() {
@@ -168,7 +178,12 @@ bool argusNVSLoad() {
 
     // ---- Optional keys ----
 
-    nvs_read_str(prefs, "fw_version",  ARGUS_FW_VERSION,         STR_BUF);
+    // fw_version is intentionally NOT read here. The provisioning sketch still
+    // writes it so the server has an "intended version" for the device row, but
+    // the version this firmware reports and checks downgrades against is
+    // ARGUS_FIRMWARE_VERSION, compiled into this binary. Reading the NVS value
+    // would pin the reported version to provisioning time forever, so a device
+    // flashed over OTA would keep advertising its old version.
     nvs_read_str(prefs, "server_host", ARGUS_SERVER_HOST,        STR_BUF);
     nvs_read_str(prefs, "mqtt_host",   ARGUS_MQTT_HOST,          STR_BUF);
     nvs_read_str(prefs, "wifi_ssid",   WIFI_SSID,                STR_BUF);

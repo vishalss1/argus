@@ -964,14 +964,8 @@
                 "summary": "Upload firmware artifact",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Firmware version",
-                        "name": "version",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
                         "type": "file",
+                        "description": "Firmware binary (.bin). The version is read from the ARGUSVER: marker compiled into the image.",
                         "description": "Firmware binary",
                         "name": "firmware",
                         "in": "formData",

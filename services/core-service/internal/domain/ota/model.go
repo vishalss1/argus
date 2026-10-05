@@ -96,8 +96,11 @@ type Manifest struct {
 	ExpiresAt      time.Time `json:"expires_at"`
 }
 
+// UploadInput describes an uploaded firmware binary.
+//
+// There is no Version field: the version is read out of the binary itself via
+// the ARGUSVER: marker, so it cannot disagree with what the device will run.
 type UploadInput struct {
-	Version     string
 	Filename    string
 	ContentType string
 	SizeBytes   int64
@@ -110,4 +113,3 @@ type DeployInput struct {
 type ResultInput struct {
 	Message string
 }
-

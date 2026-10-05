@@ -971,15 +971,8 @@ const docTemplate = `{
                 "summary": "Upload firmware artifact",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Firmware version",
-                        "name": "version",
-                        "in": "formData",
-                        "required": true
-                    },
-                    {
                         "type": "file",
-                        "description": "Firmware binary",
+                        "description": "Firmware binary (.bin). The version is read from the ARGUSVER: marker compiled into the image.",
                         "name": "firmware",
                         "in": "formData",
                         "required": true

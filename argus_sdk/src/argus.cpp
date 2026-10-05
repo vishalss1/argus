@@ -9,6 +9,7 @@
 #include "argus_version.h"
 #include <sodium.h>
 #include <WiFi.h>
+#include <string.h>
 
 namespace argus_sdk {
   constexpr unsigned long TELEMETRY_MS = 5000UL;
@@ -88,6 +89,17 @@ void argusBegin() {
   Serial.println("[BOOT] ARGUS ESP32 firmware starting");
   Serial.printf("[BOOT] Device ID: %s\n", ARGUS_DEVICE_ID);
   Serial.printf("[BOOT] Firmware version: %s\n", ARGUS_FW_VERSION);
+
+  // Touch the ARGUSVER: marker. It must exist in the compiled image for the
+  // backend to accept this firmware as an OTA artifact, and an unreferenced
+  // static would be discarded by the linker's --gc-sections. Referencing it
+  // here keeps the section alive and doubles as a build-time sanity check: if
+  // the marker and the reported version ever disagree, say so on the console.
+  const char* markerVersion = argusFirmwareVersionFromMarker();
+  if (strcmp(ARGUS_FW_VERSION, markerVersion) != 0) {
+    Serial.printf("[BOOT] Firmware version marker mismatch: reported=%s marker=%s\n",
+                  ARGUS_FW_VERSION, markerVersion);
+  }
   if (sodium_init() < 0) {
     Serial.println("[BOOT] libsodium initialization failed; OTA signature verification unavailable");
   } else {

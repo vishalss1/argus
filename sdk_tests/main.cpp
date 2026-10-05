@@ -24,9 +24,113 @@ int countOccurrences(const std::string& text, const std::string& pattern) {
     return count;
 }
 
+// Exercises the OTA anti-downgrade decision against the compiled-in firmware
+// version. The device's reported version comes from ARGUS_FIRMWARE_VERSION, not
+// from NVS, so these checks prove the running binary — not stale provisioning
+// metadata — decides whether a manifest may be flashed.
+bool runVersionChecks() {
+    bool ok = true;
+
+    Serial.printf("[TEST] Compiled-in firmware version: %s\n", ARGUS_FIRMWARE_VERSION);
+
+    argus_sdk::Version current = argus_sdk::parseVersion(ARGUS_FW_VERSION);
+    if (!current.valid) {
+        Serial.println("[TESTFAIL] ARGUS_FW_VERSION is not valid semver");
+        ok = false;
+    }
+
+    // The running version and the compile-time constant must be the same value.
+    if (std::string(ARGUS_FW_VERSION) != std::string(ARGUS_FIRMWARE_VERSION)) {
+        Serial.println("[TESTFAIL] ARGUS_FW_VERSION does not match ARGUS_FIRMWARE_VERSION");
+        ok = false;
+    }
+
+    // parseVersion must accept exactly the grammar the backend enforces.
+    const char* valid[] = {"1.2.0", "v1.2.0", "V1.2.0", "0.0.0", "10.20.30"};
+    for (const char* v : valid) {
+        if (!argus_sdk::parseVersion(String(v)).valid) {
+            Serial.printf("[TESTFAIL] parseVersion rejected valid version %s\n", v);
+            ok = false;
+        }
+    }
+    const char* invalid[] = {"", "v", "1.2", "1.2.3.4", ".2.0", "1..0", "1.2.", "x.2.0", "1.2.x", "1.2.0-rc1", "1.2.0+b1"};
+    for (const char* v : invalid) {
+        if (argus_sdk::parseVersion(String(v)).valid) {
+            Serial.printf("[TESTFAIL] parseVersion accepted invalid version %s\n", v);
+            ok = false;
+        }
+    }
+
+    // Ordering used by the downgrade check.
+    if (argus_sdk::compareVersions(argus_sdk::parseVersion("1.2.0"), argus_sdk::parseVersion("1.2.1")) >= 0) {
+        Serial.println("[TESTFAIL] compareVersions ordering is wrong");
+        ok = false;
+    }
+    if (argus_sdk::compareVersions(argus_sdk::parseVersion("1.2.0"), argus_sdk::parseVersion("1.2.0")) != 0) {
+        Serial.println("[TESTFAIL] equal versions must compare equal");
+        ok = false;
+    }
+
+    auto manifestFor = [](const char* version, bool allowDowngrade) {
+        argus_sdk::OTAManifest m;
+        m.version = String(version);
+        m.deploymentId = String("test-deployment");
+        m.allowDowngrade = allowDowngrade;
+        return m;
+    };
+
+    // An upgrade is allowed; the check compares against the compiled-in version.
+    std::string bumped = std::to_string(current.major) + "." +
+                         std::to_string(current.minor) + "." +
+                         std::to_string(current.patch + 1);
+    if (!argus_sdk::versionAllowed(manifestFor(bumped.c_str(), false))) {
+        Serial.printf("[TESTFAIL] upgrade to %s should be allowed\n", bumped.c_str());
+        ok = false;
+    }
+
+    // The current version is a no-op rather than a flash.
+    std::string same = std::to_string(current.major) + "." +
+                       std::to_string(current.minor) + "." +
+                       std::to_string(current.patch);
+    if (argus_sdk::versionAllowed(manifestFor(same.c_str(), false))) {
+        Serial.printf("[TESTFAIL] re-flashing the running version %s should be skipped\n", same.c_str());
+        ok = false;
+    }
+
+    // A downgrade is rejected unless explicitly permitted.
+    std::string older = std::to_string(current.major) + "." +
+                        std::to_string(current.minor) + "." +
+                        std::to_string(current.patch > 0 ? current.patch - 1 : 0);
+    if (current.patch > 0) {
+        if (argus_sdk::versionAllowed(manifestFor(older.c_str(), false))) {
+            Serial.printf("[TESTFAIL] downgrade to %s should be rejected\n", older.c_str());
+            ok = false;
+        }
+        if (!argus_sdk::versionAllowed(manifestFor(older.c_str(), true))) {
+            Serial.printf("[TESTFAIL] downgrade to %s should be allowed when permitted\n", older.c_str());
+            ok = false;
+        }
+    }
+
+    // Unparseable manifest versions fail closed.
+    if (argus_sdk::versionAllowed(manifestFor("not-a-version", false))) {
+        Serial.println("[TESTFAIL] a malformed manifest version must be rejected");
+        ok = false;
+    }
+
+    Serial.println(ok ? "[TEST] Version checks passed" : "[TEST] Version checks FAILED");
+    return ok;
+}
+
 int main() {
     std::cout << "[TEST] Initializing env vars..." << std::endl;
     initEnvVars();
+
+    bool versionsOk = runVersionChecks();
+    if (!versionsOk) {
+        std::cerr << "\n[TEST] SDK integration test FAILED in version checks!" << std::endl;
+        return 1;
+    }
 
     std::cout << "[TEST] Starting SDK integration test harness..." << std::endl;
     argusBegin();

@@ -12,6 +12,11 @@ cmd/gen-certs/gen-certs
 cmd/ota-keygen/ota-keygen
 helm.exe
 
+# Firmware images are build artifacts, but the OTA upload tests need a real
+# binary on disk so the ARGUSVER: scan runs against a file rather than only
+# against bytes the test assembles itself.
+!services/core-service/internal/domain/ota/testdata/*.bin
+
 # Node & Build Outputs
 node_modules/
 dist/

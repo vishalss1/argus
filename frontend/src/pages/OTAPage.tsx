@@ -490,8 +490,11 @@ export function OTAPage() {
           </form>
         ) : (
           <form className="form-grid" onSubmit={async (e) => { const ok = await upload(e); if (ok) setIsReleaseModalOpen(false); }}>
-            <label className="field full"><span>Version</span><input name="version" placeholder="v1.4.0" required /></label>
             <label className="field full"><span>Binary File</span><input name="firmware" type="file" required /></label>
+            <div className="form-message field full" style={{ marginTop: -8 }}>
+              The version is read from the binary itself. Uploads are rejected unless the image contains a
+              valid <code>ARGUSVER:</code> marker.
+            </div>
             {uploadError && <div className="form-message error field full">{uploadError}</div>}
             <div className="modal-actions">
               <button type="button" className="button secondary" onClick={() => setIsReleaseModalOpen(false)}>Cancel</button>

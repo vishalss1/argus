@@ -28,8 +28,7 @@ func NewOTAHandler(service *ota.Service) *OTAHandler {
 // @Tags ota
 // @Accept multipart/form-data
 // @Produce json
-// @Param version formData string true "Firmware version"
-// @Param firmware formData file true "Firmware binary"
+// @Param firmware formData file true "Firmware binary (.bin). The version is read from the ARGUSVER: marker compiled into the image."
 // @Success 201 {object} ota.FirmwareArtifact
 // @Failure 400 {object} dto.ErrorResponse
 // @Router /ota/firmware [post]
@@ -48,7 +47,6 @@ func (h *OTAHandler) UploadFirmware(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	entity, err := h.service.UploadFirmware(r.Context(), ota.UploadInput{
-		Version:     r.FormValue("version"),
 		Filename:    header.Filename,
 		ContentType: header.Header.Get("Content-Type"),
 		SizeBytes:   header.Size,
@@ -324,4 +322,3 @@ func (h *OTAHandler) recordResult(
 
 	writeJSON(w, http.StatusOK, deployment)
 }
-

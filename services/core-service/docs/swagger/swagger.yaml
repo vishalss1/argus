@@ -994,12 +994,8 @@ paths:
       consumes:
       - multipart/form-data
       parameters:
-      - description: Firmware version
-        in: formData
-        name: version
-        required: true
-        type: string
-      - description: Firmware binary
+      - description: 'Firmware binary (.bin). The version is read from the ARGUSVER: marker
+          compiled into the image.'
         in: formData
         name: firmware
         required: true
