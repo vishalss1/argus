@@ -29,9 +29,13 @@ export function compactID(id?: string, length = 8) {
   return id.length <= length ? id : id.slice(0, length);
 }
 
-export function safeJsonParse(value: string): JsonValue {
-  if (!value.trim()) return {};
-  return JSON.parse(value) as JsonValue;
+export function safeJsonParse(value: string, fallback: JsonValue = {}): JsonValue {
+  if (!value.trim()) return fallback;
+  try {
+    return JSON.parse(value) as JsonValue;
+  } catch {
+    return fallback;
+  }
 }
 
 export function stringifyJson(value?: unknown) {
