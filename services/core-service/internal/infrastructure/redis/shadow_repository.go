@@ -39,41 +39,80 @@ func (r *ShadowRepository) Get(ctx context.Context, deviceID string) (*shadow.Sh
 	return record.toDomain(), nil
 }
 
+var updateShadowScript = goredis.NewScript(`
+	local current = redis.call('GET', KEYS[1])
+	local desired_json
+	local reported_json
+	local version = 0
+
+	if current then
+		local rec = cjson.decode(current)
+		version = rec.version or 0
+		if ARGV[1] == "desired" then
+			desired_json = ARGV[2]
+			if type(rec.reported) == "table" and next(rec.reported) == nil then
+				reported_json = "{}"
+			else
+				reported_json = cjson.encode(rec.reported)
+			end
+		else
+			reported_json = ARGV[2]
+			if type(rec.desired) == "table" and next(rec.desired) == nil then
+				desired_json = "{}"
+			else
+				desired_json = cjson.encode(rec.desired)
+			end
+		end
+	else
+		if ARGV[1] == "desired" then
+			desired_json = ARGV[2]
+			reported_json = "{}"
+		else
+			desired_json = "{}"
+			reported_json = ARGV[2]
+		end
+	end
+
+	version = version + 1
+	local dev_id = ARGV[3]
+	local updated_at = ARGV[4]
+
+	local payload = string.format('{"device_id":%s,"desired":%s,"reported":%s,"version":%d,"updated_at":%s}',
+		cjson.encode(dev_id),
+		desired_json,
+		reported_json,
+		version,
+		cjson.encode(updated_at)
+	)
+
+	redis.call('SET', KEYS[1], payload)
+	return payload
+`)
+
 func (r *ShadowRepository) UpdateDesired(ctx context.Context, deviceID string, state json.RawMessage) (*shadow.Shadow, error) {
-	return r.update(ctx, deviceID, func(record *shadowRecord) {
-		record.Desired = state
-	})
+	return r.update(ctx, deviceID, "desired", state)
 }
 
 func (r *ShadowRepository) UpdateReported(ctx context.Context, deviceID string, state json.RawMessage) (*shadow.Shadow, error) {
-	return r.update(ctx, deviceID, func(record *shadowRecord) {
-		record.Reported = state
-	})
+	return r.update(ctx, deviceID, "reported", state)
 }
 
-func (r *ShadowRepository) update(ctx context.Context, deviceID string, apply func(*shadowRecord)) (*shadow.Shadow, error) {
-	record, err := r.getRecord(ctx, deviceID)
-	if errors.Is(err, shadow.ErrShadowNotFound) {
-		record = &shadowRecord{
-			DeviceID:  deviceID,
-			Desired:   json.RawMessage(`{}`),
-			Reported:  json.RawMessage(`{}`),
-			UpdatedAt: time.Now().UTC(),
-		}
-	} else if err != nil {
-		return nil, err
+func (r *ShadowRepository) update(ctx context.Context, deviceID string, field string, state json.RawMessage) (*shadow.Shadow, error) {
+	state = ensureObject(state)
+	if !json.Valid(state) {
+		return nil, fmt.Errorf("invalid json state")
 	}
 
-	apply(record)
-	record.Version++
-	record.UpdatedAt = time.Now().UTC()
-
-	payload, err := json.Marshal(record)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	key := shadowKey(deviceID)
+	res, err := updateShadowScript.Run(ctx, r.client, []string{key}, field, string(state), deviceID, now).Text()
 	if err != nil {
-		return nil, fmt.Errorf("encode shadow: %w", err)
+		return nil, fmt.Errorf("update shadow: %w", err)
 	}
-	if err := r.client.Set(ctx, shadowKey(deviceID), payload, 0).Err(); err != nil {
-		return nil, fmt.Errorf("set shadow: %w", err)
+
+	var record shadowRecord
+	if err := json.Unmarshal([]byte(res), &record); err != nil {
+		return nil, fmt.Errorf("decode shadow: %w", err)
 	}
 
 	return record.toDomain(), nil
@@ -134,4 +173,3 @@ func jsonEqual(left, right json.RawMessage) bool {
 
 	return reflect.DeepEqual(leftValue, rightValue)
 }
-
