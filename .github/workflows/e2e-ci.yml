@@ -156,19 +156,37 @@ jobs:
           echo "Command validation passed"
           
           echo "Validating OTA..."
+
+          # The upload endpoint derives the artifact version from the binary, so a
+          # random blob is no longer a valid firmware image: it carries no ARGUSVER:
+          # marker and is rejected. Build a synthetic image that embeds one instead.
           dd if=/dev/urandom bs=1024 count=64 of=/tmp/test-firmware.bin
-          
+          printf 'ARGUSVER:\0002.0.0\000' | \
+            dd of=/tmp/test-firmware.bin bs=1 seek=4096 conv=notrunc status=none
+          if ! grep -aq $'ARGUSVER:\0' /tmp/test-firmware.bin; then
+            echo "Failed to embed ARGUSVER: marker into test firmware"
+            kill $TAIL_PID || true
+            exit 1
+          fi
+
+          # No version form field: the payload is the only source of the version.
           UPLOAD_RESPONSE=$(curl -s --cacert certs/root-ca.pem -X POST \
             https://localhost:8080/api/ota/firmware \
             -H "Authorization: Bearer ${JWT_TOKEN}" \
             -H "X-Workspace-ID: ${WORKSPACE_ID}" \
-            -F "version=2.0.0" \
             -F "firmware=@/tmp/test-firmware.bin")
           echo "Upload response: $UPLOAD_RESPONSE"
           ARTIFACT_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.id')
+          ARTIFACT_VERSION=$(echo "$UPLOAD_RESPONSE" | jq -r '.version')
           echo "Artifact ID: $ARTIFACT_ID"
+          echo "Artifact version: $ARTIFACT_VERSION"
           if [ -z "$ARTIFACT_ID" ] || [ "$ARTIFACT_ID" = "null" ]; then
             echo "Failed to upload firmware"
+            kill $TAIL_PID || true
+            exit 1
+          fi
+          if [ "$ARTIFACT_VERSION" != "2.0.0" ]; then
+            echo "Expected version 2.0.0 derived from the marker, got '$ARTIFACT_VERSION'"
             kill $TAIL_PID || true
             exit 1
           fi

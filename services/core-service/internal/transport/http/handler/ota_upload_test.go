@@ -125,6 +125,45 @@ func TestUploadFirmwareDerivesVersionFromBinary(t *testing.T) {
 	}
 }
 
+// The e2e workflow builds its payload by dd-ing 64 KiB of /dev/urandom and
+// splicing the marker in at offset 4096. This is the same shape at a size that
+// spans many scanner refills, with the marker far from both the start and the
+// end, so a regression in the CI script cannot hide behind the small in-memory
+// images used elsewhere.
+func TestUploadFirmwareAcceptsCIe2EPayloadShape(t *testing.T) {
+	const payloadSize = 64 * 1024
+	const markerOffset = 4096
+	const wantVersion = "2.0.0"
+
+	image := make([]byte, payloadSize)
+	for i := range image {
+		image[i] = byte(i * 7)
+	}
+	copy(image[markerOffset:], []byte("ARGUSVER:\x00"+wantVersion+"\x00"))
+
+	repo := newFakeOTARepository()
+	store := &drainingObjectStore{}
+	handler := NewOTAHandler(ota.NewService(repo, store))
+
+	rr := httptest.NewRecorder()
+	handler.UploadFirmware(rr, newUploadRequest(t, image, nil))
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var artifact ota.FirmwareArtifact
+	if err := json.Unmarshal(rr.Body.Bytes(), &artifact); err != nil {
+		t.Fatalf("failed to decode response: %v body=%s", err, rr.Body.String())
+	}
+	if artifact.Version != wantVersion {
+		t.Errorf("version = %q, want %q derived from the marker at offset %d", artifact.Version, wantVersion, markerOffset)
+	}
+	if artifact.SizeBytes != payloadSize {
+		t.Errorf("size_bytes = %d, want %d", artifact.SizeBytes, payloadSize)
+	}
+}
+
 // A stray version field must not be able to override what the binary says. The
 // handler no longer reads it, and the service no longer accepts it.
 func TestUploadFirmwareIgnoresSubmittedVersionField(t *testing.T) {
