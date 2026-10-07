@@ -41,7 +41,7 @@ func InitDB(databaseURL string) (*sql.DB, error) {
 
 	err = runMigrations(db)
 	if err != nil {
-		log.Printf("Warning: Migrations failed: %v", err)
+		log.Fatalf("Fatal: Migrations failed: %v", err)
 	}
 
 	return db, nil
