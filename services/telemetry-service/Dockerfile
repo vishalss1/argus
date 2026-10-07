@@ -37,6 +37,7 @@ WORKDIR /app
 COPY --from=build /out/telemetry-service /app/telemetry-service
 COPY --from=model-downloader /models /app/models
 COPY --from=onnx-downloader /onnx/onnxruntime-linux-x64-1.23.0/lib/libonnxruntime.so.1.23.0 /usr/lib/libonnxruntime.so
+COPY migrations /app/migrations
 
 USER argus
 
