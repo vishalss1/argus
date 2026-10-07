@@ -196,6 +196,13 @@ spec:
       ports:
         - protocol: TCP
           port: 50051
+    # External HTTPS egress for Groq / LLM API
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 # Frontend: accept from ingress-nginx only. Egress to core-service.
 apiVersion: networking.k8s.io/v1
