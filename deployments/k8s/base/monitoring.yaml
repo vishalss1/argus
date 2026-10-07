@@ -57,7 +57,7 @@ spec:
             summary: "Argus service {{ $labels.job }} is down"
             description: "{{ $labels.job }} in namespace argus has been unreachable for more than 2 minutes."
         - alert: ArgusHighErrorRate
-          expr: rate(http_requests_total{namespace="argus", code=~"5.."}[5m]) / rate(http_requests_total{namespace="argus"}[5m]) > 0.05
+          expr: rate(argus_http_requests_total{namespace="argus", status=~"5.."}[5m]) / rate(argus_http_requests_total{namespace="argus"}[5m]) > 0.05
           for: 5m
           labels:
             severity: warning
@@ -65,50 +65,10 @@ spec:
             summary: "Argus high error rate on {{ $labels.job }}"
             description: "More than 5% of requests are returning 5xx errors for {{ $labels.job }}."
         - alert: ArgusHighLatency
-          expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{namespace="argus"}[5m])) > 2
+          expr: histogram_quantile(0.95, rate(argus_http_request_duration_seconds_bucket{namespace="argus"}[5m])) > 2
           for: 5m
           labels:
             severity: warning
           annotations:
             summary: "Argus high latency on {{ $labels.job }}"
             description: "P95 request latency is above 2s for {{ $labels.job }}."
-    - name: argus.kafka.health
-      rules:
-        - alert: ArgusKafkaConsumerLag
-          expr: kafka_consumer_group_lag{namespace="argus"} > 10000
-          for: 10m
-          labels:
-            severity: warning
-          annotations:
-            summary: "Argus Kafka consumer lag high"
-            description: "Consumer group {{ $labels.consumergroup }} has lag > 10000 on topic {{ $labels.topic }}."
-    - name: argus.postgres.health
-      rules:
-        - alert: ArgusPostgresConnectionsHigh
-          expr: pg_stat_activity_count{namespace="argus"} > 80
-          for: 5m
-          labels:
-            severity: warning
-          annotations:
-            summary: "Argus Postgres connections high"
-            description: "Postgres has {{ $value }} active connections (threshold: 80)."
-    - name: argus.device.health
-      rules:
-        - alert: ArgusDeviceOffline
-          expr: time() - argus_device_last_heartbeat_timestamp_seconds{namespace="argus"} > 120
-          for: 1m
-          labels:
-            severity: info
-          annotations:
-            summary: "Device {{ $labels.device_id }} went offline"
-            description: "Device {{ $labels.device_id }} has not sent a heartbeat for over 2 minutes."
-    - name: argus.firmware.health
-      rules:
-        - alert: ArgusOTAFlightFailureRate
-          expr: rate(argus_ota_flight_status_total{namespace="argus", status="failed"}[1h]) > 0.1
-          for: 10m
-          labels:
-            severity: warning
-          annotations:
-            summary: "High OTA update failure rate"
-            description: "OTA flight failure rate is above 10% in the last hour."
