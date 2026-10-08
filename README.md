@@ -326,6 +326,10 @@ go run ./services/telemetry-service/cmd       # :8081
 cd frontend && npm install && npm run dev
 
 # Swagger UI → http://localhost:8080/docs
+
+# 5. Kubernetes deployment (optional)
+cp deployments/k8s/base/secrets.env.example deployments/k8s/base/secrets.env  # or: make k8s-secrets
+kubectl apply -k deployments/k8s/overlays/dev
 ```
 
 ---
