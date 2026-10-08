@@ -26,7 +26,6 @@ import (
 
 	"github.com/vishalss1/argus/shared/common"
 
-	apphealth "github.com/vishalss1/argus/core/internal/health"
 	"github.com/vishalss1/argus/core/internal/config"
 	"github.com/vishalss1/argus/core/internal/domain/auth"
 	"github.com/vishalss1/argus/core/internal/domain/certificate"
@@ -40,6 +39,7 @@ import (
 	telemetrydomain "github.com/vishalss1/argus/core/internal/domain/telemetry"
 	workspacedomain "github.com/vishalss1/argus/core/internal/domain/workspace"
 	"github.com/vishalss1/argus/core/internal/firmware"
+	apphealth "github.com/vishalss1/argus/core/internal/health"
 	telemetrygrpc "github.com/vishalss1/argus/core/internal/infrastructure/grpc"
 	"github.com/vishalss1/argus/core/internal/infrastructure/kafka"
 	"github.com/vishalss1/argus/core/internal/infrastructure/minio"
@@ -319,9 +319,9 @@ func Bootstrap() (*Server, error) {
 	var mqttClient *mqtt.Client
 	if cfg.MQTTBrokerURL != "" {
 		mqttClient, err = mqtt.New(mqtt.Config{
-			BrokerURL:      cfg.MQTTBrokerURL,
-			ClientID:       cfg.MQTTClientID,
-			StateTopic:     cfg.MQTTStateTopic,
+			BrokerURL:  cfg.MQTTBrokerURL,
+			ClientID:   cfg.MQTTClientID,
+			StateTopic: cfg.MQTTStateTopic,
 		}, presenceService, commandService, otaService)
 		if err == nil {
 			_ = mqttClient.Start()
@@ -362,8 +362,8 @@ func Bootstrap() (*Server, error) {
 	caCertPool.AppendCertsFromPEM(deviceCABytes)
 
 	server.httpServer = &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
+		Addr:              ":" + cfg.Port,
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -562,6 +562,7 @@ func startCommandDispatcher(ctx context.Context, cfg *config.Config, mqttClient 
 				if ctx.Err() != nil {
 					return
 				}
+				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 
@@ -607,6 +608,7 @@ func startTelemetryBroadcastConsumer(ctx context.Context, cfg *config.Config, hu
 				if ctx.Err() != nil {
 					return
 				}
+				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 
