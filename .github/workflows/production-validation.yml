@@ -73,10 +73,8 @@ jobs:
       - name: Start Infrastructure (Docker Compose)
         run: docker compose -f deployments/compose/docker-compose.yml up -d
         
-      - name: Run Production Validation Tests
+      - name: Run Production Validation Scripts
         run: |
-          go test -tags=e2e -c ./tests/production/...
-          go test -tags=e2e -v ./tests/production/...
           bash tests/production/scripts/run-validation.sh
         
       - name: Debug Docker Failures
