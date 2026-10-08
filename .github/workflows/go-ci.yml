@@ -38,6 +38,9 @@ jobs:
           go build -v -o core-service ./services/core-service/cmd/api
           go build -v -o telemetry-service ./services/telemetry-service/cmd
 
+      - name: Build cmd tools
+        run: go build ./cmd/...
+
       - name: Run Tests
         run: |
           cd shared && go test -v -race ./...
