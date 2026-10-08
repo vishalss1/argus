@@ -9,10 +9,9 @@
 namespace argus_sdk {
 
 extern PubSubClient mqtt;
-extern bool timeSynced;
 
 constexpr unsigned long NET_DIAG_MS = 60000UL;
-unsigned long lastNetDiagMs = 0;
+static unsigned long lastNetDiagMs = 0;
 
 void logNetState(const char* phase) {
   Serial.printf("[NET] %s heap=%u largest=%u wifi=%d rssi=%d mqtt_connected=%d mqtt_state=%d state=%s uptime=%lu local_ip=%s\n",

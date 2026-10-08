@@ -4,8 +4,6 @@
 
 namespace argus_sdk {
 
-extern unsigned long lastNetDiagMs;
-
 void logNetState(const char* phase);
 void logPeriodicNetworkDiagnostics();
 void logTLSDiagnostics(WiFiClientSecure& client, const char* url);

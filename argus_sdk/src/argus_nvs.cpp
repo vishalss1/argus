@@ -206,20 +206,5 @@ bool argusNVSLoad() {
     return ok;
 }
 
-// ---------------------------------------------------------------------------
-// argusIsProvisioned()
-//
-// Lightweight probe: opens argus_cfg and checks whether "device_id" is
-// present and non-empty.  Does NOT populate the runtime extern buffers.
-// Safe to call before argusNVSLoad().
-// ---------------------------------------------------------------------------
-
-bool argusIsProvisioned() {
-    Preferences prefs;
-    if (!prefs.begin("argus_cfg", /*readOnly=*/true)) return false;
-    String id = prefs.getString("device_id", "");
-    prefs.end();
-    return id.length() > 0;
-}
-
 #endif // ARGUS_NATIVE_BUILD
+

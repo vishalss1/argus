@@ -27,13 +27,5 @@ extern char ARGUS_ROOT_CA[];
 extern char ARGUS_DEVICE_CERT[];
 extern char ARGUS_DEVICE_PRIVATE_KEY[];
 
-// ---------------------------------------------------------------------------
-// MQTT transport type. ARGUS_MQTT_SECURE is set by the provisioning sketch
-// when the broker port is 8883.
-// ---------------------------------------------------------------------------
-
-#if defined(ARGUS_MQTT_SECURE)
-#include <WiFiClientSecure.h>
-#else
 #include <WiFiClient.h>
-#endif
+

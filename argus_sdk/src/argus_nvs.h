@@ -13,6 +13,3 @@
 /// root_ca) is absent.  Must be called before any other SDK function.
 bool argusNVSLoad();
 
-/// Return true if the "argus_cfg" NVS namespace contains a non-empty
-/// "device_id" key.  Lightweight probe — does not populate any buffers.
-bool argusIsProvisioned();

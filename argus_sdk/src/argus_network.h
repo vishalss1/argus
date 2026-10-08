@@ -8,7 +8,6 @@ namespace argus_sdk {
 
 extern Client* wifiClient;
 extern PubSubClient mqtt;
-extern unsigned long lastReconnectAttempt;
 
 void connectWifi();
 void handleNetworkRecovery();

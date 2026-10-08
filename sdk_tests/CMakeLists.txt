@@ -74,7 +74,6 @@ set(SOURCES
     ../argus_sdk/src/argus_http.cpp
     ../argus_sdk/src/argus_mqtt.cpp
     ../argus_sdk/src/argus_network.cpp
-    ../argus_sdk/src/argus_nvs.cpp
     ../argus_sdk/src/argus_ota.cpp
     ../argus_sdk/src/argus_rollback.cpp
     ../argus_sdk/src/argus_security.cpp

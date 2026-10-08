@@ -35,11 +35,6 @@ unsigned long lastOtaAckRetryMs = 0;
 // Partition helpers
 // ---------------------------------------------------------------------------
 
-String partitionName(const esp_partition_t* p) {
-  if (p == nullptr) return "(none)";
-  return String(p->label);
-}
-
 String partitionSubtypeName(const esp_partition_t* p) {
   if (p == nullptr) return "(none)";
   if (p->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY) return "factory";

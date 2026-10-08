@@ -31,7 +31,7 @@ void initMqttClient() {
 constexpr unsigned long MQTT_RECONNECT_MS = 5000UL;
 constexpr unsigned long NETWORK_RESTART_AFTER_MS = 1800000UL;
 
-unsigned long lastReconnectAttempt = 0;
+static unsigned long lastReconnectAttempt = 0;
 unsigned long networkDegradedSinceMs = 0;
 
 void connectWifi() {
