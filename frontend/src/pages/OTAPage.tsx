@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState, useRef } from "react";
-import { ArrowDownUp, FileText, RefreshCw, Upload, X as XIcon, Trash2, ChevronDown, ChevronRight, Play } from "lucide-react";
+import { FileText, RefreshCw, Upload, X as XIcon, Trash2, ChevronDown, ChevronRight, Play } from "lucide-react";
 import {
   CopyableID,
   EmptyState,
@@ -27,7 +27,7 @@ import {
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatBytes, formatDate, stringifyJson } from "../lib/format";
 import { api } from "../services/api";
-import type { Deployment, Manifest, FirmwareArtifact } from "../types/api";
+import type { Deployment, FirmwareArtifact } from "../types/api";
 
 const STATUS_FILTERS = ["All", "pending", "available", "downloading", "flashing", "rebooting", "acked", "nacked", "timeout"];
 const ACTIVE_STATUSES = new Set(["pending", "available", "downloading", "flashing", "rebooting"]);
@@ -48,11 +48,6 @@ function durationLabel(deployment: Deployment) {
   return `${minutes}m ${rest}s`;
 }
 
-function statusProgress(deployment: Deployment) {
-  if (deployment.status === "acked") return 100;
-  if (deployment.status === "nacked" || deployment.status === "timeout") return deployment.progress ?? 0;
-  return deployment.progress ?? 0;
-}
 
 function findDeploymentDeviceName(deployment: Deployment) {
   return deployment.device_name || compactID(deployment.device_id);
@@ -129,10 +124,6 @@ export function OTAPage() {
   const stats = useOTAStats();
   const [deviceID, setDeviceID] = useState("");
   const deployments = useDeployments(deviceID);
-  const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(null);
-  const timeline = useDeploymentEvents(selectedDeployment?.id);
-  const [error, setError] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState("");
   const [deployError, setDeployError] = useState("");
@@ -144,7 +135,6 @@ export function OTAPage() {
   const deployTimeoutRef = useRef<number | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [sortKey, setSortKey] = useState<"created_at" | "status" | "progress" | "duration">("created_at");
 
   const fleets = useFleets();
   const fleetDeploy = useFleetDeploy();
@@ -177,17 +167,8 @@ export function OTAPage() {
           deployment.failure_reason
         ].join(" ").toLowerCase().includes(needle);
       })
-      .sort((a, b) => {
-        if (sortKey === "status") return a.status.localeCompare(b.status);
-        if (sortKey === "progress") return statusProgress(b) - statusProgress(a);
-        if (sortKey === "duration") {
-          const ad = terminalTime(a) ? new Date(terminalTime(a)!).getTime() - new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
-          const bd = terminalTime(b) ? new Date(terminalTime(b)!).getTime() - new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
-          return ad - bd;
-        }
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
-  }, [allDeployments.data, query, sortKey, statusFilter]);
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [allDeployments.data, query, statusFilter, activeDeviceIds]);
 
   const selectedDeviceDeployments = deviceID ? deployments.data ?? [] : [];
   const latestDeviceDeployment = selectedDeviceDeployments[0];
@@ -244,8 +225,7 @@ export function OTAPage() {
         setDeployError("Select a device before creating a deployment.");
         return false;
       }
-      const created = await api.deployments.create(deviceID, String(form.get("artifact_id")));
-      setManifest(created);
+      await api.deployments.create(deviceID, String(form.get("artifact_id")));
       await Promise.all([deployments.refetch(), allDeployments.refetch(), stats.refetch()]);
       setDeploySuccess("Deployment created successfully.");
       deployTimeoutRef.current = window.setTimeout(() => {
@@ -255,17 +235,6 @@ export function OTAPage() {
     } catch (err) {
       setDeployError((err as Error).message);
       return false;
-    }
-  }
-
-  async function viewManifest(deployment: Deployment) {
-    setError("");
-    try {
-      setSelectedDeployment(deployment);
-      const res = await api.deployments.manifest(deployment.device_id, deployment.id);
-      setManifest(res);
-    } catch (err) {
-      setError((err as Error).message);
     }
   }
 
