@@ -10,8 +10,6 @@ export const queryKeys = {
   firmware: ["firmware"] as const,
   allDeployments: ["deployments"] as const,
   otaStats: ["ota", "stats"] as const,
-  health: ["health"] as const,
-  metrics: ["metrics"] as const,
   commands: (deviceID: string) => ["commands", deviceID] as const,
   deployments: (deviceID: string) => ["deployments", deviceID] as const,
   deploymentEvents: (deploymentID: string) => ["deployment-events", deploymentID] as const,
@@ -277,23 +275,6 @@ export function useAllDeployments() {
 
 export function useOTAStats() {
   return useQuery({ queryKey: queryKeys.otaStats, queryFn: api.deployments.stats });
-}
-
-export function useHealth() {
-  return useQuery({
-    queryKey: queryKeys.health,
-    queryFn: api.health,
-    retry: false,
-    refetchInterval: 30_000
-  });
-}
-
-export function useMetrics() {
-  return useQuery({
-    queryKey: queryKeys.metrics,
-    queryFn: api.metrics,
-    refetchInterval: 30_000
-  });
 }
 
 export function useCommands(deviceID?: string) {

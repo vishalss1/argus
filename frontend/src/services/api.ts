@@ -10,7 +10,6 @@ import type {
   FirmwareArtifact,
   JsonValue,
   Manifest,
-  MetricSample,
   Rule,
   Shadow,
   SemanticEvent,
@@ -46,12 +45,6 @@ export const download = async (path: string, filename: string) => {
 };
 
 export const api = {
-  health: async () => {
-    await request<void>("/healthz");
-    return { ok: true };
-  },
-  metrics: () => request<string>("/metrics", { raw: true }),
-
   devices: {
     list: () => request<Device[]>("/devices/"),
     create: (payload: CreateDeviceRequest) =>
@@ -268,28 +261,3 @@ export const api = {
     })
   }
 };
-
-export function parsePrometheusMetrics(text: string): MetricSample[] {
-  return text
-    .split("\n")
-    .filter((line) => line && !line.startsWith("#"))
-    .map((line) => {
-      const [series, rawValue] = line.trim().split(/\s+/);
-      const nameMatch = series.match(/^([^{]+)(?:{(.+)})?$/);
-      const labels: Record<string, string> = {};
-
-      if (nameMatch?.[2]) {
-        for (const label of nameMatch[2].split(",")) {
-          const [key, value] = label.split("=");
-          labels[key] = value?.replace(/^"|"$/g, "") ?? "";
-        }
-      }
-
-      return {
-        name: nameMatch?.[1] ?? series,
-        labels,
-        value: Number(rawValue)
-      };
-    })
-    .filter((sample) => Number.isFinite(sample.value));
-}

@@ -212,12 +212,6 @@ export interface ApiErrorBody {
   error?: string;
 }
 
-export interface MetricSample {
-  name: string;
-  labels: Record<string, string>;
-  value: number;
-}
-
 export interface SemanticEvent {
   id: string;
   device_id: string;
