@@ -43,7 +43,8 @@ interface RequestOptions extends RequestInit {
 
 let activeRefreshPromise: Promise<{ access_token: string }> | null = null;
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+// Performs an authenticated fetch, refreshing the access token once on 401.
+async function fetchWithAuth(path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers(options.headers);
   const hasBody = options.body !== undefined;
 
@@ -115,6 +116,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     }
   }
 
+  return response;
+}
+
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await fetchWithAuth(path, options);
+
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
     try {
@@ -140,33 +147,20 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 }
 
 export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
-  const headers = new Headers(options.headers);
-  const hasBody = options.body !== undefined;
-
-  if (hasBody && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const accessToken = localStorage.getItem("argus_access_token");
-  if (accessToken && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${accessToken}`);
-  }
-
-  const activeWorkspaceID = localStorage.getItem("argus_active_workspace_id");
-  if (activeWorkspaceID && !headers.has("X-Workspace-ID")) {
-    headers.set("X-Workspace-ID", activeWorkspaceID);
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-    credentials: "include"
-  });
+  const response = await fetchWithAuth(path, options);
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
     const text = await response.text().catch(() => "");
-    if (text) message = text;
+    if (text) {
+      message = text;
+      try {
+        const body = JSON.parse(text) as ApiErrorBody;
+        if (body.error) message = body.error;
+      } catch {
+        // Non-JSON body: keep the raw text.
+      }
+    }
     throw new ApiError(message, response.status);
   }
 

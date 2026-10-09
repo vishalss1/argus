@@ -25,7 +25,7 @@ import {
   Layers,
   Table2
 } from "lucide-react";
-import { API_BASE_URL } from "../services/http";
+import { requestBlob } from "../services/http";
 import { 
   useSession, 
   useSessionStatistics, 
@@ -121,35 +121,15 @@ export function SessionReportPage() {
   }, [artifact]);
 
   const downloadBlob = useCallback(async (url: string, filename: string) => {
-    try {
-      const headers = new Headers();
-      const accessToken = localStorage.getItem("argus_access_token");
-      if (accessToken) {
-        headers.set("Authorization", `Bearer ${accessToken}`);
-      }
-      const workspaceID = localStorage.getItem("argus_active_workspace_id");
-      if (workspaceID) {
-        headers.set("X-Workspace-ID", workspaceID);
-      }
-      const resp = await fetch(`${API_BASE_URL}${url}`, { headers });
-      if (!resp.ok) {
-        const body = await resp.text();
-        let msg = `HTTP ${resp.status}`;
-        try { const j = JSON.parse(body); msg = j.error || msg; } catch {}
-        throw new Error(msg);
-      }
-      const blob = await resp.blob();
-      const objUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objUrl;
-      link.setAttribute("download", filename);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(objUrl);
-    } catch (err: any) {
-      throw err;
-    }
+    const blob = await requestBlob(url);
+    const objUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objUrl;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objUrl);
   }, []);
 
   const handleExport = async (type: "artifact" | "telemetry-json" | "telemetry-csv") => {
