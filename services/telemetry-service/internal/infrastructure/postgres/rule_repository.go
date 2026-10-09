@@ -58,6 +58,16 @@ func (r *RuleRepository) ListRules(ctx context.Context) ([]rule.Rule, error) {
 	return r.listRules(ctx, query)
 }
 
+func (r *RuleRepository) ListEnabledRulesByWorkspace(ctx context.Context, workspaceID string) ([]rule.Rule, error) {
+	const query = `
+		SELECT id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at
+		FROM rules
+		WHERE workspace_id = $1::uuid AND enabled = TRUE
+		ORDER BY created_at DESC`
+
+	return r.listRules(ctx, query, workspaceID)
+}
+
 func (r *RuleRepository) GetRule(ctx context.Context, id string) (*rule.Rule, error) {
 	query := `
 		SELECT id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at
