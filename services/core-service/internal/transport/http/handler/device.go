@@ -71,7 +71,7 @@ func (h *DeviceHandler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 	} else if val, ok := common.GetWorkspaceID(r.Context()); ok {
 		workspaceID = val
 	} else {
-		workspaceID = "00000000-0000-0000-0000-000000000000"
+		workspaceID = common.DefaultWorkspaceID
 	}
 
 	cert, err := h.ca.IssueDeviceCertificate(entity.ID, workspaceID)

@@ -12,6 +12,7 @@ import (
 	"github.com/vishalss1/argus/core/internal/domain/auth"
 	"github.com/vishalss1/argus/core/internal/transport/http/dto"
 	telemetrygrpc "github.com/vishalss1/argus/core/internal/infrastructure/grpc"
+	"github.com/vishalss1/argus/shared/common"
 	pb "github.com/vishalss1/argus/shared/proto/telemetry"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
 )
@@ -102,7 +103,7 @@ func (h *AIHandler) Ask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch workspace ID from context
-	workspaceID := "00000000-0000-0000-0000-000000000000" // Fallback
+	workspaceID := common.DefaultWorkspaceID // Fallback
 	if wsID, ok := auth.GetWorkspaceID(r.Context()); ok {
 		workspaceID = wsID
 	}

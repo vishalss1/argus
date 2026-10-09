@@ -16,6 +16,7 @@ import (
 	sessiondomain "github.com/vishalss1/argus/core/internal/domain/session"
 	workspacedomain "github.com/vishalss1/argus/core/internal/domain/workspace"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
+	"github.com/vishalss1/argus/shared/common"
 	pb "github.com/vishalss1/argus/shared/proto/core"
 )
 
@@ -95,7 +96,7 @@ func (s *Server) GetDeviceContext(ctx context.Context, req *pb.GetDeviceContextR
 	}
 
 	// 4. Fetch Tenant limits / Usage (mocked/queried plan)
-	tenantID := "00000000-0000-0000-0000-000000000000" // Standard fallback tenant
+	tenantID := common.DefaultWorkspaceID // Standard fallback tenant
 	billingPlan := "FREE"
 	var devicesUsed, maxDevicesAllowed int32 = 0, 10
 
