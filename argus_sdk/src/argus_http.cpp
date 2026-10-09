@@ -67,6 +67,37 @@ void provisionDeviceAPIKey(const String& key) {
   }
 }
 
+// Prepares an HTTPClient for the ARGUS API: enforces the HTTPS preconditions
+// (NTP time, pinned root CA), begins the request and applies common options.
+// Returns false (after logging the reason) if the request cannot be started.
+static bool setupHTTPClient(HTTPClient& http, WiFiClient& client, ArgusWiFiClientSecure& secureClient,
+                            const String& url, bool https, const char* label) {
+  bool beginOk = false;
+  if (https) {
+    if (!timeSynced) {
+      Serial.println("[HTTP] HTTPS rejected: time not synced via NTP");
+      return false;
+    }
+    if (!hasConfiguredRootCA()) {
+      Serial.println("[HTTP] HTTPS rejected: no root CA configured for ARGUS API");
+      return false;
+    }
+    configureTLS(secureClient);
+    beginOk = http.begin(secureClient, url);
+  } else {
+    beginOk = http.begin(client, url);
+  }
+  if (!beginOk) {
+    Serial.printf("[HTTP] Failed to initialize %s request\n", label);
+    return false;
+  }
+
+  http.setTimeout(BACKEND_HTTP_TIMEOUT);
+  http.setReuse(false);
+  addArgusHeaders(http);
+  return true;
+}
+
 String httpGet(const String& path, int& httpCode) {
   logNetState("before HTTP GET");
   HTTPClient http;
@@ -76,37 +107,14 @@ String httpGet(const String& path, int& httpCode) {
 
   Serial.printf("[HTTP] GET %s\n", url.c_str());
   bool https = isHttpsUrl(url);
-  bool beginOk = false;
-  if (https) {
-    if (!timeSynced) {
-      httpCode = -1;
-      Serial.println("[HTTP] HTTPS rejected: time not synced via NTP");
-      logNetState("after HTTP GET begin failure");
-      return "";
-    }
-    if (!hasConfiguredRootCA()) {
-      httpCode = -1;
-      Serial.println("[HTTP] HTTPS rejected: no root CA configured for ARGUS API");
-      logNetState("after HTTP GET begin failure");
-      return "";
-    }
-    configureTLS(secureClient);
-    beginOk = http.begin(secureClient, url);
-  } else {
-    beginOk = http.begin(client, url);
-  }
-  if (!beginOk) {
+  if (!setupHTTPClient(http, client, secureClient, url, https, "GET")) {
     httpCode = -1;
-    Serial.println("[HTTP] Failed to initialize GET request");
     client.stop();
     secureClient.stop();
     logNetState("after HTTP GET begin failure");
     return "";
   }
 
-  http.setTimeout(BACKEND_HTTP_TIMEOUT);
-  http.setReuse(false);
-  addArgusHeaders(http);
   httpCode = http.GET();
   if (https && httpCode > 0 && !verifyCertificatePin(secureClient, "ARGUS API")) {
     httpCode = -1;
@@ -132,35 +140,12 @@ String httpSendJson(const String& method, const String& path, const String& body
 
   Serial.printf("[HTTP] %s %s\n", method.c_str(), url.c_str());
   bool https = isHttpsUrl(url);
-  bool beginOk = false;
-  if (https) {
-    if (!timeSynced) {
-      if (statusCode) *statusCode = -1;
-      Serial.println("[HTTP] HTTPS rejected: time not synced via NTP");
-      logNetState("after HTTP JSON begin failure");
-      return "";
-    }
-    if (!hasConfiguredRootCA()) {
-      if (statusCode) *statusCode = -1;
-      Serial.println("[HTTP] HTTPS rejected: no root CA configured for ARGUS API");
-      logNetState("after HTTP JSON begin failure");
-      return "";
-    }
-    configureTLS(secureClient);
-    beginOk = http.begin(secureClient, url);
-  } else {
-    beginOk = http.begin(client, url);
-  }
-  if (!beginOk) {
+  if (!setupHTTPClient(http, client, secureClient, url, https, "JSON")) {
     if (statusCode) *statusCode = -1;
-    Serial.println("[HTTP] Failed to initialize JSON request");
     logNetState("after HTTP JSON begin failure");
     return "";
   }
 
-  http.setTimeout(BACKEND_HTTP_TIMEOUT);
-  http.setReuse(false);
-  addArgusHeaders(http);
   http.addHeader("Content-Type", "application/json");
 
   Serial.printf("[HTTP] Payload length: %u\n", body.length());
