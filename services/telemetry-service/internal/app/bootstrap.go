@@ -1391,6 +1391,9 @@ func correlationServerUnaryInterceptor(ctx context.Context, req interface{}, inf
 		if vals := md.Get("x-correlation-id"); len(vals) > 0 {
 			ctx = common.WithCorrelationID(ctx, vals[0])
 		}
+		if vals := md.Get("x-workspace-id"); len(vals) > 0 && vals[0] != "" {
+			ctx = common.WithWorkspaceID(ctx, vals[0])
+		}
 	}
 	return handler(ctx, req)
 }

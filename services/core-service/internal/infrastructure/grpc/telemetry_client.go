@@ -42,7 +42,12 @@ func clientInterceptor(ctx context.Context, method string, req, reply interface{
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-correlation-id", corrID)
 	}
 
-	// 2. Track metrics & wrap in circuit breaker
+	// 2. Propagate the caller's workspace so the telemetry service can scope data
+	if workspaceID, ok := common.GetWorkspaceID(ctx); ok && workspaceID != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-workspace-id", workspaceID)
+	}
+
+	// 3. Track metrics & wrap in circuit breaker
 	startTime := time.Now()
 	_, err := cb.Execute(func() (interface{}, error) {
 		err := invoker(ctx, method, req, reply, cc, opts...)
