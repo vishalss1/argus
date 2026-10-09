@@ -1,6 +1,7 @@
 #include "argus_ota.h"
 #include "argus_version.h"
 #include "argus_config.h"
+#include "argus_constants.h"
 #include "argus_state_machine.h"
 #include "argus_diag.h"
 #include "argus_security.h"
@@ -19,8 +20,6 @@
 
 namespace argus_sdk {
 
-constexpr unsigned long OTA_POLL_MS = 60000UL;
-constexpr unsigned long OTA_ACK_RETRY_MS = 10000UL;
 constexpr size_t OTA_CHUNK_BYTES = 2048;
 constexpr int OTA_HTTP_TIMEOUT = 30000;
 constexpr int OTA_MAX_REDIRECTS = 5;

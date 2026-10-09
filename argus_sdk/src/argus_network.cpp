@@ -1,5 +1,6 @@
 #include "argus_network.h"
 #include "argus_config.h"
+#include "argus_constants.h"
 #include "argus_state_machine.h"
 #include "argus_diag.h"
 #include "argus_mqtt.h"
@@ -28,7 +29,6 @@ void initMqttClient() {
   mqtt.setClient(*wifiClient);
 }
 
-constexpr unsigned long MQTT_RECONNECT_MS = 5000UL;
 constexpr unsigned long NETWORK_RESTART_AFTER_MS = 1800000UL;
 
 static unsigned long lastReconnectAttempt = 0;

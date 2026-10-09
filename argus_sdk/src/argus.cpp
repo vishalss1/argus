@@ -7,6 +7,7 @@
 #include "argus.h"
 #include "argus_nvs.h"
 #include "argus_version.h"
+#include "argus_constants.h"
 #include <sodium.h>
 #include <WiFi.h>
 #include <string.h>
@@ -14,8 +15,6 @@
 namespace argus_sdk {
   constexpr unsigned long TELEMETRY_MS = 5000UL;
   constexpr unsigned long HEARTBEAT_MS = 30000UL;
-  constexpr unsigned long OTA_POLL_MS = 60000UL;
-  constexpr unsigned long OTA_ACK_RETRY_MS = 10000UL;
 }
 
 using namespace argus_sdk;

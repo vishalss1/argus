@@ -1,5 +1,6 @@
 #include "argus_mqtt.h"
 #include "argus_config.h"
+#include "argus_constants.h"
 #include "argus_state_machine.h"
 #include "argus_diag.h"
 #include "argus_security.h"
@@ -11,7 +12,6 @@
 namespace argus_sdk {
 
 constexpr int LED_PIN = 18;
-constexpr unsigned long MQTT_RECONNECT_MS = 5000UL;
 constexpr unsigned long MQTT_RECONNECT_MAX_MS = 60000UL;
 
 unsigned long mqttReconnectBackoffMs = MQTT_RECONNECT_MS;
