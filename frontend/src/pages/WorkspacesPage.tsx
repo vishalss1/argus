@@ -54,11 +54,15 @@ export function WorkspacesPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName) return;
-    await createWorkspace.mutateAsync({ name: newName, description: newDesc });
-    await refreshMe();
-    setShowCreateModal(false);
-    setNewName("");
-    setNewDesc("");
+    try {
+      await createWorkspace.mutateAsync({ name: newName, description: newDesc });
+      await refreshMe();
+      setShowCreateModal(false);
+      setNewName("");
+      setNewDesc("");
+    } catch (err: any) {
+      alert(err.message || "Failed to create workspace");
+    }
   };
 
   const handleDeleteWorkspace = async () => {
@@ -223,18 +227,36 @@ function WorkspaceDetail({ workspaceID }: { workspaceID: string }) {
   const [deviceToAssign, setDeviceToAssign] = useState("");
 
   const handleNewSession = async () => {
-    const s = await createSession.mutateAsync(workspaceID);
-    await startSession.mutateAsync(s.id);
+    let created;
+    try {
+      created = await createSession.mutateAsync(workspaceID);
+    } catch (err: any) {
+      alert(err.message || "Failed to create session");
+      return;
+    }
+    try {
+      await startSession.mutateAsync(created.id);
+    } catch (err: any) {
+      alert("Session was created but failed to start: " + (err.message || "unknown error"));
+    }
   };
 
   const handleAssignDevice = async () => {
     if (!deviceToAssign) return;
-    await assignDevice.mutateAsync({ workspaceID, deviceID: deviceToAssign });
-    setDeviceToAssign("");
+    try {
+      await assignDevice.mutateAsync({ workspaceID, deviceID: deviceToAssign });
+      setDeviceToAssign("");
+    } catch (err: any) {
+      alert(err.message || "Failed to assign device");
+    }
   };
 
   const handleUnassignDevice = async (deviceID: string) => {
-    await unassignDevice.mutateAsync({ workspaceID, deviceID });
+    try {
+      await unassignDevice.mutateAsync({ workspaceID, deviceID });
+    } catch (err: any) {
+      alert(err.message || "Failed to unassign device");
+    }
   };
 
   const unassignedDevices = useMemo(() => {

@@ -51,12 +51,22 @@ export function AlertsPage() {
   }
 
   async function removeRule(id: string) {
-    await api.rules.remove(id);
-    await rules.refetch();
+    setError("");
+    try {
+      await api.rules.remove(id);
+      await rules.refetch();
+    } catch (err) {
+      setError((err as Error).message || "Failed to delete rule");
+    }
   }
 
   async function toggleRule(rule: Rule) {
-    await updateRule.mutateAsync({ id: rule.id, payload: { enabled: !rule.enabled } });
+    setError("");
+    try {
+      await updateRule.mutateAsync({ id: rule.id, payload: { enabled: !rule.enabled } });
+    } catch (err) {
+      setError((err as Error).message || "Failed to update rule");
+    }
   }
 
   return (

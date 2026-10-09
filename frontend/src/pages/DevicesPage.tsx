@@ -137,8 +137,12 @@ export function DevicesPage() {
   }
 
   async function removeFleet(id: string) {
-    await api.fleets.remove(id);
-    await fleets.refetch();
+    try {
+      await api.fleets.remove(id);
+      await fleets.refetch();
+    } catch (err) {
+      alert("Failed to delete fleet: " + (err as Error).message);
+    }
   }
 
   const toggleExpand = (id: string) => {
