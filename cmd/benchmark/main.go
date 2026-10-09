@@ -245,9 +245,11 @@ func main() {
 	}
 	defer writer.Close()
 
-	// Track latency slices per device (lock-free)
+	// Track latency slices per device; multiple writer workers may append to the
+	// same device's slice, so each slice is guarded by its own mutex.
 	durationSec := int((*durationFlag).Seconds())
 	deviceLatencies := make([][]time.Duration, *devicesFlag)
+	deviceLatencyMu := make([]sync.Mutex, *devicesFlag)
 	for i := range deviceLatencies {
 		deviceLatencies[i] = make([]time.Duration, 0, durationSec)
 	}
@@ -274,7 +276,9 @@ func main() {
 			for task := range taskChan {
 				err := writer.WriteMessages(ctx, task.msg)
 				latency := time.Since(task.enqStart)
+				deviceLatencyMu[task.devIndex].Lock()
 				deviceLatencies[task.devIndex] = append(deviceLatencies[task.devIndex], latency)
+				deviceLatencyMu[task.devIndex].Unlock()
 				if err != nil && ctx.Err() == nil {
 					atomic.AddInt64(&publishFailures, 1)
 				}
