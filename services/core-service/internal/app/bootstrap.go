@@ -311,6 +311,7 @@ func Bootstrap() (*Server, error) {
 
 	// Start telemetry export cleanup (every 12 hours)
 	sessionManager.StartTelemetryExportCleaner(appCtx, cfg.TelemetryExportRetentionDays, 12*time.Hour)
+	sessionManager.StartLiveStatisticsUpdater(appCtx, 30*time.Second)
 
 	// Configure REST handlers to proxy rules/alerts/AI queries via gRPC client
 	ruleHandler := transporthandler.NewRuleHandler(telemetryClient)

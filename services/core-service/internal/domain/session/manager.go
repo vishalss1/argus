@@ -707,6 +707,81 @@ func (m *Manager) cleanExpiredExports(ctx context.Context, retentionDays int) {
 	}
 }
 
+// StartLiveStatisticsUpdater periodically persists partial statistics for running
+// sessions so dashboards have real numbers before the session stops. Only values
+// that are cheap and exact are written (duration, alerts, critical events,
+// commands, devices); MessagesProcessed, AnomalyCount and UptimePercentage need
+// the telemetry aggregation done in StopSession and are left at zero until then.
+func (m *Manager) StartLiveStatisticsUpdater(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.updateLiveStatistics(ctx)
+			}
+		}
+	}()
+}
+
+func (m *Manager) updateLiveStatistics(ctx context.Context) {
+	sessions, err := m.sessionService.repo.ListAllRunning(ctx)
+	if err != nil {
+		log.Printf("[LIVE STATS] list running sessions: %v", err)
+		return
+	}
+
+	for _, sess := range sessions {
+		now := time.Now().UTC()
+		durationSec := 0
+		if sess.StartedAt != nil {
+			durationSec = int(now.Sub(*sess.StartedAt).Seconds())
+		}
+		if durationSec < 0 {
+			durationSec = 0
+		}
+
+		alerts, err := m.sessionService.repo.ListAlertsBySession(ctx, sess.ID)
+		if err != nil {
+			log.Printf("[LIVE STATS] session %s alerts: %v", sess.ID, err)
+			continue
+		}
+		commands, err := m.sessionService.repo.ListCommandsBySession(ctx, sess.ID)
+		if err != nil {
+			log.Printf("[LIVE STATS] session %s commands: %v", sess.ID, err)
+			continue
+		}
+		criticalCount := 0
+		for _, a := range alerts {
+			if strings.EqualFold(a.Severity, "critical") {
+				criticalCount++
+			}
+		}
+		devices, _ := m.redisClient.Client().SCard(ctx, fmt.Sprintf("session:%s:devices", sess.ID)).Result()
+
+		stats := Statistics{
+			SessionID:                sess.ID,
+			DurationSeconds:          durationSec,
+			AlertsCount:              len(alerts),
+			CriticalEvents:           criticalCount,
+			DeviceParticipationCount: int(devices),
+			CommandCount:             len(commands),
+			UpdatedAt:                now,
+		}
+		// Re-check right before writing so a session stopped mid-tick keeps its
+		// final statistics instead of being overwritten with partial ones.
+		if current, err := m.sessionService.Get(ctx, sess.ID); err != nil || current == nil || current.Status != StatusRunning {
+			continue
+		}
+		if err := m.sessionService.repo.UpsertStatistics(ctx, stats); err != nil {
+			log.Printf("[LIVE STATS] session %s upsert: %v", sess.ID, err)
+		}
+	}
+}
+
 func (m *Manager) CleanupStaleSessions(ctx context.Context, timeout time.Duration) (int64, error) {
 	return m.sessionService.CleanupStale(ctx, timeout)
 }
