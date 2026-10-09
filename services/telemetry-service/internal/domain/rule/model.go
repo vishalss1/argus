@@ -12,14 +12,15 @@ const (
 )
 
 type Rule struct {
-	ID        string    `json:"id" db:"id"`
-	Name      string    `json:"name" db:"name"`
-	Metric    string    `json:"metric" db:"metric"`
-	Operator  string    `json:"operator" db:"operator"`
-	Threshold float64   `json:"threshold" db:"threshold"`
-	Enabled   bool      `json:"enabled" db:"enabled"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID          string    `json:"id" db:"id"`
+	WorkspaceID string    `json:"workspace_id" db:"workspace_id"`
+	Name        string    `json:"name" db:"name"`
+	Metric      string    `json:"metric" db:"metric"`
+	Operator    string    `json:"operator" db:"operator"`
+	Threshold   float64   `json:"threshold" db:"threshold"`
+	Enabled     bool      `json:"enabled" db:"enabled"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type Alert struct {

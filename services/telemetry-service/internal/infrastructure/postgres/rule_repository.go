@@ -20,11 +20,16 @@ func NewRuleRepository(db *sql.DB) *RuleRepository {
 
 func (r *RuleRepository) CreateRule(ctx context.Context, entity rule.Rule) (*rule.Rule, error) {
 	const query = `
-		INSERT INTO rules (id, name, metric, operator, threshold, enabled)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6)
-		RETURNING id, name, metric, operator, threshold, enabled, created_at, updated_at`
+		INSERT INTO rules (id, workspace_id, name, metric, operator, threshold, enabled)
+		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, $5, $6, $7)
+		RETURNING id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at`
 
-	created, err := scanRule(r.db.QueryRowContext(ctx, query, entity.ID, entity.Name, entity.Metric, entity.Operator, entity.Threshold, entity.Enabled))
+	workspaceID := entity.WorkspaceID
+	if wID, ok := common.GetWorkspaceID(ctx); ok && workspaceID == "" {
+		workspaceID = wID
+	}
+
+	created, err := scanRule(r.db.QueryRowContext(ctx, query, entity.ID, workspaceID, entity.Name, entity.Metric, entity.Operator, entity.Threshold, entity.Enabled))
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
 	}
@@ -33,8 +38,19 @@ func (r *RuleRepository) CreateRule(ctx context.Context, entity rule.Rule) (*rul
 }
 
 func (r *RuleRepository) ListRules(ctx context.Context) ([]rule.Rule, error) {
+	if wID, ok := common.GetWorkspaceID(ctx); ok {
+		const query = `
+			SELECT id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at
+			FROM rules
+			WHERE workspace_id = $1::uuid
+			ORDER BY created_at DESC
+			LIMIT 200`
+
+		return r.listRules(ctx, query, wID)
+	}
+
 	const query = `
-		SELECT id, name, metric, operator, threshold, enabled, created_at, updated_at
+		SELECT id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at
 		FROM rules
 		ORDER BY created_at DESC
 		LIMIT 200`
@@ -43,12 +59,17 @@ func (r *RuleRepository) ListRules(ctx context.Context) ([]rule.Rule, error) {
 }
 
 func (r *RuleRepository) GetRule(ctx context.Context, id string) (*rule.Rule, error) {
-	const query = `
-		SELECT id, name, metric, operator, threshold, enabled, created_at, updated_at
+	query := `
+		SELECT id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at
 		FROM rules
 		WHERE id = $1::uuid`
+	args := []any{id}
+	if wID, ok := common.GetWorkspaceID(ctx); ok {
+		query += " AND workspace_id = $2::uuid"
+		args = append(args, wID)
+	}
 
-	entity, err := scanRule(r.db.QueryRowContext(ctx, query, id))
+	entity, err := scanRule(r.db.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, rule.ErrRuleNotFound
 	}
@@ -81,6 +102,7 @@ func (r *RuleRepository) UpdateRule(ctx context.Context, id string, input rule.U
 		current.Enabled = *input.Enabled
 	}
 
+	// GetRule above already enforced workspace ownership for this id.
 	const query = `
 		UPDATE rules
 		SET name = $2,
@@ -90,7 +112,7 @@ func (r *RuleRepository) UpdateRule(ctx context.Context, id string, input rule.U
 			enabled = $6,
 			updated_at = NOW()
 		WHERE id = $1::uuid
-		RETURNING id, name, metric, operator, threshold, enabled, created_at, updated_at`
+		RETURNING id, COALESCE(workspace_id::text, ''), name, metric, operator, threshold, enabled, created_at, updated_at`
 
 	updated, err := scanRule(r.db.QueryRowContext(ctx, query, id, current.Name, current.Metric, current.Operator, current.Threshold, current.Enabled))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -104,7 +126,13 @@ func (r *RuleRepository) UpdateRule(ctx context.Context, id string, input rule.U
 }
 
 func (r *RuleRepository) DeleteRule(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, "DELETE FROM rules WHERE id = $1::uuid", id)
+	query := "DELETE FROM rules WHERE id = $1::uuid"
+	args := []any{id}
+	if wID, ok := common.GetWorkspaceID(ctx); ok {
+		query += " AND workspace_id = $2::uuid"
+		args = append(args, wID)
+	}
+	result, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("delete rule: %w", err)
 	}
@@ -162,8 +190,8 @@ func (r *RuleRepository) ListAlerts(ctx context.Context) ([]rule.Alert, error) {
 	return alerts, nil
 }
 
-func (r *RuleRepository) listRules(ctx context.Context, query string) ([]rule.Rule, error) {
-	rows, err := r.db.QueryContext(ctx, query)
+func (r *RuleRepository) listRules(ctx context.Context, query string, args ...any) ([]rule.Rule, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
 	}
@@ -193,6 +221,7 @@ func scanRule(scanner ruleScanner) (*rule.Rule, error) {
 	var entity rule.Rule
 	err := scanner.Scan(
 		&entity.ID,
+		&entity.WorkspaceID,
 		&entity.Name,
 		&entity.Metric,
 		&entity.Operator,
