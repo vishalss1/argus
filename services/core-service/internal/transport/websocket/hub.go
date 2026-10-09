@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
  
 	gorilla "github.com/gorilla/websocket"
 	"github.com/vishalss1/argus/core/internal/infrastructure/redis"
@@ -16,8 +17,31 @@ type Message struct {
 	Payload any    `json:"payload"`
 }
  
+const (
+	clientSendBuffer = 64
+	clientWriteWait  = 10 * time.Second
+)
+
+// client owns a per-connection outbound queue so one slow peer cannot stall
+// the hub's broadcast loop.
+type client struct {
+	conn *gorilla.Conn
+	send chan []byte
+}
+
+func (c *client) writePump() {
+	defer c.conn.Close()
+	for payload := range c.send {
+		_ = c.conn.SetWriteDeadline(time.Now().Add(clientWriteWait))
+		if err := c.conn.WriteMessage(gorilla.TextMessage, payload); err != nil {
+			log.Printf("websocket write failed: %v", err)
+			return
+		}
+	}
+}
+
 type Hub struct {
-	clients     map[*gorilla.Conn]struct{}
+	clients     map[*gorilla.Conn]*client
 	register    chan *gorilla.Conn
 	unregister  chan *gorilla.Conn
 	broadcast   chan []byte
@@ -28,7 +52,7 @@ type Hub struct {
  
 func NewHub(redisClient *redis.Client) *Hub {
 	return &Hub{
-		clients:     make(map[*gorilla.Conn]struct{}),
+		clients:     make(map[*gorilla.Conn]*client),
 		register:    make(chan *gorilla.Conn, 64),
 		unregister:  make(chan *gorilla.Conn, 64),
 		broadcast:   make(chan []byte, 64),
@@ -62,14 +86,18 @@ func (h *Hub) Run(ctx context.Context) {
 			h.Close()
 			return
 		case conn := <-h.register:
-			h.clients[conn] = struct{}{}
+			c := &client{conn: conn, send: make(chan []byte, clientSendBuffer)}
+			h.clients[conn] = c
 			common.WSConnections.Inc()
+			go c.writePump()
 		case conn := <-h.unregister:
 			h.remove(conn)
 		case payload := <-h.broadcast:
-			for conn := range h.clients {
-				if err := conn.WriteMessage(gorilla.TextMessage, payload); err != nil {
-					log.Printf("websocket write failed: %v", err)
+			for conn, c := range h.clients {
+				select {
+				case c.send <- payload:
+				default:
+					log.Printf("websocket client send buffer full, dropping connection")
 					h.remove(conn)
 				}
 			}
@@ -171,9 +199,10 @@ func (h *Hub) Close() {
 }
 
 func (h *Hub) remove(conn *gorilla.Conn) {
-	if _, ok := h.clients[conn]; ok {
+	if c, ok := h.clients[conn]; ok {
 		delete(h.clients, conn)
 		common.WSConnections.Dec()
+		close(c.send) // stops writePump
 	}
 	_ = conn.Close()
 }
