@@ -36,6 +36,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const retryRef = useRef(0);
 
   useEffect(() => {
+    // Drop buffered telemetry from the previous workspace.
+    setTelemetryByDevice({});
+
     if (!isAuthenticated || !activeWorkspaceId) {
       setStatus("disconnected");
       return;
