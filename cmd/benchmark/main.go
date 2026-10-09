@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,81 +12,18 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/joho/godotenv"
 	goredis "github.com/redis/go-redis/v9"
 	segmentio "github.com/segmentio/kafka-go"
 
 	_ "github.com/lib/pq"
+
+	benchshared "github.com/vishalss1/argus/cmd/benchmark/shared"
 )
-
-type Config struct {
-	DatabaseURL          string
-	Port                 string
-	KafkaBrokers         []string
-	KafkaTelemetryTopic  string
-	KafkaAIWorkerGroupID string
-	RedisAddr            string
-	RedisPassword        string
-	RedisDB              int
-	HTTPSTLSCertFile     string
-	HTTPSTLSKeyFile      string
-}
-
-func loadConfig() *Config {
-	_ = godotenv.Load(".env")
-
-	cfg := &Config{
-		DatabaseURL:         os.Getenv("DATABASE_URL"),
-		Port:                os.Getenv("PORT"),
-		KafkaBrokers:        splitCSV(os.Getenv("KAFKA_BROKERS")),
-		KafkaTelemetryTopic: os.Getenv("KAFKA_TELEMETRY_TOPIC"),
-		RedisAddr:           os.Getenv("REDIS_ADDR"),
-		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
-		HTTPSTLSCertFile:    os.Getenv("HTTPS_TLS_CERT_FILE"),
-		HTTPSTLSKeyFile:     os.Getenv("HTTPS_TLS_KEY_FILE"),
-	}
-
-	if cfg.Port == "" {
-		cfg.Port = "8080"
-	}
-	if cfg.KafkaTelemetryTopic == "" {
-		cfg.KafkaTelemetryTopic = "argus.telemetry"
-	}
-	cfg.KafkaAIWorkerGroupID = os.Getenv("KAFKA_AI_WORKER_GROUP_ID")
-	if cfg.KafkaAIWorkerGroupID == "" {
-		cfg.KafkaAIWorkerGroupID = "argus-ai-worker"
-	}
-	if cfg.RedisAddr == "" {
-		cfg.RedisAddr = "localhost:6379"
-	}
-	if redisDB := strings.TrimSpace(os.Getenv("REDIS_DB")); redisDB != "" {
-		if parsed, err := strconv.Atoi(redisDB); err == nil {
-			cfg.RedisDB = parsed
-		}
-	}
-	return cfg
-}
-
-func splitCSV(value string) []string {
-	if value == "" {
-		return nil
-	}
-	parts := strings.Split(value, ",")
-	var values []string
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			values = append(values, part)
-		}
-	}
-	return values
-}
 
 type SessionResponse struct {
 	ID          string `json:"id"`
@@ -126,7 +62,7 @@ func main() {
 	fmt.Printf("Extra Payload:     %d bytes\n", *payloadSizeFlag)
 	fmt.Println("==================================================")
 
-	cfg := loadConfig()
+	cfg := benchshared.LoadConfig()
 
 	// 1. Database Connection
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
@@ -165,7 +101,7 @@ func main() {
 	}
 
 	// Clean up previous runs
-	cleanupDB(db, cfg, kafkaAddr)
+	benchshared.CleanupDB(db, cfg, kafkaAddr)
 
 	// Setup Redis Client for Info collection and flush
 	rdb := goredis.NewClient(&goredis.Options{
@@ -177,7 +113,7 @@ func main() {
 	_ = rdb.FlushDB(context.Background()).Err()
 
 	// Ensure benchmark user exists, then authenticate
-	registerBenchmarkUser(httpClient, baseURL)
+	benchshared.RegisterBenchmarkUser(httpClient, baseURL)
 	accessToken := loginBenchmarkUser(httpClient, baseURL)
 	authHeader := "Bearer " + accessToken
 	workspaceID := "00000000-0000-0000-0000-000000000001"
@@ -192,7 +128,7 @@ func main() {
 	}
 
 	// Ensure user is workspace member
-	userID := getUserIDFromToken(accessToken)
+	userID := benchshared.GetUserIDFromToken(accessToken)
 	_, _ = db.Exec(`INSERT INTO workspace_members (workspace_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, workspaceID, userID)
 
 	fmt.Printf("Registering %d devices in database...\n", *devicesFlag)
@@ -227,7 +163,7 @@ func main() {
 
 	// 4. Create Session via API
 	url := fmt.Sprintf("%s/workspaces/%s/sessions", baseURL, workspaceID)
-	resp, err := doAuthPost(httpClient, url, nil, authHeader, workspaceID)
+	resp, err := benchshared.DoAuthPost(httpClient, url, nil, authHeader, workspaceID)
 	if err != nil {
 		fmt.Printf("Failed to create session: %v\n", err)
 		return
@@ -252,7 +188,7 @@ func main() {
 
 	// 5. Start Session via API
 	startURL := fmt.Sprintf("%s/sessions/%s/start", baseURL, sessionID)
-	resp, err = doAuthPost(httpClient, startURL, nil, authHeader, workspaceID)
+	resp, err = benchshared.DoAuthPost(httpClient, startURL, nil, authHeader, workspaceID)
 	if err != nil {
 		fmt.Printf("Failed to start session: %v\n", err)
 		return
@@ -267,18 +203,18 @@ func main() {
 	fmt.Println("Session started successfully.")
 
 	// Pre-test metrics snapshot
-	preCPU, preMem, _, preConsumed, preDropped, preFailures, preDuplicates, err := getAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
+	preCPU, preMem, _, preConsumed, preDropped, preFailures, preDuplicates, err := benchshared.GetAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
 	if err != nil {
 		fmt.Printf("Warning: Failed to fetch initial app metrics: %v\n", err)
 	}
 
-	preRedisCmds, preRedisMem, preEvalCalls, preEvalUsec, err := getRedisStats(rdb)
+	preRedisCmds, preRedisMem, preEvalCalls, preEvalUsec, err := benchshared.GetRedisStats(rdb)
 	if err != nil {
 		fmt.Printf("Warning: Failed to fetch initial Redis stats: %v\n", err)
 	}
 
-	preArtifactGenDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_artifact_generation_duration_seconds_sum")
-	preStopDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_stop_duration_seconds_sum")
+	preArtifactGenDuration := benchshared.GetPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_artifact_generation_duration_seconds_sum")
+	preStopDuration := benchshared.GetPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_stop_duration_seconds_sum")
 
 	// 6. Kafka/Redpanda Async Writer Config
 	fmt.Printf("Connecting to Kafka at %s...\n", kafkaAddr)
@@ -324,9 +260,9 @@ func main() {
 	// Use a bounded pool of writer workers to avoid overwhelming the segmentio Writer's internal queue
 	numWriterWorkers := 2
 	type publishTask struct {
-		msg       segmentio.Message
-		devIndex  int
-		enqStart  time.Time
+		msg      segmentio.Message
+		devIndex int
+		enqStart time.Time
 	}
 	taskChan := make(chan publishTask, 10000)
 
@@ -462,7 +398,7 @@ func main() {
 		}
 
 		// A. App Stats
-		cpu, rss, goroutines, consumed, dropped, failures, _, err := getAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
+		cpu, rss, goroutines, consumed, dropped, failures, _, err := benchshared.GetAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
 		if err == nil {
 			cpuDelta := cpu - prevCPUTime
 			cpuUtil := (cpuDelta / elapsedSecs) * 100.0
@@ -478,7 +414,7 @@ func main() {
 		}
 
 		// B. Redis Stats from Client
-		rCmds, rMem, rEvalCalls, rEvalUsec, err := getRedisStats(rdb)
+		rCmds, rMem, rEvalCalls, rEvalUsec, err := benchshared.GetRedisStats(rdb)
 		if err == nil {
 			redisCmdsDelta := rCmds - prevRedisCmds
 			redisOpsSec := float64(redisCmdsDelta) / elapsedSecs
@@ -510,7 +446,7 @@ func main() {
 		}
 
 		// D. Kafka Consumer Group Lag Description
-		totLag, peakLag, _, _, err := getKafkaConsumerLag(kafkaAddr, "argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
+		totLag, peakLag, _, _, err := benchshared.GetKafkaConsumerLag(kafkaAddr, "argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
 		if err == nil {
 			totalLagSeries = append(totalLagSeries, float64(totLag))
 			peakLagSeries = append(peakLagSeries, float64(peakLag))
@@ -523,11 +459,11 @@ func main() {
 			fmt.Printf("--- CHECKPOINT %s ---\n", targetDur)
 			fmt.Printf("  Published: %d\n", atomic.LoadInt64(&messagesPublished))
 			fmt.Printf("  Consumed:  %d\n", int64(lastConsumed-preConsumed))
-			
-			processedVal := int64(lastConsumed - preConsumed) - int64(lastDropped - preDropped) - int64(lastFailures - preFailures)
+
+			processedVal := int64(lastConsumed-preConsumed) - int64(lastDropped-preDropped) - int64(lastFailures-preFailures)
 			fmt.Printf("  Processed: %d\n", processedVal)
 			fmt.Printf("  Group Lag: %d\n", totLag)
-			
+
 			var curAppCPU, curAppMem float64
 			if len(appCPUSeries) > 0 {
 				curAppCPU = appCPUSeries[len(appCPUSeries)-1]
@@ -535,7 +471,7 @@ func main() {
 				fmt.Printf("  App CPU:   %.2f%%\n", curAppCPU)
 				fmt.Printf("  App Mem:   %.2f MB\n", curAppMem)
 			}
-			
+
 			var curRedCPU, curRedMem float64
 			if len(redisCPUSeries) > 0 {
 				curRedCPU = redisCPUSeries[len(redisCPUSeries)-1]
@@ -543,12 +479,12 @@ func main() {
 				fmt.Printf("  Redis CPU: %.2f%%\n", curRedCPU)
 				fmt.Printf("  Redis Mem: %.2f MB\n", curRedMem)
 			}
-			
+
 			checkpoints = append(checkpoints, Checkpoint{
 				Time:      targetDur,
 				Published: atomic.LoadInt64(&messagesPublished),
 				Consumed:  int64(lastConsumed - preConsumed),
-				Processed:  processedVal,
+				Processed: processedVal,
 				Lag:       totLag,
 				CPU:       curAppCPU,
 				Memory:    curAppMem,
@@ -573,8 +509,8 @@ func main() {
 
 	// Let the test run for the configured duration
 	time.Sleep(*durationFlag)
-	cancel()  // Stop device goroutines and monitor loop
-	wg.Wait() // Wait for all device threads to finish publishing naturally
+	cancel()        // Stop device goroutines and monitor loop
+	wg.Wait()       // Wait for all device threads to finish publishing naturally
 	close(taskChan) // Signal writer workers to exit
 	pubWg.Wait()    // Wait for all writer workers to finish
 
@@ -585,8 +521,8 @@ func main() {
 	fmt.Println("Waiting for consumer lag to drain to 0...")
 	drainStart := time.Now()
 	for {
-		liveLag, _, _, liveMembers, errLive := getKafkaConsumerLag(kafkaAddr, "argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
-		aiLag, _, _, aiMembers, errAI := getKafkaConsumerLag(kafkaAddr, cfg.KafkaAIWorkerGroupID, cfg.KafkaTelemetryTopic)
+		liveLag, _, _, liveMembers, errLive := benchshared.GetKafkaConsumerLag(kafkaAddr, "argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
+		aiLag, _, _, aiMembers, errAI := benchshared.GetKafkaConsumerLag(kafkaAddr, cfg.KafkaAIWorkerGroupID, cfg.KafkaTelemetryTopic)
 
 		waitingForLive := errLive == nil && (liveMembers > 0 && liveLag > 0)
 		waitingForAI := errAI == nil && (aiMembers > 0 && aiLag > 0)
@@ -596,8 +532,8 @@ func main() {
 			break
 		}
 
-	if time.Since(drainStart) > 180*time.Second {
-		fmt.Printf("Timeout waiting for consumer lag to drain. Live lag: %d (members: %d), AI lag: %d (members: %d)\n",
+		if time.Since(drainStart) > 180*time.Second {
+			fmt.Printf("Timeout waiting for consumer lag to drain. Live lag: %d (members: %d), AI lag: %d (members: %d)\n",
 				liveLag, liveMembers, aiLag, aiMembers)
 			break
 		}
@@ -613,7 +549,7 @@ func main() {
 	stopPayload := []byte(`{"success":true}`)
 
 	stopStart := time.Now()
-	resp, err = doAuthPost(httpClient, stopURL, bytes.NewBuffer(stopPayload), authHeader, workspaceID)
+	resp, err = benchshared.DoAuthPost(httpClient, stopURL, bytes.NewBuffer(stopPayload), authHeader, workspaceID)
 	stopDuration := time.Since(stopStart)
 	if err != nil {
 		fmt.Printf("Failed to stop session: %v\n", err)
@@ -629,18 +565,18 @@ func main() {
 	fmt.Printf("Session stopped successfully in %s.\n", stopDuration)
 
 	// Fetch final Prometheus metrics
-	_, postMem, _, postConsumed, postDropped, postFailures, postDuplicates, err := getAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
+	_, postMem, _, postConsumed, postDropped, postFailures, postDuplicates, err := benchshared.GetAppMetrics(httpClient, scheme, apiHost, telemetryMetricsPort)
 	if err != nil {
 		fmt.Printf("Failed to fetch post metrics: %v\n", err)
 	}
 
 	// Retrieve session artifact metrics
-	cumulativeArtifactGenDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_artifact_generation_duration_seconds_sum")
+	cumulativeArtifactGenDuration := benchshared.GetPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_artifact_generation_duration_seconds_sum")
 	postArtifactGenDuration := cumulativeArtifactGenDuration - preArtifactGenDuration
 	if postArtifactGenDuration < 0 {
 		postArtifactGenDuration = 0
 	}
-	
+
 	// Wait a moment for final cleanup validations
 	time.Sleep(500 * time.Millisecond)
 
@@ -661,7 +597,7 @@ func main() {
 	}
 
 	// 9. Artifact Correctness Validation
-	artifactValid, artifactBody, valErr := validateArtifact(httpClient, baseURL, sessionID, *devicesFlag, durationSec, authHeader, workspaceID)
+	artifactValid, artifactBody, valErr := benchshared.ValidateArtifact(httpClient, baseURL, sessionID, *devicesFlag, durationSec, authHeader, workspaceID)
 	artifactSize := len(artifactBody)
 	if valErr != nil {
 		fmt.Printf("Artifact Validation Failed: %v\n", valErr)
@@ -678,11 +614,11 @@ func main() {
 
 	// Ingress consumption delta from Prometheus
 	totalConsumed := postConsumed - preConsumed
-	
+
 	successfullyProcessed := totalConsumed - totalFailures - totalDropped
 
 	// Wait, we also check final Kafka Lag
-	finalLag, _, partitionLag, _, err := getKafkaConsumerLag(kafkaAddr, "argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
+	finalLag, _, partitionLag, _, err := benchshared.GetKafkaConsumerLag(kafkaAddr, "argus-telemetry-live-consumer-internal", cfg.KafkaTelemetryTopic)
 
 	// Enqueue Latency Aggregation
 	var allLatencies []time.Duration
@@ -711,7 +647,7 @@ func main() {
 	writerRetries := wStats.Retries
 	batchFlushAvg := wStats.BatchTime.Avg
 	batchFlushMax := wStats.BatchTime.Max
-	
+
 	// Estimate queue saturation events
 	var saturationEvents int64
 	if activeWStats.QueueCapacity > 0 && activeWStats.QueueLength >= activeWStats.QueueCapacity {
@@ -741,11 +677,11 @@ func main() {
 	avgAppCPU, peakAppCPU = computeStats(appCPUSeries)
 	_, peakAppMem = computeStats(appRSSSeries)
 	_, peakAppGoroutines = computeStats(appGoroutinesSeries)
-	
+
 	avgRedisCPU, peakRedisCPU = computeStats(redisCPUSeries)
 	avgRedisMem, peakRedisMem = computeStats(redisMemSeries)
 	avgRedisOps, peakRedisOps = computeStats(redisOpsSeries)
-	
+
 	avgKafkaCPU, peakKafkaCPU = computeStats(kafkaCPUSeries)
 	avgKafkaMem, peakKafkaMem = computeStats(kafkaMemSeries)
 
@@ -755,10 +691,10 @@ func main() {
 	avgRedisP95, _ := computeStats(redisP95Series)
 	avgRedisP99, _ := computeStats(redisP99Series)
 
-	e2eP50, e2eP95, e2eP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_consumer_message_processing_duration_seconds", "")
-	fetchP50, fetchP95, fetchP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_stage_fetch_duration_seconds", "")
-	commitP50, commitP95, commitP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_consumer_commit_duration_seconds", "")
-	gcP50, gcP95, gcP99 := getHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "go_gc_duration_seconds", "")
+	e2eP50, e2eP95, e2eP99 := benchshared.GetHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_consumer_message_processing_duration_seconds", "")
+	fetchP50, fetchP95, fetchP99 := benchshared.GetHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_stage_fetch_duration_seconds", "")
+	commitP50, commitP95, commitP99 := benchshared.GetHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "telemetry_consumer_commit_duration_seconds", "")
+	gcP50, gcP95, gcP99 := benchshared.GetHistogramPercentiles(httpClient, scheme, apiHost, telemetryMetricsPort, "go_gc_duration_seconds", "")
 
 	// Lua Stats
 	var avgLuaLatency float64
@@ -782,12 +718,12 @@ func main() {
 		growthPercent = ((finalRSS - initialRSS) / initialRSS) * 100.0
 	}
 
-	isLeak, leakMsg := detectMemoryLeak(appRSSSeries)
+	isLeak, leakMsg := benchshared.DetectMemoryLeak(appRSSSeries)
 
 	// Success Verdict
 	msgsPerDevice := int64(durationSec * int(time.Second/(*freqFlag)))
 	expectedPublished := int64(*devicesFlag) * msgsPerDevice
-	
+
 	pass := true
 	var failReasons []string
 
@@ -896,7 +832,7 @@ func main() {
 	reportBuilder.WriteString("\n")
 
 	// Query post-test Redis stats for report
-	_, postRedisMem, _, _, _ = getRedisStats(rdb)
+	_, postRedisMem, _, _, _ = benchshared.GetRedisStats(rdb)
 
 	reportBuilder.WriteString("## Redis\n\n")
 	reportBuilder.WriteString(fmt.Sprintf("Average Ops/sec: %.2f\n", avgRedisOps))
@@ -936,7 +872,7 @@ func main() {
 	reportBuilder.WriteString(fmt.Sprintf("Artifact Duration: %.4f sec\n", postArtifactGenDuration))
 	reportBuilder.WriteString(fmt.Sprintf("Cleanup Duration: %.4f sec\n", stopDuration.Seconds()-postArtifactGenDuration))
 	// Fetch StopSession latency from Prometheus histogram
-	cumulativeStopDuration := getPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_stop_duration_seconds_sum")
+	cumulativeStopDuration := benchshared.GetPrometheusMetricValue(httpClient, scheme, apiHost, coreMetricsPort, "session_stop_duration_seconds_sum")
 
 	postStopDuration := cumulativeStopDuration - preStopDuration
 	if postStopDuration < 0 {
@@ -965,7 +901,7 @@ func main() {
 		if err == nil {
 			_, _ = f.WriteString("# ARGUS Capacity Load Test Benchmark Report\n\n")
 			_, _ = f.WriteString(reportStr)
-			
+
 			if len(checkpoints) > 0 {
 				_, _ = f.WriteString("\n## Checkpoints\n\n| Time | Published | Consumed | Processed | Lag | App CPU | App Memory | Redis P95 | Redis P99 |\n|---|---|---|---|---|---|---|---|---|\n")
 				for _, cp := range checkpoints {
@@ -977,118 +913,7 @@ func main() {
 		}
 	}
 
-	cleanupDB(db, cfg, kafkaAddr)
-}
-
-func getHistogramPercentiles(client *http.Client, scheme, apiHost, port, metricName, matchLabel string) (p50, p95, p99 float64) {
-	url := fmt.Sprintf("%s://%s:%s/metrics", scheme, apiHost, port)
-	resp, err := client.Get(url)
-	if err != nil {
-		return 0, 0, 0
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, 0, 0
-	}
-
-	type bucket struct {
-		le    float64
-		count float64
-	}
-	var buckets []bucket
-
-	lines := strings.Split(string(body), "\n")
-	for _, line := range lines {
-		if !strings.HasPrefix(line, metricName+"_bucket") {
-			continue
-		}
-		if matchLabel != "" && !strings.Contains(line, matchLabel) {
-			continue
-		}
-
-		// Example: metricName_bucket{...,le="0.0001"} 123
-		idxLE := strings.Index(line, "le=\"")
-		if idxLE == -1 {
-			continue
-		}
-		endLE := strings.Index(line[idxLE+4:], "\"")
-		if endLE == -1 {
-			continue
-		}
-		leStr := line[idxLE+4 : idxLE+4+endLE]
-		le, _ := strconv.ParseFloat(leStr, 64)
-
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		count, _ := strconv.ParseFloat(fields[1], 64)
-
-		buckets = append(buckets, bucket{le: le, count: count})
-	}
-
-	if len(buckets) == 0 {
-		return 0, 0, 0
-	}
-
-	// Sort buckets by LE
-	sort.Slice(buckets, func(i, j int) bool { return buckets[i].le < buckets[j].le })
-
-	totalCount := buckets[len(buckets)-1].count
-	if totalCount == 0 {
-		return 0, 0, 0
-	}
-
-	calc := func(percentile float64) float64 {
-		target := percentile * totalCount
-		for i, b := range buckets {
-			if b.count >= target {
-				if i == 0 {
-					return b.le * 1000.0 // ms
-				}
-				prev := buckets[i-1]
-				ratio := (target - prev.count) / (b.count - prev.count)
-				val := prev.le + (b.le-prev.le)*ratio
-				return val * 1000.0 // ms
-			}
-		}
-		return buckets[len(buckets)-1].le * 1000.0
-	}
-
-	return calc(0.50), calc(0.95), calc(0.99)
-}
-
-
-func doAuthPost(client *http.Client, url string, body io.Reader, authHeader string, workspaceID string) (*http.Response, error) {
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("X-Workspace-ID", workspaceID)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return client.Do(req)
-}
-
-func registerBenchmarkUser(client *http.Client, baseURL string) {
-	registerBody := bytes.NewBufferString(`{"email":"benchmark@argus.test","password":"Benchmark123!","name":"Benchmark User"}`)
-	req, _ := http.NewRequest("POST", baseURL+"/auth/register", registerBody)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Register attempt failed (may already exist): %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusCreated {
-		fmt.Println("Registered benchmark user.")
-	} else {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Register response (user may already exist): %s\n", string(body))
-	}
+	benchshared.CleanupDB(db, cfg, kafkaAddr)
 }
 
 func loginBenchmarkUser(client *http.Client, baseURL string) string {
@@ -1118,390 +943,9 @@ func loginBenchmarkUser(client *http.Client, baseURL string) string {
 	return ""
 }
 
-func getUserIDFromToken(accessToken string) string {
-	if accessToken == "" {
-		return ""
-	}
-	parts := strings.Split(accessToken, ".")
-	if len(parts) != 3 {
-		return ""
-	}
-	// Fix base64 padding
-	encoded := parts[1]
-	switch len(encoded) % 4 {
-	case 2:
-		encoded += "=="
-	case 3:
-		encoded += "="
-	}
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	var claims struct {
-		UserID string `json:"user_id"`
-		Sub    string `json:"sub"`
-	}
-	json.Unmarshal(decoded, &claims)
-	if claims.UserID != "" {
-		return claims.UserID
-	}
-	return claims.Sub
-}
-
-func cleanupDB(db *sql.DB, cfg *Config, kafkaAddr string) {
-	_, _ = db.Exec("DELETE FROM tenant_usage")
-	_, _ = db.Exec("DELETE FROM session_artifacts WHERE session_id IN (SELECT id FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001')")
-	_, _ = db.Exec("DELETE FROM session_statistics WHERE session_id IN (SELECT id FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001')")
-	_, _ = db.Exec("DELETE FROM workspace_sessions WHERE workspace_id = '00000000-0000-0000-0000-000000000001'")
-	_, _ = db.Exec("DELETE FROM devices WHERE workspace_id = '00000000-0000-0000-0000-000000000001'")
-	_, _ = db.Exec("DELETE FROM workspaces WHERE id = '00000000-0000-0000-0000-000000000001'")
-
-	fmt.Printf("Skipping consumer group deletion for native execution.\n")
-
-	// Ensure the telemetry.raw topic exists with 3 partitions
-	ensureTopicWithPartitions("telemetry.raw", 3, kafkaAddr)
-}
-
-func ensureTopicWithPartitions(topic string, partitions int, kafkaAddr string) {
-	client := &segmentio.Client{
-		Addr: segmentio.TCP(kafkaAddr),
-	}
-	
-	resp, err := client.CreateTopics(context.Background(), &segmentio.CreateTopicsRequest{
-		Topics: []segmentio.TopicConfig{
-			{
-				Topic:             topic,
-				NumPartitions:     partitions,
-				ReplicationFactor: 1,
-			},
-		},
-	})
-	
-	if err != nil {
-		fmt.Printf("Failed to create topic %s natively: %v\n", topic, err)
-		return
-	}
-	
-	for _, t := range resp.Errors {
-		if t != nil && t.Error() != "topic already exists" {
-			fmt.Printf("Warning: Kafka returned error for topic creation: %v\n", t)
-		}
-	}
-	fmt.Printf("Topic %s ensured with %d partitions.\n", topic, partitions)
-}
-
-func getAppMetrics(client *http.Client, scheme, apiHost, port string) (cpu float64, rss float64, goroutines float64, consumed float64, dropped float64, failures float64, duplicates float64, err error) {
-	url := fmt.Sprintf("%s://%s:%s/metrics", scheme, apiHost, port)
-	resp, err := client.Get(url)
-	if err != nil {
-		return 0, 0, 0, 0, 0, 0, 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, 0, 0, 0, 0, 0, 0, err
-	}
-
-	lines := strings.Split(string(body), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
-		}
-		name := parts[0]
-		if idx := strings.Index(name, "{"); idx != -1 {
-			name = name[:idx]
-		}
-		var val float64
-		_, scanErr := fmt.Sscanf(parts[1], "%f", &val)
-		if scanErr != nil {
-			continue
-		}
-
-		switch name {
-		case "process_cpu_seconds_total":
-			cpu = val
-		case "process_resident_memory_bytes":
-			rss = val
-		case "go_goroutines":
-			goroutines = val
-		case "telemetry_consumer_messages_total":
-			consumed = val
-		case "telemetry_consumer_dropped_messages_total":
-			dropped = val
-		case "telemetry_consumer_processing_failures_total":
-			failures = val
-		case "telemetry_consumer_duplicate_messages_total":
-			duplicates = val
-		}
-	}
-	return
-}
-
-func getPrometheusMetricValue(client *http.Client, scheme, apiHost, port string, metricName string) float64 {
-	url := fmt.Sprintf("%s://%s:%s/metrics", scheme, apiHost, port)
-	resp, err := client.Get(url)
-	if err != nil {
-		return 0
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0
-	}
-
-	lines := strings.Split(string(body), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
-		}
-		name := parts[0]
-		if idx := strings.Index(name, "{"); idx != -1 {
-			name = name[:idx]
-		}
-		if name == metricName {
-			var val float64
-			if _, err := fmt.Sscanf(parts[1], "%f", &val); err == nil {
-				return val
-			}
-		}
-	}
-	return 0
-}
-
-func getRedisStats(rdb *goredis.Client) (totalCommands int64, usedMemory int64, evalshaCalls int64, evalshaUsec int64, err error) {
-	ctx := context.Background()
-	stats, err := rdb.Info(ctx, "stats").Result()
-	if err == nil {
-		lines := strings.Split(stats, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "total_commands_processed:") {
-				parts := strings.Split(line, ":")
-				if len(parts) >= 2 {
-					if val, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64); err == nil {
-						totalCommands = val
-					}
-				}
-			}
-		}
-	}
-
-	memory, err := rdb.Info(ctx, "memory").Result()
-	if err == nil {
-		lines := strings.Split(memory, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "used_memory:") {
-				parts := strings.Split(line, ":")
-				if len(parts) >= 2 {
-					if val, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64); err == nil {
-						usedMemory = val
-					}
-				}
-			}
-		}
-	}
-
-	commandstats, err := rdb.Info(ctx, "commandstats").Result()
-	if err == nil {
-		lines := strings.Split(commandstats, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "cmdstat_evalsha:") {
-				parts := strings.Split(strings.TrimPrefix(line, "cmdstat_evalsha:"), ",")
-				for _, part := range parts {
-					subparts := strings.Split(part, "=")
-					if len(subparts) == 2 {
-						key := strings.TrimSpace(subparts[0])
-						val := strings.TrimSpace(subparts[1])
-						if key == "calls" {
-							if v, err := strconv.ParseInt(val, 10, 64); err == nil {
-								evalshaCalls = v
-							}
-						} else if key == "usec" {
-							if v, err := strconv.ParseInt(val, 10, 64); err == nil {
-								evalshaUsec = v
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return
-}
-
 func parseDockerStats(containerName string) (float64, float64, error) {
 	// Bypassed for native/container execution
 	return 0.0, 0.0, nil
-}
-
-func getKafkaConsumerLag(kafkaAddr string, groupName string, topicName string) (int64, int64, map[int32]int64, int64, error) {
-	client := &segmentio.Client{Addr: segmentio.TCP(kafkaAddr)}
-	
-	meta, err := client.Metadata(context.Background(), &segmentio.MetadataRequest{Topics: []string{topicName}})
-	if err != nil { return 0, 0, nil, 0, err }
-	
-	var partitions []int
-	for _, t := range meta.Topics {
-		if t.Name == topicName {
-			for _, p := range t.Partitions {
-				partitions = append(partitions, p.ID)
-			}
-		}
-	}
-
-	var reqReqs []segmentio.OffsetRequest
-	for _, p := range partitions {
-		reqReqs = append(reqReqs, segmentio.OffsetRequest{Partition: p, Timestamp: segmentio.LastOffset})
-	}
-	endOffsetsResp, err := client.ListOffsets(context.Background(), &segmentio.ListOffsetsRequest{
-		Topics: map[string][]segmentio.OffsetRequest{topicName: reqReqs},
-	})
-	if err != nil { return 0, 0, nil, 0, err }
-
-	endOffsets := make(map[int]int64)
-	for _, p := range endOffsetsResp.Topics[topicName] {
-		endOffsets[p.Partition] = p.LastOffset
-	}
-
-	groupOffsetsResp, err := client.OffsetFetch(context.Background(), &segmentio.OffsetFetchRequest{
-		GroupID: groupName,
-		Topics: map[string][]int{topicName: partitions},
-	})
-	if err != nil { return 0, 0, nil, 0, err }
-
-	var totalLag int64
-	var peakLag int64
-	partitionLag := make(map[int32]int64)
-	var members int64 = 1
-
-	for _, p := range groupOffsetsResp.Topics[topicName] {
-		endOff := endOffsets[p.Partition]
-		commitOff := p.CommittedOffset
-		if commitOff < 0 { commitOff = 0 }
-		lag := endOff - commitOff
-		if lag < 0 { lag = 0 }
-		partitionLag[int32(p.Partition)] = lag
-		totalLag += lag
-		if lag > peakLag { peakLag = lag }
-	}
-
-	if totalLag == 0 && len(partitionLag) > 0 {
-		var sum int64
-		for _, l := range partitionLag {
-			sum += l
-		}
-		totalLag = sum
-	}
-
-	return totalLag, peakLag, partitionLag, members, nil
-}
-
-func validateArtifact(httpClient *http.Client, baseURL string, sessionID string, expectedDevices int, durationSeconds int, authHeader, workspaceID string) (bool, string, error) {
-	url := fmt.Sprintf("%s/sessions/%s/artifact", baseURL, sessionID)
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("X-Workspace-ID", workspaceID)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to fetch artifact: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return false, "", fmt.Errorf("artifact status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var payload struct {
-		SessionID       string `json:"session_id"`
-		DeviceSummaries map[string]struct {
-			DeviceID    string `json:"device_id"`
-			SampleCount int    `json:"sample_count"`
-		} `json:"device_summaries"`
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to read artifact body: %w", err)
-	}
-
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return false, "", fmt.Errorf("failed to decode artifact JSON: %w", err)
-	}
-
-	minExpectedDevices := expectedDevices
-	if expectedDevices > 500 {
-		minExpectedDevices = int(float64(expectedDevices) * 0.95)
-	} else {
-		minExpectedDevices = int(float64(expectedDevices) * 0.98)
-	}
-	if len(payload.DeviceSummaries) < minExpectedDevices {
-		return false, string(body), fmt.Errorf("device count mismatch: got %d, expected at least %d", len(payload.DeviceSummaries), minExpectedDevices)
-	}
-
-	var lowSamplesCount int
-	var avgSampleCount float64
-	for devID, summary := range payload.DeviceSummaries {
-		avgSampleCount += float64(summary.SampleCount)
-		minExpected := int(float64(durationSeconds) * 0.90)
-		if summary.SampleCount < minExpected {
-			lowSamplesCount++
-			fmt.Printf("Device %s has low sample count: %d (expected >= %d)\n", devID, summary.SampleCount, minExpected)
-		}
-	}
-	avgSampleCount /= float64(expectedDevices)
-
-	if lowSamplesCount > expectedDevices/10 {
-		return false, string(body), fmt.Errorf("too many devices with low sample count: %d devices, average sample count: %.2f", lowSamplesCount, avgSampleCount)
-	}
-
-	return true, string(body), nil
-}
-
-func detectMemoryLeak(rssValues []float64) (bool, string) {
-	if len(rssValues) < 5 {
-		return false, "not enough samples to detect leak"
-	}
-	monotonic := true
-	for i := 1; i < len(rssValues); i++ {
-		if rssValues[i] <= rssValues[i-1] {
-			if (rssValues[i-1] - rssValues[i]) > 0.05*rssValues[i-1] {
-				monotonic = false
-				break
-			}
-		}
-	}
-
-	if !monotonic {
-		return false, "memory stabilized or fluctuated"
-	}
-
-	firstVal := rssValues[0]
-	lastVal := rssValues[len(rssValues)-1]
-	growthPercent := ((lastVal - firstVal) / firstVal) * 100.0
-
-	if growthPercent > 50.0 {
-		halfIdx := len(rssValues) / 2
-		growthFirstHalf := rssValues[halfIdx] - rssValues[0]
-		growthSecondHalf := rssValues[len(rssValues)-1] - rssValues[halfIdx]
-		if growthSecondHalf > 0.8*growthFirstHalf {
-			return true, fmt.Sprintf("continuous monotonic memory growth: %.2f%% growth overall, early growth: %.2f MB, late growth: %.2f MB", growthPercent, growthFirstHalf, growthSecondHalf)
-		}
-	}
-	return false, "memory growth stabilized"
 }
 
 var postRedisMem int64
