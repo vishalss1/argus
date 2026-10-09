@@ -80,93 +80,14 @@ func (s *Service) CreateFleet(ctx context.Context, input CreateFleetInput) (*Fle
 		return nil, fmt.Errorf("failed to create fleet record: %w", err)
 	}
 
-	var buf bytes.Buffer
-	zipWriter := zip.NewWriter(&buf)
-
-	for i := 1; i <= input.NodeCount; i++ {
-		nodeName := fmt.Sprintf("%s %d", prefix, i)
-
-		// Create device
-		dev, err := s.deviceService.Create(ctx, device.CreateInput{
-			Name:            nodeName,
-			Type:            f.HardwareType,
-			FirmwareVersion: f.FirmwareVersion,
-			Status:          "offline",
-			Metadata:        json.RawMessage(`{}`),
-		})
-		if err != nil {
-			// Fail the whole request on node creation error to preserve transactional integrity
-			return nil, fmt.Errorf("failed to create node %d: %w", i, err)
-		}
-
-		// Link device to fleet - doing it by updating it directly
-		// (Wait, doing Update involves repo.Update. A helper CreateWithFleet is better, but this works for now)
-		_, err = s.deviceService.Update(ctx, dev.ID, device.UpdateInput{
-			FleetID: &createdFleet.ID,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to link node %d to fleet: %w", i, err)
-		}
-
-		// Issue cert
-		cert, err := s.ca.IssueDeviceCertificate(dev.ID, *wID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to issue cert for node %d: %w", i, err)
-		}
-
-		apiKey := ""
-		if dev.RawAPIKey != nil {
-			apiKey = *dev.RawAPIKey
-		}
-
-		// Generate firmware
-		fwBytes, err := s.fwGen.GenerateProvision(firmware.GenerateOptions{
-			DeviceID:        dev.ID,
-			WorkspaceID:     *wID,
-			APIKey:          apiKey,
-			FirmwareVersion: f.FirmwareVersion,
-			CertPEM:         cert.CertPEM,
-			PrivKeyPEM:      cert.PrivateKeyPEM,
-			WiFiSSID:        input.WiFiSSID,
-			WiFiPassword:    input.WiFiPassword,
-			UserCode:        input.FirmwareTemplate,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate firmware for node %d: %w", i, err)
-		}
-
-		// Add to zip
-		baseName := fmt.Sprintf("config_%s", dev.ID)
-		fileName := fmt.Sprintf("%s/%s.ino", baseName, baseName)
-		fWriter, err := zipWriter.Create(fileName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create zip entry for node %d: %w", i, err)
-		}
-		if _, err := fWriter.Write(fwBytes); err != nil {
-			return nil, fmt.Errorf("failed to write firmware for node %d to zip: %w", i, err)
-		}
-	}
-
-	fleetFWBytes, err := s.fwGen.GenerateFleetFirmware(input.FirmwareTemplate)
+	zipData, err := s.provisionNodes(ctx, createdFleet, *wID, 1, input.NodeCount, prefix, input.WiFiSSID, input.WiFiPassword)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate fleet firmware: %w", err)
-	}
-	fleetFWBase := fmt.Sprintf("fleet_firmware_%s", createdFleet.ID)
-	fleetFWWriter, err := zipWriter.Create(fmt.Sprintf("%s/%s.ino", fleetFWBase, fleetFWBase))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zip entry for fleet firmware: %w", err)
-	}
-	if _, err := fleetFWWriter.Write(fleetFWBytes); err != nil {
-		return nil, fmt.Errorf("failed to write fleet firmware to zip: %w", err)
-	}
-
-	if err := zipWriter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to finalize zip: %w", err)
+		return nil, err
 	}
 
 	return &FleetProvisionResult{
 		Fleet:   *createdFleet,
-		ZipData: buf.Bytes(),
+		ZipData: zipData,
 	}, nil
 }
 
@@ -206,16 +127,31 @@ func (s *Service) AddDevicesToFleet(ctx context.Context, input AddDevicesInput) 
 		wID = &fleetObj.WorkspaceID
 	}
 
+	zipData, err := s.provisionNodes(ctx, fleetObj, *wID, startIndex, input.NodeCount, prefix, input.WiFiSSID, input.WiFiPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FleetProvisionResult{
+		Fleet:   *fleetObj,
+		ZipData: zipData,
+	}, nil
+}
+
+// provisionNodes creates count devices numbered from startIndex, links them to
+// the fleet, issues certificates, and returns a zip of per-device provisioning
+// sketches plus the fleet firmware sketch.
+func (s *Service) provisionNodes(ctx context.Context, f *Fleet, wID string, startIndex, count int, prefix, wifiSSID, wifiPassword string) ([]byte, error) {
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
 
-	for i := startIndex; i < startIndex+input.NodeCount; i++ {
+	for i := startIndex; i < startIndex+count; i++ {
 		nodeName := fmt.Sprintf("%s %d", prefix, i)
 
 		dev, err := s.deviceService.Create(ctx, device.CreateInput{
 			Name:            nodeName,
-			Type:            fleetObj.HardwareType,
-			FirmwareVersion: fleetObj.FirmwareVersion,
+			Type:            f.HardwareType,
+			FirmwareVersion: f.FirmwareVersion,
 			Status:          "offline",
 			Metadata:        json.RawMessage(`{}`),
 		})
@@ -224,13 +160,13 @@ func (s *Service) AddDevicesToFleet(ctx context.Context, input AddDevicesInput) 
 		}
 
 		_, err = s.deviceService.Update(ctx, dev.ID, device.UpdateInput{
-			FleetID: &fleetObj.ID,
+			FleetID: &f.ID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to link node %d to fleet: %w", i, err)
 		}
 
-		cert, err := s.ca.IssueDeviceCertificate(dev.ID, *wID)
+		cert, err := s.ca.IssueDeviceCertificate(dev.ID, wID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to issue cert for node %d: %w", i, err)
 		}
@@ -242,22 +178,21 @@ func (s *Service) AddDevicesToFleet(ctx context.Context, input AddDevicesInput) 
 
 		fwBytes, err := s.fwGen.GenerateProvision(firmware.GenerateOptions{
 			DeviceID:        dev.ID,
-			WorkspaceID:     *wID,
+			WorkspaceID:     wID,
 			APIKey:          apiKey,
-			FirmwareVersion: fleetObj.FirmwareVersion,
+			FirmwareVersion: f.FirmwareVersion,
 			CertPEM:         cert.CertPEM,
 			PrivKeyPEM:      cert.PrivateKeyPEM,
-			WiFiSSID:        input.WiFiSSID,
-			WiFiPassword:    input.WiFiPassword,
-			UserCode:        fleetObj.FirmwareTemplate,
+			WiFiSSID:        wifiSSID,
+			WiFiPassword:    wifiPassword,
+			UserCode:        f.FirmwareTemplate,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate firmware for node %d: %w", i, err)
 		}
 
 		baseName := fmt.Sprintf("config_%s", dev.ID)
-		fileName := fmt.Sprintf("%s/%s.ino", baseName, baseName)
-		fWriter, err := zipWriter.Create(fileName)
+		fWriter, err := zipWriter.Create(fmt.Sprintf("%s/%s.ino", baseName, baseName))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create zip entry for node %d: %w", i, err)
 		}
@@ -266,11 +201,11 @@ func (s *Service) AddDevicesToFleet(ctx context.Context, input AddDevicesInput) 
 		}
 	}
 
-	fleetFWBytes, err := s.fwGen.GenerateFleetFirmware(fleetObj.FirmwareTemplate)
+	fleetFWBytes, err := s.fwGen.GenerateFleetFirmware(f.FirmwareTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate fleet firmware: %w", err)
 	}
-	fleetFWBase := fmt.Sprintf("fleet_firmware_%s", fleetObj.ID)
+	fleetFWBase := fmt.Sprintf("fleet_firmware_%s", f.ID)
 	fleetFWWriter, err := zipWriter.Create(fmt.Sprintf("%s/%s.ino", fleetFWBase, fleetFWBase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zip entry for fleet firmware: %w", err)
@@ -283,11 +218,9 @@ func (s *Service) AddDevicesToFleet(ctx context.Context, input AddDevicesInput) 
 		return nil, fmt.Errorf("failed to finalize zip: %w", err)
 	}
 
-	return &FleetProvisionResult{
-		Fleet:   *fleetObj,
-		ZipData: buf.Bytes(),
-	}, nil
+	return buf.Bytes(), nil
 }
+
 
 func (s *Service) List(ctx context.Context) ([]FleetWithStats, error) {
 	return s.repo.List(ctx)
