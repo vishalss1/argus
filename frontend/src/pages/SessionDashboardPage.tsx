@@ -1,11 +1,12 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { Activity, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
-import { useSessionStatistics, useStopSession } from "../hooks/useArgusData";
+import { useSession, useSessionStatistics, useStopSession } from "../hooks/useArgusData";
 import { PageHeader, Panel, StatCard } from "../components/ui";
 
-// Statistics are only computed and persisted once a session stops
-// (session.Manager.StopSession -> UpsertStatistics), so a live session has no
-// row to read. Show that plainly rather than inventing 100% uptime and zeros.
+// While a session runs the backend persists only partial statistics
+// (alerts, critical events, ...). Uptime and telemetry totals are computed when
+// the session stops (session.Manager.StopSession), so show a dash for those
+// rather than a misleading 0.
 const pendingLabel = "—";
 
 export function SessionDashboardPage() {
@@ -13,6 +14,8 @@ export function SessionDashboardPage() {
   const navigate = useNavigate();
   const stopSession = useStopSession();
   const { data: stats, isLoading: statsLoading, error: statsErr } = useSessionStatistics(sessionID ?? "");
+  const { data: session } = useSession(sessionID ?? "");
+  const isRunning = session?.status === "RUNNING";
 
   const handleStop = async (success: boolean) => {
     if (!sessionID) return;
@@ -42,13 +45,13 @@ export function SessionDashboardPage() {
       <div className="stat-grid four">
         <StatCard
           label="Uptime"
-          value={stats ? `${stats.uptime_percentage.toFixed(2)}%` : pendingLabel}
+          value={stats && !isRunning ? `${stats.uptime_percentage.toFixed(2)}%` : pendingLabel}
           detail="Session health"
-          tone={stats ? (stats.uptime_percentage < 95 ? "danger" : "success") : "neutral"}
+          tone={stats && !isRunning ? (stats.uptime_percentage < 95 ? "danger" : "success") : "neutral"}
         />
         <StatCard
           label="Events"
-          value={stats ? stats.messages_processed.toLocaleString() : pendingLabel}
+          value={stats && !isRunning ? stats.messages_processed.toLocaleString() : pendingLabel}
           detail="Telemetry processed"
         />
         <StatCard
@@ -65,11 +68,11 @@ export function SessionDashboardPage() {
         />
       </div>
 
-      {!stats && !statsLoading && (
+      {(isRunning || (!stats && !statsLoading)) && (
         <p className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
           {statsErr
             ? "Session statistics are unavailable right now."
-            : "Session statistics are computed when the session stops. Until then no uptime, event or alert totals are reported."}
+            : "Alert and critical-event counts update about every 30 seconds. Uptime and event totals are computed when the session stops."}
         </p>
       )}
 
