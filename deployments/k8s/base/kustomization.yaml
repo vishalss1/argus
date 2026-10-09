@@ -50,7 +50,7 @@ configMapGenerator:
       - OTA_SIGNING_KEY_ID=argus-prod-v1
       - HEARTBEAT_INTERVAL_SECONDS=30
       - HEARTBEAT_TIMEOUT_SECONDS=45
-      - ALERT_COOLDOWN_SECONDS=900
+      - ALERT_COOLDOWN_SECONDS=300
       - SESSION_STALE_TIMEOUT_HOURS=24
   - name: telemetry-service-config
     literals:

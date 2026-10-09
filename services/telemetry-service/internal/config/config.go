@@ -151,7 +151,7 @@ func Load() *Config {
 			cfg.AlertCooldownSeconds = parsed
 		}
 	} else {
-		cfg.AlertCooldownSeconds = 900 // 15 minutes default
+		cfg.AlertCooldownSeconds = 300 // 5 minutes default
 	}
 
 	staleStr := os.Getenv("SESSION_STALE_TIMEOUT_HOURS")

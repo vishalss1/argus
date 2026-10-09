@@ -287,7 +287,7 @@ func Bootstrap() (*Server, error) {
 		server.wg.Add(1)
 		go func() {
 			defer server.wg.Done()
-			startTelemetryLiveConsumer(appCtx, cfg, redisTelemetryRepo, redisClient, kafkaProducer)
+			startTelemetryLiveConsumer(appCtx, cfg, redisTelemetryRepo, redisClient, kafkaProducer, ruledomain.NewEvaluator(ruleRepo, alertAllowed(redisClient)))
 		}()
 	}
 
@@ -499,7 +499,26 @@ const (
 	telemetryLiveWorkers         = 32
 )
 
-func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemetryRepo *redisinfra.TelemetryRepository, redisClient *redisinfra.Client, kafkaProducer *kafka.Producer) {
+// alertPendingTTL bounds how long a published-but-not-yet-persisted alert blocks
+// duplicates for the same rule+device, until the alert consumer sets the real cooldown.
+const alertPendingTTL = 10 * time.Second
+
+// alertAllowed returns the evaluator's cooldown check. An alert is allowed only if
+// no persisted cooldown exists and no alert for this rule+device is already in flight.
+// Redis errors fail open so a Redis blip does not silence alerts.
+func alertAllowed(redisClient *redisinfra.Client) ruledomain.CooldownChecker {
+	return func(ctx context.Context, ruleID, deviceID string) bool {
+		rdb := redisClient.Client()
+		exists, err := rdb.Exists(ctx, fmt.Sprintf("alert:cooldown:%s:%s", ruleID, deviceID)).Result()
+		if err == nil && exists > 0 {
+			return false
+		}
+		claimed, err := rdb.SetNX(ctx, fmt.Sprintf("alert:pending:%s:%s", ruleID, deviceID), "1", alertPendingTTL).Result()
+		return err != nil || claimed
+	}
+}
+
+func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemetryRepo *redisinfra.TelemetryRepository, redisClient *redisinfra.Client, kafkaProducer *kafka.Producer, ruleEvaluator *ruledomain.Evaluator) {
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
 		Topic:   cfg.KafkaTelemetryTopic,
@@ -720,6 +739,18 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 					if err == nil && cachedWS != "" {
 						workspaceID = cachedWS
 						setLocalCache(wsKey, workspaceID, telemetryLiveWorkspaceTTL)
+					}
+				}
+
+				if workspaceID != "" && ruleEvaluator != nil && kafkaProducer != nil {
+					alerts, err := ruleEvaluator.Evaluate(workerCtx, workspaceID, t.DeviceID, t.ID, t.Metrics)
+					if err != nil {
+						log.Printf("[LIVE CONSUMER] rule evaluation failed device=%s: %v", t.DeviceID, err)
+					}
+					for _, alert := range alerts {
+						if err := kafkaProducer.PublishAlert(workerCtx, alert); err != nil {
+							log.Printf("[LIVE CONSUMER] failed to publish alert rule=%s device=%s: %v", alert.RuleID, alert.DeviceID, err)
+						}
 					}
 				}
 
