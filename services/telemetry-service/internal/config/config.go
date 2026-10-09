@@ -45,6 +45,7 @@ type Config struct {
 	WorkerProfiles       string
 	AlertCooldownSeconds int
 	SessionStaleTimeoutHours int
+	KafkaAlertTopic      string
 	KafkaDLQTopic        string
 	KafkaIncidentTopic   string
 	EmbeddingQueueSize   int
@@ -82,6 +83,7 @@ func Load() *Config {
 		KafkaBrokers:         splitCSV(os.Getenv("KAFKA_BROKERS")),
 		KafkaTelemetryTopic:  os.Getenv("KAFKA_TELEMETRY_TOPIC"),
 		KafkaCommandTopic:    os.Getenv("KAFKA_COMMAND_TOPIC"),
+		KafkaAlertTopic:      os.Getenv("KAFKA_ALERT_TOPIC"),
 		KafkaDLQTopic:        os.Getenv("KAFKA_DLQ_TOPIC"),
 		KafkaIncidentTopic:   os.Getenv("KAFKA_INCIDENT_TOPIC"),
 		RedisAddr:            os.Getenv("REDIS_ADDR"),
@@ -123,6 +125,9 @@ func Load() *Config {
 	}
 	if cfg.KafkaCommandTopic == "" {
 		cfg.KafkaCommandTopic = "argus.commands"
+	}
+	if cfg.KafkaAlertTopic == "" {
+		cfg.KafkaAlertTopic = "alerts.generated"
 	}
 	if cfg.KafkaDLQTopic == "" {
 		cfg.KafkaDLQTopic = "argus.dlq"

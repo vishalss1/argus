@@ -152,6 +152,7 @@ func Bootstrap() (*Server, error) {
 			Brokers:        cfg.KafkaBrokers,
 			TelemetryTopic: cfg.KafkaTelemetryTopic,
 			CommandTopic:   cfg.KafkaCommandTopic,
+			AlertTopic:     cfg.KafkaAlertTopic,
 			DLQTopic:       cfg.KafkaDLQTopic,
 			IncidentTopic:  cfg.KafkaIncidentTopic,
 		})
@@ -774,12 +775,12 @@ func startTelemetryLiveConsumer(ctx context.Context, cfg *config.Config, telemet
 func startAlertConsumer(ctx context.Context, cfg *config.Config, ruleRepo *postgres.RuleRepository, redisClient *redisinfra.Client, kafkaProducer *kafka.Producer, deviceRepo devicedomain.Repository) {
 	consumer := kafka.NewConsumer(kafka.ConsumerConfig{
 		Brokers: cfg.KafkaBrokers,
-		Topic:   "alerts.generated",
+		Topic:   cfg.KafkaAlertTopic,
 		GroupID: "argus-alert-consumer-internal",
 	})
 	defer consumer.Close()
 
-	log.Printf("[ALERT CONSUMER] started, consuming topic: alerts.generated")
+	log.Printf("[ALERT CONSUMER] started, consuming topic: %s", cfg.KafkaAlertTopic)
 
 		batchSize := 100
 	flushInterval := 500 * time.Millisecond
