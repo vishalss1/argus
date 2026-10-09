@@ -161,7 +161,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       closed = true;
       if (initialTimer !== undefined) window.clearTimeout(initialTimer);
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
-      if (socket?.readyState === WebSocket.OPEN) {
+      if (socket && socket.readyState !== WebSocket.CLOSING && socket.readyState !== WebSocket.CLOSED) {
         socket.close();
       }
     };
