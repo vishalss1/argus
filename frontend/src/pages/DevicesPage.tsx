@@ -1,8 +1,9 @@
 import { FormEvent, useMemo, useState, Fragment } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Trash2, ChevronDown, ChevronRight, Server, Download } from "lucide-react";
 import { api } from "../services/api";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Panel, StatusChip, Modal } from "../components/ui";
-import { useFleets, useCreateFleet, useWorkspaceLatestTelemetry } from "../hooks/useArgusData";
+import { queryKeys, useFleets, useCreateFleet, useWorkspaceLatestTelemetry } from "../hooks/useArgusData";
 import { useWorkspaceContext } from "../context/WorkspaceContext";
 import { compactID, formatDate, safeJsonParse } from "../lib/format";
 
@@ -16,6 +17,7 @@ function rssiForDevice(latest: Record<string, { metrics?: unknown }> | undefined
 export function DevicesPage() {
   const { workspaceDevices, selectedWorkspaceId } = useWorkspaceContext();
   const fleets = useFleets();
+  const queryClient = useQueryClient();
   const create = useCreateFleet();
   const latestTelemetry = useWorkspaceLatestTelemetry(selectedWorkspaceId);
   const [query, setQuery] = useState("");
@@ -127,8 +129,10 @@ export function DevicesPage() {
     if (window.confirm("Are you sure you want to delete this device?")) {
       try {
         await api.devices.remove(id);
-        // Force reload to update context
-        window.location.reload();
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.devices }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.fleets })
+        ]);
       } catch (err) {
         console.error("Failed to delete device", err);
         alert("Failed to delete device: " + (err as Error).message);
