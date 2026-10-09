@@ -917,8 +917,9 @@ func main() {
 }
 
 func loginBenchmarkUser(client *http.Client, baseURL string) string {
-	loginBody := bytes.NewBufferString(`{"email":"benchmark@argus.test","password":"Benchmark123!"}`)
 	for attempt := 0; attempt < 10; attempt++ {
+		// A fresh reader per attempt: the previous one is drained after the first request.
+		loginBody := bytes.NewBufferString(`{"email":"benchmark@argus.test","password":"Benchmark123!"}`)
 		req, _ := http.NewRequest("POST", baseURL+"/auth/login", loginBody)
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
