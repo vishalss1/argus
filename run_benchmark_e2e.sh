@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd "$(dirname "$0")" || exit 1
+
 # Default arguments
 DEVICES=100
 FREQ="1s"
@@ -55,14 +57,13 @@ if [ "$TELEMETRY_READY" = false ]; then
 fi
 
 echo "Building API server and benchmark client..."
-cd /d/argus 2>/dev/null || cd d:/argus 2>/dev/null || cd /mnt/d/argus 2>/dev/null || cd D:/argus
 go build -o api_server.exe ./services/core-service/cmd/api/main.go > /dev/null 2>&1
 go build -o benchmark-e2e.exe ./cmd/benchmark-e2e/main.go > /dev/null 2>&1
 
 echo "Cleaning up previous API server..."
 killall api_server.exe 2>/dev/null || pkill -f api_server.exe 2>/dev/null || true
-echo "Stopping argus-api docker container to free port 8080..."
-docker stop argus-api > /dev/null 2>&1
+echo "Stopping argus-core-service docker container to free port 8080..."
+docker stop argus-core-service > /dev/null 2>&1
 sleep 15
 
 echo "Resetting consumer group offsets..."
@@ -75,6 +76,7 @@ for i in {1..3}; do
 done
 
 echo "Starting API server..."
+set -a; source .env; set +a
 export TELEMETRY_SERVICE_GRPC_ADDR=localhost:50052
 ./api_server.exe &
 API_PID=$!
@@ -94,6 +96,6 @@ echo "API server running. Starting benchmark..."
 echo "Stopping API server..."
 kill $API_PID 2>/dev/null
 
-echo "Restarting argus-api docker container..."
-docker start argus-api > /dev/null 2>&1
+echo "Restarting argus-core-service docker container..."
+docker start argus-core-service > /dev/null 2>&1
 echo "Done"
