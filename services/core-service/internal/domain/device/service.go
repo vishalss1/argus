@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vishalss1/argus/shared/common"
 )
 
@@ -66,7 +67,7 @@ func generateDeviceAPIKey() (string, []byte, *string, error) {
 	hexStr := hex.EncodeToString(bytes)
 	rawKey := "argus_" + hexStr
 	prefix := rawKey[:8]
-	
+
 	hash := sha256.Sum256([]byte(rawKey))
 	return rawKey, hash[:], &prefix, nil
 }
@@ -349,16 +350,7 @@ func deviceTopic(pattern string, deviceID string) string {
 }
 
 func newDeviceID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("generate device id: %w", err)
-	}
-
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-
-	encoded := hex.EncodeToString(b[:])
-	return fmt.Sprintf("%s-%s-%s-%s-%s", encoded[0:8], encoded[8:12], encoded[12:16], encoded[16:20], encoded[20:32]), nil
+	return uuid.New().String(), nil
 }
 
 func (s *Service) RegenerateAPIKey(ctx context.Context, id string) (*Device, error) {
@@ -390,4 +382,3 @@ func (s *Service) RegenerateAPIKey(ctx context.Context, id string) (*Device, err
 
 	return updated, nil
 }
-
